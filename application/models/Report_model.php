@@ -1,0 +1,478 @@
+<?php
+defined('BASEPATH') OR exit('No direct script access allowed');
+
+/**
+ * Report_model - Reports & Analytics
+ */
+class Report_model extends MY_Model {
+    
+    protected $table = 'members';
+    
+    /**
+     * Get Dashboard Statistics
+     */
+    public function get_dashboard_stats() {
+        $stats = [];
+        
+        // Member Stats
+        $stats['total_members'] = $this->db->where('status', 'active')
+                                           ->count_all_results('members');
+        
+        $stats['new_members_month'] = $this->db->where('status', 'active')
+                                                ->where('MONTH(created_at)', date('m'))
+                                                ->where('YEAR(created_at)', date('Y'))
+                                                ->count_all_results('members');
+        
+        // Savings Stats
+        $stats['total_savings'] = $this->db->select_sum('current_balance')
+                                           ->where('status', 'active')
+                                           ->get('savings_accounts')
+                                           ->row()
+                                           ->current_balance ?? 0;
+        
+        $stats['savings_this_month'] = $this->db->select_sum('amount')
+                                                 ->where('transaction_type', 'deposit')
+                                                 ->where('MONTH(created_at)', date('m'))
+                                                 ->where('YEAR(created_at)', date('Y'))
+                                                 ->get('savings_transactions')
+                                                 ->row()
+                                                 ->amount ?? 0;
+        
+        // Loan Stats
+        $stats['total_outstanding'] = $this->db->select_sum('outstanding_principal')
+                                               ->where('status', 'active')
+                                               ->get('loans')
+                                               ->row()
+                                               ->outstanding_principal ?? 0;
+        
+        $stats['active_loans'] = $this->db->where('status', 'active')
+                                          ->count_all_results('loans');
+        
+        $stats['disbursed_this_month'] = $this->db->select_sum('principal_amount')
+                                                   ->where('MONTH(disbursement_date)', date('m'))
+                                                   ->where('YEAR(disbursement_date)', date('Y'))
+                                                   ->get('loans')
+                                                   ->row()
+                                                   ->principal_amount ?? 0;
+        
+        $stats['collected_this_month'] = $this->db->select_sum('total_amount')
+                                                   ->where('MONTH(payment_date)', date('m'))
+                                                   ->where('YEAR(payment_date)', date('Y'))
+                                                   ->where('is_reversed', 0)
+                                                   ->get('loan_payments')
+                                                   ->row()
+                                                   ->total_amount ?? 0;
+        
+        // Overdue Stats
+        $stats['overdue_amount'] = $this->db->select('SUM(li.emi_amount - li.total_paid) as overdue')
+                                            ->from('loan_installments li')
+                                            ->join('loans l', 'l.id = li.loan_id')
+                                            ->where('l.status', 'active')
+                                            ->where('li.status', 'pending')
+                                            ->where('li.due_date <', date('Y-m-d'))
+                                            ->get()
+                                            ->row()
+                                            ->overdue ?? 0;
+        
+        $stats['overdue_members'] = $this->db->select('COUNT(DISTINCT l.member_id) as count')
+                                              ->from('loan_installments li')
+                                              ->join('loans l', 'l.id = li.loan_id')
+                                              ->where('l.status', 'active')
+                                              ->where('li.status', 'pending')
+                                              ->where('li.due_date <', date('Y-m-d'))
+                                              ->get()
+                                              ->row()
+                                              ->count ?? 0;
+        
+        // Pending Applications
+        $stats['pending_applications'] = $this->db->where_in('status', ['pending', 'under_review', 'guarantor_pending'])
+                                                   ->count_all_results('loan_applications');
+        
+        // Fine Stats
+        $stats['pending_fines'] = $this->db->select_sum('balance_amount')
+                                           ->where_in('status', ['pending', 'partial'])
+                                           ->get('fines')
+                                           ->row()
+                                           ->balance_amount ?? 0;
+        
+        return $stats;
+    }
+    
+    /**
+     * Get Collection Report
+     */
+    public function get_collection_report($from_date, $to_date, $type = 'all') {
+        $report = [
+            'summary' => [],
+            'details' => [],
+            'by_date' => []
+        ];
+        
+        // Loan Collections
+        if ($type === 'all' || $type === 'loan') {
+            $report['summary']['loan'] = $this->db->select('
+                COUNT(*) as count,
+                SUM(principal_component) as principal,
+                SUM(interest_component) as interest,
+                SUM(fine_component) as fine,
+                SUM(total_amount) as total
+            ')
+            ->where('payment_date >=', $from_date)
+            ->where('payment_date <=', $to_date)
+            ->where('is_reversed', 0)
+            ->get('loan_payments')
+            ->row();
+            
+            $report['details']['loan'] = $this->db->select('
+                lp.*, l.loan_number, m.member_code, m.first_name, m.last_name
+            ')
+            ->from('loan_payments lp')
+            ->join('loans l', 'l.id = lp.loan_id')
+            ->join('members m', 'm.id = l.member_id')
+            ->where('lp.payment_date >=', $from_date)
+            ->where('lp.payment_date <=', $to_date)
+            ->where('lp.is_reversed', 0)
+            ->order_by('lp.payment_date', 'ASC')
+            ->get()
+            ->result();
+        }
+        
+        // Savings Collections
+        if ($type === 'all' || $type === 'savings') {
+            $report['summary']['savings'] = $this->db->select('
+                COUNT(*) as count,
+                SUM(amount) as total
+            ')
+            ->from('savings_transactions')
+            ->where('transaction_type', 'deposit')
+            ->where('DATE(created_at) >=', $from_date)
+            ->where('DATE(created_at) <=', $to_date)
+            ->get()
+            ->row();
+            
+            $report['details']['savings'] = $this->db->select('
+                st.*, sa.account_number, m.member_code, m.first_name, m.last_name
+            ')
+            ->from('savings_transactions st')
+            ->join('savings_accounts sa', 'sa.id = st.savings_account_id')
+            ->join('members m', 'm.id = sa.member_id')
+            ->where('st.transaction_type', 'deposit')
+            ->where('DATE(st.created_at) >=', $from_date)
+            ->where('DATE(st.created_at) <=', $to_date)
+            ->order_by('st.created_at', 'ASC')
+            ->get()
+            ->result();
+        }
+        
+        return $report;
+    }
+    
+    /**
+     * Get Disbursement Report
+     */
+    public function get_disbursement_report($from_date, $to_date) {
+        $report = [];
+        
+        $report['summary'] = $this->db->select('
+            COUNT(*) as count,
+            SUM(principal_amount) as total_disbursed,
+            SUM(processing_fee) as total_fees
+        ')
+        ->where('disbursement_date >=', $from_date)
+        ->where('disbursement_date <=', $to_date)
+        ->get('loans')
+        ->row();
+        
+        $report['by_product'] = $this->db->select('
+            lp.product_name,
+            COUNT(*) as count,
+            SUM(l.principal_amount) as total_disbursed
+        ')
+        ->from('loans l')
+        ->join('loan_products lp', 'lp.id = l.loan_product_id')
+        ->where('l.disbursement_date >=', $from_date)
+        ->where('l.disbursement_date <=', $to_date)
+        ->group_by('l.loan_product_id')
+        ->get()
+        ->result();
+        
+        $report['details'] = $this->db->select('
+            l.*, lp.product_name, m.member_code, m.first_name, m.last_name
+        ')
+        ->from('loans l')
+        ->join('loan_products lp', 'lp.id = l.loan_product_id')
+        ->join('members m', 'm.id = l.member_id')
+        ->where('l.disbursement_date >=', $from_date)
+        ->where('l.disbursement_date <=', $to_date)
+        ->order_by('l.disbursement_date', 'ASC')
+        ->get()
+        ->result();
+        
+        return $report;
+    }
+    
+    /**
+     * Get Outstanding Report
+     */
+    public function get_outstanding_report() {
+        return $this->db->select('
+            l.*, lp.product_name, 
+            m.member_code, m.first_name, m.last_name, m.phone,
+            (SELECT COUNT(*) FROM loan_installments WHERE loan_id = l.id AND status = "pending" AND due_date < CURDATE()) as overdue_count,
+            (SELECT SUM(emi_amount - total_paid) FROM loan_installments WHERE loan_id = l.id AND status = "pending" AND due_date < CURDATE()) as overdue_amount
+        ')
+        ->from('loans l')
+        ->join('loan_products lp', 'lp.id = l.loan_product_id')
+        ->join('members m', 'm.id = l.member_id')
+        ->where('l.status', 'active')
+        ->order_by('l.outstanding_principal', 'DESC')
+        ->get()
+        ->result();
+    }
+    
+    /**
+     * Get NPA Report (Non-Performing Assets)
+     */
+    public function get_npa_report($days_threshold = 90) {
+        return $this->db->select('
+            l.*, lp.product_name, 
+            m.member_code, m.first_name, m.last_name, m.phone,
+            MIN(li.due_date) as first_overdue_date,
+            DATEDIFF(CURDATE(), MIN(li.due_date)) as days_overdue,
+            SUM(li.emi_amount - li.total_paid) as total_overdue
+        ')
+        ->from('loans l')
+        ->join('loan_products lp', 'lp.id = l.loan_product_id')
+        ->join('members m', 'm.id = l.member_id')
+        ->join('loan_installments li', 'li.loan_id = l.id')
+        ->where('l.status', 'active')
+        ->where('li.status', 'pending')
+        ->where('li.due_date <', date('Y-m-d', strtotime('-' . $days_threshold . ' days')))
+        ->group_by('l.id')
+        ->order_by('days_overdue', 'DESC')
+        ->get()
+        ->result();
+    }
+    
+    /**
+     * Get Member Statement
+     */
+    public function get_member_statement($member_id, $from_date = null, $to_date = null) {
+        $member = $this->db->where('id', $member_id)->get('members')->row();
+        
+        if (!$member) return null;
+        
+        $statement = [
+            'member' => $member,
+            'savings' => [],
+            'loans' => [],
+            'fines' => [],
+            'ledger' => []
+        ];
+        
+        // Savings transactions
+        $this->db->select('st.*, sa.account_number');
+        $this->db->from('savings_transactions st');
+        $this->db->join('savings_accounts sa', 'sa.id = st.savings_account_id');
+        $this->db->where('sa.member_id', $member_id);
+        
+        if ($from_date) $this->db->where('DATE(st.created_at) >=', $from_date);
+        if ($to_date) $this->db->where('DATE(st.created_at) <=', $to_date);
+        
+        $statement['savings'] = $this->db->order_by('st.created_at', 'ASC')->get()->result();
+        
+        // Loan payments
+        $this->db->select('lp.*, l.loan_number');
+        $this->db->from('loan_payments lp');
+        $this->db->join('loans l', 'l.id = lp.loan_id');
+        $this->db->where('l.member_id', $member_id);
+        
+        if ($from_date) $this->db->where('lp.payment_date >=', $from_date);
+        if ($to_date) $this->db->where('lp.payment_date <=', $to_date);
+        
+        $statement['loans'] = $this->db->order_by('lp.payment_date', 'ASC')->get()->result();
+        
+        // Fines
+        $this->db->where('member_id', $member_id);
+        if ($from_date) $this->db->where('fine_date >=', $from_date);
+        if ($to_date) $this->db->where('fine_date <=', $to_date);
+        
+        $statement['fines'] = $this->db->order_by('fine_date', 'ASC')->get('fines')->result();
+        
+        // Ledger
+        $this->load->model('Ledger_model');
+        $statement['ledger'] = $this->Ledger_model->get_member_ledger($member_id, $from_date, $to_date);
+        
+        return $statement;
+    }
+    
+    /**
+     * Get Demand Report (Upcoming Dues)
+     */
+    public function get_demand_report($month) {
+        $report = [
+            'savings' => [],
+            'loans' => [],
+            'summary' => []
+        ];
+        
+        // Savings Demand
+        $report['savings'] = $this->db->select('
+            sch.*, sa.account_number, m.member_code, m.first_name, m.last_name, m.phone
+        ')
+        ->from('savings_schedule sch')
+        ->join('savings_accounts sa', 'sa.id = sch.savings_account_id')
+        ->join('members m', 'm.id = sa.member_id')
+        ->where('sch.due_month', $month)
+        ->where_in('sch.status', ['pending', 'partial'])
+        ->order_by('m.member_code', 'ASC')
+        ->get()
+        ->result();
+        
+        // Loan Demand
+        $report['loans'] = $this->db->select('
+            li.*, l.loan_number, m.member_code, m.first_name, m.last_name, m.phone
+        ')
+        ->from('loan_installments li')
+        ->join('loans l', 'l.id = li.loan_id')
+        ->join('members m', 'm.id = l.member_id')
+        ->where('MONTH(li.due_date)', date('m', strtotime($month)))
+        ->where('YEAR(li.due_date)', date('Y', strtotime($month)))
+        ->where_in('li.status', ['pending', 'partial'])
+        ->order_by('m.member_code', 'ASC')
+        ->get()
+        ->result();
+        
+        // Summary
+        $report['summary'] = [
+            'savings_due' => array_sum(array_column($report['savings'], 'due_amount')) - array_sum(array_column($report['savings'], 'paid_amount')),
+            'loan_due' => array_sum(array_column($report['loans'], 'emi_amount')) - array_sum(array_column($report['loans'], 'total_paid')),
+            'savings_members' => count(array_unique(array_column($report['savings'], 'member_code'))),
+            'loan_members' => count(array_unique(array_column($report['loans'], 'member_code')))
+        ];
+        
+        return $report;
+    }
+    
+    /**
+     * Get Guarantor Exposure Report
+     */
+    public function get_guarantor_report() {
+        return $this->db->select('
+            m.member_code, m.first_name, m.last_name, m.phone,
+            COUNT(lg.id) as guarantee_count,
+            SUM(lg.guarantee_amount) as total_exposure,
+            SUM(CASE WHEN l.status = "active" THEN l.outstanding_principal ELSE 0 END) as active_exposure
+        ')
+        ->from('loan_guarantors lg')
+        ->join('members m', 'm.id = lg.guarantor_member_id')
+        ->join('loans l', 'l.id = lg.loan_id', 'left')
+        ->where('lg.consent_status', 'approved')
+        ->where('lg.is_released', 0)
+        ->group_by('lg.guarantor_member_id')
+        ->order_by('total_exposure', 'DESC')
+        ->get()
+        ->result();
+    }
+    
+    /**
+     * Get Monthly Summary
+     */
+    public function get_monthly_summary($year, $month) {
+        $start_date = "$year-$month-01";
+        $end_date = date('Y-m-t', strtotime($start_date));
+        
+        return [
+            'new_members' => $this->db->where('DATE(created_at) >=', $start_date)
+                                      ->where('DATE(created_at) <=', $end_date)
+                                      ->count_all_results('members'),
+            
+            'new_savings_accounts' => $this->db->where('DATE(created_at) >=', $start_date)
+                                               ->where('DATE(created_at) <=', $end_date)
+                                               ->count_all_results('savings_accounts'),
+            
+            'savings_collected' => $this->db->select_sum('amount')
+                                            ->where('transaction_type', 'deposit')
+                                            ->where('DATE(created_at) >=', $start_date)
+                                            ->where('DATE(created_at) <=', $end_date)
+                                            ->get('savings_transactions')
+                                            ->row()
+                                            ->amount ?? 0,
+            
+            'loans_disbursed_count' => $this->db->where('disbursement_date >=', $start_date)
+                                                 ->where('disbursement_date <=', $end_date)
+                                                 ->count_all_results('loans'),
+            
+            'loans_disbursed_amount' => $this->db->select_sum('principal_amount')
+                                                  ->where('disbursement_date >=', $start_date)
+                                                  ->where('disbursement_date <=', $end_date)
+                                                  ->get('loans')
+                                                  ->row()
+                                                  ->principal_amount ?? 0,
+            
+            'loans_collected' => $this->db->select_sum('total_amount')
+                                          ->where('payment_date >=', $start_date)
+                                          ->where('payment_date <=', $end_date)
+                                          ->where('is_reversed', 0)
+                                          ->get('loan_payments')
+                                          ->row()
+                                          ->total_amount ?? 0,
+            
+            'fines_applied' => $this->db->select_sum('fine_amount')
+                                        ->where('fine_date >=', $start_date)
+                                        ->where('fine_date <=', $end_date)
+                                        ->get('fines')
+                                        ->row()
+                                        ->fine_amount ?? 0,
+            
+            'fines_collected' => $this->db->select_sum('paid_amount')
+                                          ->where('payment_date >=', $start_date)
+                                          ->where('payment_date <=', $end_date)
+                                          ->get('fines')
+                                          ->row()
+                                          ->paid_amount ?? 0
+        ];
+    }
+    
+    /**
+     * Get Chart Data - Monthly Trend
+     */
+    public function get_monthly_trend($year) {
+        $data = [
+            'labels' => [],
+            'savings' => [],
+            'loans_disbursed' => [],
+            'loans_collected' => []
+        ];
+        
+        for ($m = 1; $m <= 12; $m++) {
+            $month = str_pad($m, 2, '0', STR_PAD_LEFT);
+            $data['labels'][] = date('M', mktime(0, 0, 0, $m, 1));
+            
+            $data['savings'][] = $this->db->select_sum('amount')
+                                          ->where('transaction_type', 'deposit')
+                                          ->where('MONTH(created_at)', $m)
+                                          ->where('YEAR(created_at)', $year)
+                                          ->get('savings_transactions')
+                                          ->row()
+                                          ->amount ?? 0;
+            
+            $data['loans_disbursed'][] = $this->db->select_sum('principal_amount')
+                                                   ->where('MONTH(disbursement_date)', $m)
+                                                   ->where('YEAR(disbursement_date)', $year)
+                                                   ->get('loans')
+                                                   ->row()
+                                                   ->principal_amount ?? 0;
+            
+            $data['loans_collected'][] = $this->db->select_sum('total_amount')
+                                                   ->where('MONTH(payment_date)', $m)
+                                                   ->where('YEAR(payment_date)', $year)
+                                                   ->where('is_reversed', 0)
+                                                   ->get('loan_payments')
+                                                   ->row()
+                                                   ->total_amount ?? 0;
+        }
+        
+        return $data;
+    }
+}
