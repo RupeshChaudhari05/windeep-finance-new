@@ -39,7 +39,7 @@
                         $total_overdue = 0;
                         $total_fine = 0;
                         foreach ($overdue as $loan): 
-                            $days_overdue = floor((time() - strtotime($loan->due_date)) / 86400);
+                            $days_overdue = floor((time() - safe_timestamp($loan->due_date)) / 86400);
                             $overdue_amount = $loan->emi_amount - ($loan->total_paid ?? 0);
                             $fine_amount = $loan->fine_amount ?? 0;
                             $total_overdue += $overdue_amount;
@@ -64,7 +64,7 @@
                             </td>
                             <td class="text-right">₹<?= number_format($loan->emi_amount, 2) ?></td>
                             <td>
-                                <span class="text-danger"><?= date('d M Y', strtotime($loan->due_date)) ?></span>
+                                <span class="text-danger"><?= format_date($loan->due_date) ?></span>
                             </td>
                             <td>
                                 <span class="badge badge-<?= $days_overdue > 90 ? 'danger' : ($days_overdue > 30 ? 'warning' : 'info') ?>">

@@ -125,7 +125,7 @@
                             }
                         ?>
                         <tr>
-                            <td><?= date('d M Y', strtotime($entry->transaction_date)) ?></td>
+                            <td><?= format_date($entry->transaction_date) ?></td>
                             <td><small><?= $entry->voucher_number ?></small></td>
                             <td>
                                 <small class="text-muted"><?= $entry->account_code ?></small><br>

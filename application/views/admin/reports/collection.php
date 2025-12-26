@@ -142,7 +142,7 @@
                         <?php foreach ($collections as $key => $col): ?>
                         <tr>
                             <td><?= $key + 1 ?></td>
-                            <td><?= date('d M Y', strtotime($col->transaction_date)) ?></td>
+                            <td><?= format_date($col->transaction_date, 'd M Y') ?></td>
                             <td><small><?= $col->receipt_number ?></small></td>
                             <td>
                                 <a href="<?= site_url('admin/members/view/' . $col->member_id) ?>">

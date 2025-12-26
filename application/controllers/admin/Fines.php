@@ -38,9 +38,36 @@ class Fines extends Admin_Controller {
         
         $this->db->order_by('f.fine_date', 'DESC');
         
-        $data['fines'] = $this->db->get()->result();
+        $fines = $this->db->get()->result();
+        // Normalize fines for view compatibility
+        foreach ($fines as $idx => $f) {
+            // Construct member name
+            $f->member_name = trim(($f->first_name ?? '') . ' ' . ($f->last_name ?? '')) ?: ($f->member_name ?? '');
+            $f->member_code = $f->member_code ?? '';
+            $f->paid_amount = isset($f->paid_amount) ? (float) $f->paid_amount : 0.0;
+            $f->balance_amount = isset($f->balance_amount) ? (float) $f->balance_amount : (isset($f->fine_amount) ? (float) $f->fine_amount : 0.0);
+            $f->fine_amount = isset($f->fine_amount) ? (float) $f->fine_amount : 0.0;
+            $fines[$idx] = $f;
+        }
+        $data['fines'] = $fines;
         $data['status'] = $status;
-        $data['summary'] = $this->Fine_model->get_summary();
+        
+        // Filters for the view (used by the search form and links)
+        $data['filters'] = [
+            'search' => $this->input->get('search') ?: '',
+            'type' => $this->input->get('type') ?: '',
+            'status' => $this->input->get('status') ?: $status,
+            'page' => (int) ($this->input->get('page') ?: 1)
+        ];
+        
+        // Normalize summary (Fine_model returns an object with different keys)
+        $raw_summary = $this->Fine_model->get_summary();
+        $data['summary'] = [
+            'pending_amount' => (float) ($raw_summary->total_balance ?? 0),
+            'collected_amount' => (float) ($raw_summary->total_paid ?? 0),
+            'waived_amount' => (float) ($raw_summary->total_waived ?? 0),
+            'pending_count' => (int) ($raw_summary->total_fines ?? 0)
+        ];
         
         $this->load_view('admin/fines/index', $data);
     }
@@ -258,6 +285,105 @@ class Fines extends Admin_Controller {
         
         $this->load_view('admin/fines/rules', $data);
     }
+
+    /**
+     * List waiver requests
+     */
+    public function waiver_requests() {
+        $data['title'] = 'Waiver Requests';
+        $data['page_title'] = 'Waiver Requests';
+        $data['breadcrumb'] = [
+            ['title' => 'Dashboard', 'url' => 'admin/dashboard'],
+            ['title' => 'Fines', 'url' => 'admin/fines'],
+            ['title' => 'Waiver Requests', 'url' => '']
+        ];
+
+        $this->load->model('Fine_model');
+        $data['requests'] = $this->Fine_model->get_waiver_requests();
+
+        $this->load_view('admin/fines/waiver_requests', $data);
+    }
+
+    /**
+     * Request a waiver for a fine (AJAX)
+     */
+    public function request_waiver($id) {
+        if ($this->input->method() !== 'post') {
+            $this->json_response(['success' => false, 'message' => 'Invalid request']);
+            return;
+        }
+
+        $reason = $this->input->post('reason');
+        $requested_by = $this->session->userdata('admin_id');
+        $amount = $this->input->post('amount');
+
+        if (!$reason) {
+            $this->json_response(['success' => false, 'message' => 'Reason is required']);
+            return;
+        }
+
+        $result = $this->Fine_model->request_waiver($id, $reason, $requested_by, $amount);
+        if ($result) {
+            $this->log_audit('fines', $id, 'waiver_requested', null, ['reason' => $reason]);
+            $this->json_response(['success' => true, 'message' => 'Waiver request submitted']);
+        } else {
+            $this->json_response(['success' => false, 'message' => 'Failed to submit waiver request']);
+        }
+    }
+
+    /**
+     * Approve waiver (AJAX)
+     */
+    public function approve_waiver($id) {
+        if ($this->input->method() !== 'post') {
+            $this->json_response(['success' => false, 'message' => 'Invalid request']);
+            return;
+        }
+
+        $amount = $this->input->post('amount');
+        $approved_by = $this->session->userdata('admin_id');
+
+        if (!$amount || $amount <= 0) {
+            $this->json_response(['success' => false, 'message' => 'Invalid amount']);
+            return;
+        }
+
+        $result = $this->Fine_model->approve_waiver($id, $amount, $approved_by);
+
+        if ($result) {
+            $this->log_audit('fines', $id, 'waiver_approved', null, ['amount' => $amount]);
+            $this->json_response(['success' => true, 'message' => 'Waiver approved']);
+        } else {
+            $this->json_response(['success' => false, 'message' => 'Failed to approve waiver']);
+        }
+    }
+
+    /**
+     * Deny waiver (AJAX)
+     */
+    public function deny_waiver($id) {
+        if ($this->input->method() !== 'post') {
+            $this->json_response(['success' => false, 'message' => 'Invalid request']);
+            return;
+        }
+
+        $reason = $this->input->post('reason');
+        $denied_by = $this->session->userdata('admin_id');
+
+        if (!$reason) {
+            $this->json_response(['success' => false, 'message' => 'Denial reason is required']);
+            return;
+        }
+
+        $result = $this->Fine_model->deny_waiver($id, $denied_by, $reason);
+
+        if ($result) {
+            $this->log_audit('fines', $id, 'waiver_denied', null, ['reason' => $reason]);
+            $this->json_response(['success' => true, 'message' => 'Waiver denied']);
+        } else {
+            $this->json_response(['success' => false, 'message' => 'Failed to deny waiver']);
+        }
+    }
     
     /**
      * Run Auto Fine Job
@@ -281,37 +407,43 @@ class Fines extends Admin_Controller {
         }
         
         $id = $this->input->post('id');
-        
-        $data = [
+        $admin_id = $this->session->userdata('admin_id');
+
+        // Map incoming form fields to schema-compatible columns
+        $rule_data = [
             'rule_name' => $this->input->post('rule_name'),
-            'fine_type' => $this->input->post('fine_type'),
-            'description' => $this->input->post('description'),
-            'amount_type' => $this->input->post('amount_type'),
-            'amount_value' => $this->input->post('amount_value'),
-            'frequency' => $this->input->post('frequency'),
-            'grace_days' => $this->input->post('grace_days') ?: 0,
-            'max_fine_amount' => $this->input->post('max_fine_amount') ?: null,
             'applies_to' => $this->input->post('applies_to'),
-            'is_active' => $this->input->post('is_active') ? 1 : 0
+            // Map amount_type/amount_value -> fine_value
+            'fine_value' => $this->input->post('amount_value') ?: 0,
+            // Map frequency/amount_type -> per_day_amount when applicable
+            'per_day_amount' => ($this->input->post('frequency') === 'daily' ? ($this->input->post('amount_value') ?: 0) : ($this->input->post('per_day_amount') ?: 0)),
+            // Grace / min days
+            'grace_period_days' => $this->input->post('grace_days') ?: 0,
+            'max_fine_amount' => $this->input->post('max_fine_amount') ?: null,
+            'is_active' => $this->input->post('is_active') ? 1 : 0,
+            'description' => $this->input->post('description') ?: ''
         ];
-        
-        if (empty($data['rule_name'])) {
+
+        if (empty($rule_data['rule_name'])) {
             $this->json_response(['success' => false, 'message' => 'Rule name is required']);
             return;
         }
-        
+
         if ($id) {
-            $data['updated_at'] = date('Y-m-d H:i:s');
-            $this->db->where('id', $id)->update('fine_rules', $data);
-            $this->log_audit('fine_rules', $id, 'update', null, $data);
+            $old = $this->db->where('id', $id)->get('fine_rules')->row();
+            $rule_data['updated_at'] = date('Y-m-d H:i:s');
+            $rule_data['updated_by'] = $admin_id;
+            $this->db->where('id', $id)->update('fine_rules', $rule_data);
+            // Log audit: action, module, table_name, record_id, old_values, new_values
+            $this->log_audit('update', 'fine_rules', 'fine_rules', $id, $old, $rule_data);
         } else {
-            $data['created_at'] = date('Y-m-d H:i:s');
-            $data['created_by'] = $this->session->userdata('admin_id');
-            $this->db->insert('fine_rules', $data);
+            $rule_data['created_at'] = date('Y-m-d H:i:s');
+            $rule_data['created_by'] = $admin_id;
+            $this->db->insert('fine_rules', $rule_data);
             $id = $this->db->insert_id();
-            $this->log_audit('fine_rules', $id, 'create', null, $data);
+            $this->log_audit('create', 'fine_rules', 'fine_rules', $id, null, $rule_data);
         }
-        
+
         $this->json_response(['success' => true, 'message' => 'Rule saved successfully']);
     }
     

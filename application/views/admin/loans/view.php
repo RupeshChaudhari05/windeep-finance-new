@@ -44,19 +44,19 @@
                     </tr>
                     <tr>
                         <th>EMI Date:</th>
-                        <td><?= $loan->emi_date ?>th of every month</td>
+                        <td><?= $loan->emi_date_formatted ?> of every month</td>
                     </tr>
                     <tr>
                         <th>Disbursed On:</th>
-                        <td><?= date('d M Y', strtotime($loan->disbursement_date)) ?></td>
+                        <td><?= format_date($loan->disbursement_date, 'd M Y') ?></td>
                     </tr>
                     <tr>
                         <th>First EMI:</th>
-                        <td><?= date('d M Y', strtotime($loan->first_emi_date)) ?></td>
+                        <td><?= format_date($loan->first_emi_date, 'd M Y') ?></td>
                     </tr>
                     <tr>
                         <th>Last EMI:</th>
-                        <td><?= date('d M Y', strtotime($loan->last_emi_date)) ?></td>
+                        <td><?= format_date($loan->last_emi_date, 'd M Y') ?></td>
                     </tr>
                 </table>
                 
@@ -197,10 +197,10 @@
                                 </thead>
                                 <tbody>
                                     <?php foreach ($installments as $emi): ?>
-                                    <tr class="<?= $emi->status == 'pending' && strtotime($emi->due_date) < time() ? 'table-danger' : '' ?>
+                                    <tr class="<?= $emi->status == 'pending' && (!empty($emi->due_date) && safe_timestamp($emi->due_date) < time()) ? 'table-danger' : '' ?>
                                                <?= $emi->status == 'paid' ? 'table-success' : '' ?>">
                                         <td><?= $emi->installment_number ?></td>
-                                        <td><?= date('d M Y', strtotime($emi->due_date)) ?></td>
+                                        <td><?= format_date($emi->due_date, 'd M Y') ?></td>
                                         <td class="text-right">₹<?= number_format($emi->emi_amount) ?></td>
                                         <td class="text-right">₹<?= number_format($emi->principal_component) ?></td>
                                         <td class="text-right">₹<?= number_format($emi->interest_component) ?></td>
@@ -217,7 +217,7 @@
                                             <?php endif; ?>
                                         </td>
                                         <td>
-                                            <?= $emi->paid_date ? date('d M Y', strtotime($emi->paid_date)) : '-' ?>
+                                            <?= $emi->paid_date ? format_date($emi->paid_date, 'd M Y') : '-' ?>
                                         </td>
                                     </tr>
                                     <?php endforeach; ?>
@@ -249,7 +249,7 @@
                                     <tbody>
                                         <?php foreach ($payments as $pmt): ?>
                                         <tr>
-                                            <td><?= date('d M Y', strtotime($pmt->payment_date)) ?></td>
+                                            <td><?= format_date($pmt->payment_date) ?></td>
                                             <td><small><?= $pmt->receipt_number ?></small></td>
                                             <td class="text-right font-weight-bold">₹<?= number_format($pmt->amount) ?></td>
                                             <td class="text-right">₹<?= number_format($pmt->principal_component) ?></td>
@@ -295,7 +295,7 @@
                                     <tbody>
                                         <?php foreach ($fines as $fine): ?>
                                         <tr>
-                                            <td><?= date('d M Y', strtotime($fine->fine_date)) ?></td>
+                                            <td><?= format_date($fine->fine_date) ?></td>
                                             <td><?= ucfirst(str_replace('_', ' ', $fine->fine_type)) ?></td>
                                             <td><small><?= $fine->reason ?></small></td>
                                             <td class="text-right">₹<?= number_format($fine->fine_amount) ?></td>

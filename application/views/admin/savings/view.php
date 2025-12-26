@@ -41,11 +41,11 @@
                     </tr>
                     <tr>
                         <th>Opened On:</th>
-                        <td><?= date('d M Y', strtotime($account->created_at)) ?></td>
+                        <td><?= format_date($account->created_at, 'd M Y') ?></td>
                     </tr>
                     <tr>
                         <th>Maturity Date:</th>
-                        <td><?= $account->maturity_date ? date('d M Y', strtotime($account->maturity_date)) : '-' ?></td>
+                        <td><?= $account->maturity_date ? format_date($account->maturity_date) : '-' ?></td>
                     </tr>
                 </table>
                 
@@ -139,7 +139,7 @@
                                     <tbody>
                                         <?php foreach ($transactions as $txn): ?>
                                         <tr>
-                                            <td><?= date('d M Y', strtotime($txn->transaction_date)) ?></td>
+                                            <td><?= format_date($txn->transaction_date) ?></td>
                                             <td><small><?= $txn->receipt_number ?></small></td>
                                             <td>
                                                 <?php
@@ -193,9 +193,9 @@
                                     </thead>
                                     <tbody>
                                         <?php foreach ($schedule as $sch): ?>
-                                        <tr class="<?= $sch->status == 'pending' && strtotime($sch->due_date) < time() ? 'table-danger' : '' ?>">
-                                            <td><?= date('M Y', strtotime($sch->due_date)) ?></td>
-                                            <td><?= date('d M Y', strtotime($sch->due_date)) ?></td>
+                                        <tr class="<?= $sch->status == 'pending' && (safe_timestamp($sch->due_date) < time()) ? 'table-danger' : '' ?>">
+                                            <td><?= format_date($sch->due_date, 'M Y') ?></td>
+                                            <td><?= format_date($sch->due_date, 'd M Y') ?></td>
                                             <td class="text-right">₹<?= number_format($sch->amount) ?></td>
                                             <td>
                                                 <?php
@@ -211,7 +211,7 @@
                                                 </span>
                                             </td>
                                             <td>
-                                                <?= $sch->paid_date ? date('d M Y', strtotime($sch->paid_date)) : '-' ?>
+                                                <?= $sch->paid_date ? format_date($sch->paid_date, 'd M Y') : '-' ?>
                                             </td>
                                         </tr>
                                         <?php endforeach; ?>

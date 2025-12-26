@@ -4,7 +4,7 @@
         <h3 class="card-title"><i class="fas fa-calendar-alt mr-1"></i> Monthly Demand Report</h3>
         <div class="card-tools">
             <form class="form-inline" method="get">
-                <input type="month" name="month" class="form-control form-control-sm mr-2" value="<?= date('Y-m', strtotime($month)) ?>">
+                <input type="month" name="month" class="form-control form-control-sm mr-2" value="<?= date('Y-m', safe_timestamp($month)) ?>">
                 <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-filter"></i></button>
             </form>
         </div>
@@ -161,8 +161,8 @@
                 </thead>
                 <tbody>
                     <?php foreach ($report['daily'] ?? [] as $day): ?>
-                    <tr class="<?= strtotime($day->date) < strtotime('today') ? ($day->pending > 0 ? 'table-warning' : 'table-success') : '' ?>">
-                        <td><?= date('d M (D)', strtotime($day->date)) ?></td>
+                    <tr class="<?= safe_timestamp($day->date) < safe_timestamp('today') ? ($day->pending > 0 ? 'table-warning' : 'table-success') : '' ?>">
+                        <td><?= format_date($day->date, 'd M (D)') ?></td>
                         <td><?= number_format($day->loan_demand, 2) ?></td>
                         <td><?= number_format($day->savings_demand, 2) ?></td>
                         <td><strong><?= number_format($day->total_demand, 2) ?></strong></td>

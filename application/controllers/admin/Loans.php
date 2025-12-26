@@ -23,6 +23,8 @@ class Loans extends Admin_Controller {
         ];
         
         $data['stats'] = $this->Loan_model->get_dashboard_stats();
+        // Provide summary alias expected by view
+        $data['summary'] = $data['stats'];
         
         // Get loans with filters
         $status = $this->input->get('status') ?: 'active';
@@ -41,6 +43,17 @@ class Loans extends Admin_Controller {
         $data['loans'] = $this->db->get()->result();
         $data['status'] = $status;
         $data['products'] = $this->Loan_model->get_products();
+
+        // Normalize loans: compute overdue_count and member display name
+        foreach ($data['loans'] as &$loan) {
+            $loan->overdue_count = (int) $this->db->where('loan_id', $loan->id)
+                                                  ->where('status', 'pending')
+                                                  ->where('due_date <', date('Y-m-d'))
+                                                  ->count_all_results('loan_installments');
+            if (!isset($loan->member_name)) {
+                $loan->member_name = trim(($loan->first_name ?? '') . ' ' . ($loan->last_name ?? '')) ?: ($loan->member_code ?? '');
+            }
+        }
         
         $this->load_view('admin/loans/index', $data);
     }
@@ -65,7 +78,27 @@ class Loans extends Admin_Controller {
         ];
         
         $data['loan'] = $loan;
-        
+        // Compatibility mappings
+        // total_paid used in view; map from schema totals if missing
+        $data['loan']->total_paid = $data['loan']->total_paid ?? ($data['loan']->total_amount_paid ?? ((($data['loan']->total_principal_paid ?? 0) + ($data['loan']->total_interest_paid ?? 0)))) ;
+        // Ensure numeric defaults to avoid warnings
+        $data['loan']->total_paid = $data['loan']->total_paid ?? 0;
+
+        // Compute day of month for EMI display (compatibility with view expecting emi_date)
+        if (!isset($data['loan']->emi_date) || empty($data['loan']->emi_date)) {
+            $day = $data['loan']->first_emi_date ? (int) date('j', safe_timestamp($data['loan']->first_emi_date)) : 1;
+            $data['loan']->emi_date = $day;
+        } else {
+            $day = (int) $data['loan']->emi_date;
+        }
+        // Load formatting helper and provide an ordinal formatted day for nicer UI
+        $this->load->helper('format');
+        $data['loan']->emi_date_formatted = ordinal_suffix($day);
+
+        // Ensure member and product objects for view
+        $data['member'] = $this->Member_model->get_member_details($loan->member_id);
+        $data['product'] = $this->db->where('id', $loan->loan_product_id)->get('loan_products')->row();
+
         // Get guarantor details
         $data['guarantors'] = $this->db->select('lg.*, m.member_code, m.first_name, m.last_name, m.phone')
                                        ->from('loan_guarantors lg')
@@ -73,7 +106,51 @@ class Loans extends Admin_Controller {
                                        ->where('lg.loan_id', $id)
                                        ->get()
                                        ->result();
-        
+
+        // Provide installments, payments and fines for the view (compatibility)
+        $data['installments'] = $loan->installments ?? $this->Loan_model->get_loan_installments($id);
+        // Normalize installment fields for view compatibility
+        foreach ($data['installments'] as &$inst) {
+            // Map schema names to view-friendly properties
+            if (!isset($inst->principal_component) && isset($inst->principal_amount)) {
+                $inst->principal_component = $inst->principal_amount;
+            }
+            if (!isset($inst->interest_component) && isset($inst->interest_amount)) {
+                $inst->interest_component = $inst->interest_amount;
+            }
+            if (!isset($inst->outstanding_after) && isset($inst->outstanding_principal_after)) {
+                $inst->outstanding_after = $inst->outstanding_principal_after;
+            }
+            // Ensure numeric defaults to avoid warnings
+            $inst->principal_component = $inst->principal_component ?? 0;
+            $inst->interest_component = $inst->interest_component ?? 0;
+            $inst->outstanding_after = $inst->outstanding_after ?? 0;
+            $inst->emi_amount = $inst->emi_amount ?? ($inst->principal_component + $inst->interest_component);
+        }
+        unset($inst);
+
+        $data['payments'] = $loan->payments ?? $this->Loan_model->get_loan_payments($id);
+        // Fetch fines related to this loan via its installments (fines table uses related_type/related_id)
+        $installments = $this->Loan_model->get_loan_installments($id);
+        $installment_ids = array_column($installments, 'id');
+        if (!empty($installment_ids)) {
+            $data['fines'] = $this->db->where('related_type', 'loan_installment')
+                                       ->where_in('related_id', $installment_ids)
+                                       ->get('fines')
+                                       ->result();
+        } else {
+            $data['fines'] = [];
+        }
+
+        // Overdue stats
+        $data['overdue_count'] = (int) $this->db->where('loan_id', $id)
+                                               ->where('status', 'pending')
+                                               ->where('due_date <', date('Y-m-d'))
+                                               ->count_all_results('loan_installments');
+        $row = $this->db->select('SUM(emi_amount - total_paid) as overdue')->where('loan_id', $id)
+                        ->where('status', 'pending')->where('due_date <', date('Y-m-d'))->get('loan_installments')->row();
+        $data['overdue_amount'] = $row->overdue ?? 0;
+
         $this->load_view('admin/loans/view', $data);
     }
     
@@ -526,7 +603,7 @@ class Loans extends Admin_Controller {
         $aging = ['1_30' => 0, '31_60' => 0, '61_90' => 0, '90_plus' => 0];
         if (!empty($data['overdue'])) {
             foreach ($data['overdue'] as $loan) {
-                $days = floor((time() - strtotime($loan->due_date)) / 86400);
+                $days = floor((time() - safe_timestamp($loan->due_date)) / 86400);
                 if ($days <= 30) $aging['1_30']++;
                 elseif ($days <= 60) $aging['31_60']++;
                 elseif ($days <= 90) $aging['61_90']++;
@@ -581,11 +658,44 @@ class Loans extends Admin_Controller {
         ];
         
         // Get products with loan counts
+        // Ensure text helper is loaded (for character_limiter in views) and normalize fields for backward compatibility
+        $this->load->helper('text');
         $products = $this->Loan_model->get_products(false);
         foreach ($products as &$product) {
+            // Normalize name field if older schema uses product_name
+            if (!isset($product->name) && isset($product->product_name)) {
+                $product->name = $product->product_name;
+            }
+            // Product code may be named product_code in DB
+            if (!isset($product->code) && isset($product->product_code)) {
+                $product->code = $product->product_code;
+            }
+            // Normalize tenure fields (months)
+            if (!isset($product->min_tenure) && isset($product->min_tenure_months)) {
+                $product->min_tenure = $product->min_tenure_months;
+            }
+            if (!isset($product->max_tenure) && isset($product->max_tenure_months)) {
+                $product->max_tenure = $product->max_tenure_months;
+            }
+            // Processing fee/value compatibility
+            if (!isset($product->processing_fee) && isset($product->processing_fee_value)) {
+                $product->processing_fee = $product->processing_fee_value;
+            }
+            if (!isset($product->processing_fee_type) && isset($product->processing_fee_type)) {
+                // keep existing
+            }
+            // Ensure description exists
+            if (!isset($product->description)) {
+                $product->description = '';
+            }
+            // Ensure other commonly expected fields exist
+            $product->interest_rate = $product->interest_rate ?? 0;
+            $product->interest_type = $product->interest_type ?? 'reducing';
+            $product->is_active = isset($product->is_active) ? (int)$product->is_active : 0;
+
             $product->active_loans = $this->db->where('loan_product_id', $product->id)
                                               ->where('status', 'active')
-                                              ->count_all_results('loans');
+                                              ->count_all_results('loans') ?: 0;
         }
         $data['products'] = $products;
         

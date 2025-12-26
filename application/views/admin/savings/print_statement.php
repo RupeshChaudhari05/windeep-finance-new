@@ -106,11 +106,11 @@
             <table>
                 <tr>
                     <td>From:</td>
-                    <td><?= date('d M Y', strtotime($from_date ?? $savings->created_at)) ?></td>
+                    <td><?= format_date($from_date ?? $savings->created_at) ?></td>
                 </tr>
                 <tr>
                     <td>To:</td>
-                    <td><?= date('d M Y', strtotime($to_date ?? 'now')) ?></td>
+                    <td><?= format_date($to_date ?? 'now') ?></td>
                 </tr>
                 <tr>
                     <td>Generated:</td>
@@ -188,7 +188,7 @@
                     }
                 ?>
                 <tr>
-                    <td><?= date('d M Y', strtotime($txn->transaction_date)) ?></td>
+                    <td><?= format_date($txn->transaction_date) ?></td>
                     <td>
                         <?= ucfirst($txn->type) ?>
                         <?php if (isset($txn->description)): ?>

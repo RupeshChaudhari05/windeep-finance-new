@@ -134,7 +134,7 @@
                                     -
                                 <?php endif; ?>
                             </td>
-                            <td><?= date('d M Y', strtotime($fine->fine_date)) ?></td>
+                            <td><?= format_date($fine->fine_date) ?></td>
                             <td class="text-right">₹<?= number_format($fine->fine_amount) ?></td>
                             <td class="text-right text-success">₹<?= number_format($fine->paid_amount) ?></td>
                             <td class="text-right font-weight-bold text-danger">₹<?= number_format($fine->balance_amount) ?></td>

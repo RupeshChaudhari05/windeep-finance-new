@@ -50,7 +50,7 @@
                             <td><?= $app->product_name ?></td>
                             <td class="text-right font-weight-bold">₹<?= number_format($app->requested_amount, 2) ?></td>
                             <td><?= $app->requested_tenure_months ?> months</td>
-                            <td><?= date('d M Y', strtotime($app->application_date)) ?></td>
+                            <td><?= format_date($app->application_date) ?></td>
                             <td>
                                 <?php
                                 $status_badges = [

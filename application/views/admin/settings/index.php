@@ -215,8 +215,8 @@
                                 <?php foreach ($financial_years ?? [] as $fy): ?>
                                 <tr>
                                     <td><?= $fy->year_name ?></td>
-                                    <td><?= date('d M Y', strtotime($fy->start_date)) ?></td>
-                                    <td><?= date('d M Y', strtotime($fy->end_date)) ?></td>
+                                    <td><?= format_date($fy->start_date, 'd M Y') ?></td>
+                                    <td><?= format_date($fy->end_date, 'd M Y') ?></td>
                                     <td>
                                         <?php if ($fy->is_current): ?>
                                             <span class="badge badge-success">Current</span>
@@ -414,7 +414,7 @@
                                     <td><?= $user->name ?></td>
                                     <td><?= $user->email ?></td>
                                     <td><span class="badge badge-primary"><?= ucfirst($user->role) ?></span></td>
-                                    <td><?= $user->last_login ? date('d M Y H:i', strtotime($user->last_login)) : 'Never' ?></td>
+                                    <td><?= format_date_time($user->last_login, 'd M Y H:i', 'Never') ?></td>
                                     <td>
                                         <span class="badge badge-<?= $user->is_active ? 'success' : 'danger' ?>">
                                             <?= $user->is_active ? 'Active' : 'Inactive' ?>

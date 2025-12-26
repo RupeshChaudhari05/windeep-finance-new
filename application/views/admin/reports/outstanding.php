@@ -176,7 +176,7 @@
                             </td>
                             <td><?= $rec->account_number ?></td>
                             <td><span class="badge badge-<?= $rec->type == 'loan' ? 'primary' : 'success' ?>"><?= ucfirst($rec->type) ?></span></td>
-                            <td><?= date('d M Y', strtotime($rec->due_date)) ?></td>
+                            <td><?= format_date($rec->due_date, 'd M Y') ?></td>
                             <td>
                                 <span class="badge badge-<?= $rec->days_overdue > 90 ? 'danger' : ($rec->days_overdue > 30 ? 'warning' : 'secondary') ?>">
                                     <?= $rec->days_overdue ?> days

@@ -34,7 +34,7 @@
                                 <?php foreach ($transactions as $txn): ?>
                                 <tr>
                                     <td><input type="checkbox" class="txn-check" value="<?= $txn->id ?>"></td>
-                                    <td><?= date('d M Y', strtotime($txn->transaction_date)) ?></td>
+                                    <td><?= format_date($txn->transaction_date, 'd M Y') ?></td>
                                     <td>
                                         <small><?= $txn->bank_name ?></small><br>
                                         <small class="text-muted"><?= substr($txn->account_number, -4) ?></small>
@@ -98,7 +98,7 @@
                             </td>
                             <td class="text-right">
                                 ₹<?= number_format($sp->amount, 2) ?><br>
-                                <small class="text-muted"><?= date('d M', strtotime($sp->payment_date ?? $sp->created_at)) ?></small>
+                                <small class="text-muted"><?= format_date($sp->payment_date ?? $sp->created_at, 'd M') ?></small>
                             </td>
                         </tr>
                         <?php endforeach; ?>
@@ -125,7 +125,7 @@
                             </td>
                             <td class="text-right">
                                 ₹<?= number_format($lp->emi_amount, 2) ?><br>
-                                <small class="text-muted">Due: <?= date('d M', strtotime($lp->due_date)) ?></small>
+                                <small class="text-muted">Due: <?= format_date($lp->due_date, 'd M') ?></small>
                             </td>
                         </tr>
                         <?php endforeach; ?>

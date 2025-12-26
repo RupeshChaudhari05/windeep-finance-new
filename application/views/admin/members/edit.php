@@ -96,7 +96,7 @@
                     <div class="form-group">
                         <label>Current Photo</label>
                         <div>
-                            <?php if ($member->profile_image): ?>
+                            <?php if (!empty($member->profile_image)): ?>
                                 <img src="<?= base_url('uploads/profile_images/' . $member->profile_image) ?>" class="img-thumbnail" style="width: 80px; height: 80px;">
                             <?php else: ?>
                                 <span class="text-muted">No photo</span>

@@ -107,7 +107,7 @@
                         <tbody>
                             <?php foreach ($overdue as $item): ?>
                             <?php 
-                            $days = floor((time() - strtotime($item->due_date)) / 86400);
+                            $days = floor((time() - safe_timestamp($item->due_date)) / 86400);
                             $severity = $days > 90 ? 'danger' : ($days > 30 ? 'warning' : 'info');
                             ?>
                             <tr class="table-<?= $severity ?>">
@@ -121,9 +121,9 @@
                                 <td><code><?= $item->account_number ?></code></td>
                                 <td><?= $item->scheme_name ?></td>
                                 <td>
-                                    <?= $item->last_payment_date ? date('d M Y', strtotime($item->last_payment_date)) : 'Never' ?>
+                                    <?= $item->last_payment_date ? format_date($item->last_payment_date) : 'Never' ?> 
                                 </td>
-                                <td><?= date('d M Y', strtotime($item->due_date)) ?></td>
+                                <td><?= format_date($item->due_date) ?></td>
                                 <td>
                                     <span class="badge badge-<?= $severity ?> badge-lg"><?= $days ?> days</span>
                                 </td>

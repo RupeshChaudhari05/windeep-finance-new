@@ -87,7 +87,7 @@
                     <?php $i = 1; foreach ($report['data'] ?? [] as $row): ?>
                     <tr>
                         <td><?= $i++ ?></td>
-                        <td><?= date('d M Y', strtotime($row->disbursement_date)) ?></td>
+                        <td><?= format_date($row->disbursement_date) ?></td>
                         <td><a href="<?= site_url('admin/loans/view/' . $row->id) ?>"><?= $row->loan_number ?></a></td>
                         <td>
                             <a href="<?= site_url('admin/members/view/' . $row->member_id) ?>"><?= $row->member_name ?></a>

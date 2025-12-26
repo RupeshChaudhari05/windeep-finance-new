@@ -100,6 +100,10 @@ $route['admin/fines/create'] = 'admin/fines/create';
 $route['admin/fines/view/(:num)'] = 'admin/fines/view/$1';
 $route['admin/fines/collect/(:num)'] = 'admin/fines/collect/$1';
 $route['admin/fines/rules'] = 'admin/fines/rules';
+$route['admin/fines/waiver-requests'] = 'admin/fines/waiver_requests';
+$route['admin/fines/request-waiver/(:num)'] = 'admin/fines/request_waiver/$1';
+$route['admin/fines/approve-waiver/(:num)'] = 'admin/fines/approve_waiver/$1';
+$route['admin/fines/deny-waiver/(:num)'] = 'admin/fines/deny_waiver/$1';
 $route['admin/fines/waive/(:num)'] = 'admin/fines/waive/$1';
 $route['admin/fines/cancel/(:num)'] = 'admin/fines/cancel/$1';
 

@@ -38,7 +38,7 @@
                             </tr>
                             <tr>
                                 <td class="text-muted">Application Date:</td>
-                                <td><?= date('d M Y h:i A', strtotime($application->application_date)) ?></td>
+                                <td><?= format_date_time($application->application_date, 'd M Y h:i A') ?></td>
                             </tr>
                         </table>
                     </div>
@@ -60,7 +60,7 @@
                             </tr>
                             <tr>
                                 <td class="text-muted">Approval Date:</td>
-                                <td><?= date('d M Y', strtotime($application->admin_approved_at)) ?></td>
+                                <td><?= format_date($application->admin_approved_at, 'd M Y') ?></td>
                             </tr>
                             <tr>
                                 <td class="text-muted">Approved By:</td>
@@ -72,7 +72,7 @@
                         <table class="table table-borderless table-sm">
                             <tr>
                                 <td class="text-muted">Rejection Date:</td>
-                                <td><?= date('d M Y', strtotime($application->rejected_date ?? $application->updated_at)) ?></td>
+                                <td><?= format_date($application->rejected_date ?? $application->updated_at) ?></td>
                             </tr>
                             <tr>
                                 <td class="text-muted">Reason:</td>
@@ -148,7 +148,7 @@
                             </tr>
                             <tr>
                                 <td class="text-muted">Member Since:</td>
-                                <td><?= date('d M Y', strtotime($member->created_at)) ?></td>
+                                <td><?= format_date($member->created_at) ?></td>
                             </tr>
                         </table>
                     </div>
@@ -242,7 +242,7 @@
                         <span class="timeline-point bg-info"></span>
                         <div class="timeline-event">
                             <strong>Application Submitted</strong>
-                            <small class="text-muted d-block"><?= date('d M Y h:i A', strtotime($application->application_date)) ?></small>
+                            <small class="text-muted d-block"><?= format_date_time($application->application_date, 'd M Y h:i A') ?></small>
                         </div>
                     </div>
                     
@@ -251,7 +251,7 @@
                         <span class="timeline-point bg-success"></span>
                         <div class="timeline-event">
                             <strong>Admin Approved</strong>
-                            <small class="text-muted d-block"><?= date('d M Y h:i A', strtotime($application->admin_approved_at)) ?></small>
+                            <small class="text-muted d-block"><?= format_date_time($application->admin_approved_at, 'd M Y h:i A') ?></small>
                         </div>
                     </div>
                     <?php endif; ?>
@@ -271,7 +271,7 @@
                         <span class="timeline-point bg-danger"></span>
                         <div class="timeline-event">
                             <strong>Application Rejected</strong>
-                            <small class="text-muted d-block"><?= date('d M Y h:i A', strtotime($application->updated_at)) ?></small>
+                            <small class="text-muted d-block"><?= format_date_time($application->updated_at, 'd M Y h:i A') ?></small>
                         </div>
                     </div>
                     <?php endif; ?>

@@ -24,7 +24,7 @@
                             </tr>
                             <tr>
                                 <td class="text-muted">Fine Date:</td>
-                                <td><?= date('d M Y', strtotime($fine->fine_date)) ?></td>
+                                <td><?= format_date($fine->fine_date) ?></td>
                             </tr>
                         </table>
                     </div>

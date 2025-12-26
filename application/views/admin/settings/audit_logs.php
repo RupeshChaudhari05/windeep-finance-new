@@ -44,8 +44,8 @@
                     <tr>
                         <td><?= $i++ ?></td>
                         <td>
-                            <small><?= date('d M Y', strtotime($log->created_at)) ?></small><br>
-                            <small class="text-muted"><?= date('h:i:s A', strtotime($log->created_at)) ?></small>
+                            <small><?= format_date($log->created_at) ?></small><br>
+                            <small class="text-muted"><?= format_date_time($log->created_at, 'h:i:s A') ?></small>
                         </td>
                         <td>
                             <strong><?= $log->user_name ?? 'System' ?></strong>

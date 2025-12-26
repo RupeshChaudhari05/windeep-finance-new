@@ -129,7 +129,7 @@ class Auth extends MY_Controller {
         
         // Generate token
         $token = bin2hex(random_bytes(32));
-        $expiry = date('Y-m-d H:i:s', strtotime('+1 hour'));
+        $expiry = date('Y-m-d H:i:s', safe_timestamp('+1 hour'));
         
         $this->db->where('id', $admin->id)
                  ->update('admin_users', [

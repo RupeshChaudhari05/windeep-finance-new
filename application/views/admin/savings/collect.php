@@ -7,6 +7,7 @@
             </div>
             <div class="card-body">
                 <table class="table table-sm table-borderless">
+                    <?php if ($account): ?>
                     <tr>
                         <th>Account No:</th>
                         <td class="font-weight-bold"><?= $account->account_number ?></td>
@@ -14,27 +15,39 @@
                     <tr>
                         <th>Member:</th>
                         <td>
-                            <a href="<?= site_url('admin/members/view/' . $member->id) ?>">
-                                <?= $member->first_name ?> <?= $member->last_name ?>
+                            <a href="<?= site_url('admin/members/view/' . ($member->id ?? '#')) ?>">
+                                <?= ($member->first_name ?? '-') ?> <?= ($member->last_name ?? '') ?>
                             </a>
                         </td>
                     </tr>
                     <tr>
                         <th>Phone:</th>
-                        <td><a href="tel:<?= $member->phone ?>"><?= $member->phone ?></a></td>
+                        <td>
+                            <?php if (!empty($member->phone)): ?>
+                                <a href="tel:<?= $member->phone ?>"><?= $member->phone ?></a>
+                            <?php else: ?>
+                                -
+                            <?php endif; ?>
+                        </td>
                     </tr>
                     <tr>
                         <th>Scheme:</th>
-                        <td><span class="badge badge-info"><?= $scheme->scheme_name ?></span></td>
+                        <td><span class="badge badge-info"><?= $scheme->scheme_name ?? '-' ?></span></td>
                     </tr>
                     <tr>
                         <th>Monthly Amt:</th>
                         <td class="font-weight-bold text-primary">₹<?= number_format($account->monthly_amount) ?></td>
                     </tr>
+                    <?php else: ?>
+                    <tr>
+                        <td colspan="2" class="text-center text-muted">Please select an account to collect payment.</td>
+                    </tr>
+                    <?php endif; ?>
                 </table>
                 
                 <hr>
-                
+
+                <?php if ($account): ?>
                 <div class="d-flex justify-content-between mb-2">
                     <span>Current Balance:</span>
                     <strong class="text-success">₹<?= number_format($account->current_balance) ?></strong>
@@ -43,6 +56,8 @@
                     <span>Total Deposited:</span>
                     <strong>₹<?= number_format($account->total_deposited) ?></strong>
                 </div>
+                <?php endif; ?>
+
                 <?php if ($pending_dues): ?>
                 <div class="d-flex justify-content-between text-danger">
                     <span>Pending Dues:</span>
@@ -69,11 +84,11 @@
                     </thead>
                     <tbody>
                         <?php foreach (array_slice($pending_dues, 0, 6) as $due): ?>
-                        <tr class="<?= strtotime($due->due_date) < time() ? 'table-danger' : '' ?>">
-                            <td><?= date('M Y', strtotime($due->due_date)) ?></td>
+                        <tr class="<?= safe_timestamp($due->due_date) < time() ? 'table-danger' : '' ?>">
+                            <td><?= format_date($due->due_date, 'M Y') ?></td>
                             <td class="text-right">₹<?= number_format($due->amount) ?></td>
                             <td>
-                                <?php if (strtotime($due->due_date) < time()): ?>
+                                <?php if (safe_timestamp($due->due_date) < time()): ?>
                                     <span class="badge badge-danger">Overdue</span>
                                 <?php else: ?>
                                     <span class="badge badge-warning">Pending</span>
@@ -110,6 +125,7 @@
             <div class="card-header">
                 <h3 class="card-title"><i class="fas fa-rupee-sign mr-1"></i> Collect Savings Payment</h3>
             </div>
+            <?php if ($account): ?>
             <form action="<?= site_url('admin/savings/record_payment/' . $account->id) ?>" method="post" id="collectionForm">
                 <?= form_hidden($this->security->get_csrf_token_name(), $this->security->get_csrf_hash()) ?>
                 
@@ -222,8 +238,11 @@
                         <i class="fas fa-print mr-1"></i> Print Receipt
                     </button>
                 </div>
-            </form>
-        </div>
+            </form>            <?php else: ?>
+                <div class="card-body">
+                    <div class="alert alert-warning mb-0">No account selected. Please choose an account to record a collection.</div>
+                </div>
+            <?php endif; ?>        </div>
         
         <!-- Recent Transactions -->
         <div class="card">
@@ -244,7 +263,7 @@
                     <tbody>
                         <?php foreach (array_slice($recent_transactions ?? [], 0, 5) as $txn): ?>
                         <tr>
-                            <td><?= date('d M Y', strtotime($txn->transaction_date)) ?></td>
+                            <td><?= format_date($txn->transaction_date) ?></td>
                             <td><small><?= $txn->receipt_number ?></small></td>
                             <td><span class="badge badge-success"><?= ucfirst($txn->transaction_type) ?></span></td>
                             <td class="text-right">₹<?= number_format($txn->credit_amount) ?></td>
@@ -263,6 +282,7 @@
     </div>
 </div>
 
+<?php if ($account): ?>
 <script>
 $(document).ready(function() {
     var currentBalance = <?= $account->current_balance ?>;
@@ -313,3 +333,4 @@ $(document).ready(function() {
     });
 });
 </script>
+<?php endif; ?>

@@ -68,7 +68,7 @@
                                 ?>
                                 ₹<?= number_format($emi, 2) ?>
                             </td>
-                            <td><?= date('d M Y', strtotime($app->admin_approved_at)) ?></td>
+                            <td><?= format_date($app->admin_approved_at) ?></td>
                             <td>
                                 <div class="btn-group">
                                     <a href="<?= site_url('admin/loans/view_application/' . $app->id) ?>" class="btn btn-info btn-sm" title="View Details">
@@ -158,7 +158,7 @@
                             </td>
                             <td><?= $loan->first_name ?> <?= $loan->last_name ?></td>
                             <td class="text-right">₹<?= number_format($loan->principal_amount, 2) ?></td>
-                            <td><?= date('d M Y', strtotime($loan->disbursement_date)) ?></td>
+                            <td><?= format_date($loan->disbursement_date) ?></td>
                             <td><?= ucfirst($loan->disbursement_mode ?? 'N/A') ?></td>
                         </tr>
                         <?php endforeach; ?>

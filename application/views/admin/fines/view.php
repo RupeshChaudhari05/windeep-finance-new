@@ -37,7 +37,7 @@
                             </tr>
                             <tr>
                                 <td class="text-muted">Fine Date:</td>
-                                <td><?= date('d M Y', strtotime($fine->fine_date)) ?></td>
+                                <td><?= format_date($fine->fine_date, 'd M Y') ?></td>
                             </tr>
                             <tr>
                                 <td class="text-muted">Related Rule:</td>
@@ -138,7 +138,7 @@
                         </tr>
                         <?php else: foreach ($payments as $payment): ?>
                         <tr>
-                            <td><?= date('d M Y h:i A', strtotime($payment->created_at)) ?></td>
+                            <td><?= format_date_time($payment->created_at, 'd M Y h:i A') ?></td>
                             <td>
                                 <span class="badge badge-<?= $payment->payment_type == 'waiver' ? 'info' : 'success' ?>">
                                     <?= ucfirst($payment->payment_type ?? 'payment') ?>
@@ -231,6 +231,10 @@
                     </div>
                     <small class="text-muted">Max: ₹<?= number_format($balance, 2) ?></small>
                 </div>
+                <div class="form-group form-check">
+                    <input type="checkbox" id="waive_request_only" class="form-check-input">
+                    <label class="form-check-label" for="waive_request_only">Request approval instead of immediate waiver</label>
+                </div>
                 <div class="form-group">
                     <label>Reason <span class="text-danger">*</span></label>
                     <textarea id="waive_reason" class="form-control" rows="3" placeholder="Enter reason for waiver" required></textarea>
@@ -276,24 +280,38 @@
 
 <script>
 $(document).ready(function() {
-    // Waive Fine
+    // Waive Fine / Request Waiver
     $('#confirmWaive').click(function() {
         var amount = $('#waive_amount').val();
         var reason = $('#waive_reason').val().trim();
+        var requestOnly = $('#waive_request_only').is(':checked');
         
         if (!reason) {
             toastr.error('Please enter waiver reason');
             return;
         }
         
-        $.post('<?= site_url('admin/fines/waive/' . $fine->id) ?>', {amount: amount, reason: reason}, function(response) {
-            if (response.success) {
-                toastr.success(response.message);
-                location.reload();
-            } else {
-                toastr.error(response.message);
-            }
-        }, 'json');
+        if (requestOnly) {
+            // Submit waiver request for approval
+            $.post('<?= site_url('admin/fines/request_waiver/' . $fine->id) ?>', {amount: amount, reason: reason}, function(response) {
+                if (response.success) {
+                    toastr.success(response.message);
+                    location.reload();
+                } else {
+                    toastr.error(response.message);
+                }
+            }, 'json');
+        } else {
+            // Immediate waiver / apply now
+            $.post('<?= site_url('admin/fines/waive/' . $fine->id) ?>', {amount: amount, reason: reason}, function(response) {
+                if (response.success) {
+                    toastr.success(response.message);
+                    location.reload();
+                } else {
+                    toastr.error(response.message);
+                }
+            }, 'json');
+        }
     });
     
     // Cancel Fine

@@ -20,7 +20,7 @@
 <div class="card">
     <div class="card-header bg-primary text-white text-center">
         <h4 class="mb-0">Profit & Loss Statement</h4>
-        <small>For the period <?= date('d M Y', strtotime($from_date)) ?> to <?= date('d M Y', strtotime($to_date)) ?></small>
+        <small>For the period <?= format_date($from_date) ?> to <?= format_date($to_date) ?></small>
     </div>
     <div class="card-body">
         <div class="row">

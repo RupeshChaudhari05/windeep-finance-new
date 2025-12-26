@@ -50,26 +50,36 @@ class Fine_model extends MY_Model {
         
         if ($existing > 0) return false;
         
-        // Get fine rule
-        $days_late = floor((strtotime(date('Y-m-d')) - strtotime($installment->due_date)) / 86400);
+        // Days late
+        $days_late = floor((safe_timestamp(date('Y-m-d')) - safe_timestamp($installment->due_date)) / 86400);
+
+        // Helper to add days range conditionally depending on schema
+        $add_days_conditions = function($db, $days) {
+            if ($this->db->field_exists('min_days', 'fine_rules')) {
+                $db->where('min_days <=', $days)
+                   ->where('max_days >=', $days);
+            } elseif ($this->db->field_exists('grace_period_days', 'fine_rules')) {
+                // If only grace_period is present, pick rules where grace_period_days <= days_late
+                $db->where('grace_period_days <=', $days);
+            } else {
+                // No days columns present; don't add day constraints
+            }
+        };
         
-        $rule = $this->db->where('fine_type', 'loan_late')
-                         ->where('loan_product_id', $installment->loan_product_id)
-                         ->where('min_days <=', $days_late)
-                         ->where('max_days >=', $days_late)
-                         ->where('is_active', 1)
-                         ->get('fine_rules')
-                         ->row();
+        // Get product-specific rule first
+        $query = $this->db->where('fine_type', 'loan_late')
+                          ->where('loan_product_id', $installment->loan_product_id)
+                          ->where('is_active', 1);
+        $add_days_conditions($query, $days_late);
+        $rule = $query->get('fine_rules')->row();
         
         if (!$rule) {
-            // Get default rule
-            $rule = $this->db->where('fine_type', 'loan_late')
-                             ->where('loan_product_id IS NULL')
-                             ->where('min_days <=', $days_late)
-                             ->where('max_days >=', $days_late)
-                             ->where('is_active', 1)
-                             ->get('fine_rules')
-                             ->row();
+            // Get default rule (no product-specific)
+            $query = $this->db->where('fine_type', 'loan_late')
+                              ->where('loan_product_id IS NULL')
+                              ->where('is_active', 1);
+            $add_days_conditions($query, $days_late);
+            $rule = $query->get('fine_rules')->row();
         }
         
         if (!$rule) return false;
@@ -129,29 +139,38 @@ class Fine_model extends MY_Model {
         
         if ($existing > 0) return false;
         
-        $days_late = floor((strtotime(date('Y-m-d')) - strtotime($schedule->due_date)) / 86400);
+        $days_late = floor((safe_timestamp(date('Y-m-d')) - safe_timestamp($schedule->due_date)) / 86400);
         
-        // Get fine rule
-        $rule = $this->db->where('fine_type', 'savings_late')
-                         ->where('min_days <=', $days_late)
-                         ->where('max_days >=', $days_late)
-                         ->where('is_active', 1)
-                         ->get('fine_rules')
-                         ->row();
+        // Build query with conditional day constraints
+        $query = $this->db->where('fine_type', 'savings_late')
+                          ->where('is_active', 1);
+        if ($this->db->field_exists('min_days', 'fine_rules')) {
+            $query->where('min_days <=', $days_late)
+                  ->where('max_days >=', $days_late);
+        } elseif ($this->db->field_exists('grace_period_days', 'fine_rules')) {
+            $query->where('grace_period_days <=', $days_late);
+        }
+        
+        $rule = $query->get('fine_rules')->row();
         
         if (!$rule) return false;
         
         // Calculate fine
         $fine_amount = 0;
-        if ($rule->calculation_type === 'fixed') {
-            $fine_amount = $rule->fixed_amount;
-        } elseif ($rule->calculation_type === 'percentage') {
-            $fine_amount = $schedule->due_amount * ($rule->percentage_value / 100);
-        } elseif ($rule->calculation_type === 'per_day') {
-            $fine_amount = $rule->per_day_amount * $days_late;
+        if (isset($rule->fine_type) && $rule->fine_type === 'fixed') {
+            $fine_amount = $rule->fine_value ?? ($rule->fine_amount ?? 0);
+        } elseif (isset($rule->fine_type) && $rule->fine_type === 'percentage') {
+            $rate = $rule->fine_value ?? ($rule->fine_rate ?? 0);
+            $fine_amount = $schedule->due_amount * ($rate / 100);
+        } elseif (isset($rule->fine_type) && $rule->fine_type === 'per_day') {
+            $per_day = $rule->per_day_amount ?? 0;
+            $fine_amount = $per_day * $days_late;
+        } else {
+            // Fallback: try to use flexible calculate_fine_amount helper
+            $fine_amount = $this->calculate_fine_amount($rule, $days_late, $schedule->due_amount);
         }
         
-        if ($rule->max_fine_amount > 0 && $fine_amount > $rule->max_fine_amount) {
+        if (!empty($rule->max_fine_amount) && $rule->max_fine_amount > 0 && $fine_amount > $rule->max_fine_amount) {
             $fine_amount = $rule->max_fine_amount;
         }
         
@@ -283,10 +302,89 @@ class Fine_model extends MY_Model {
             $this->db->where('fine_type', $fine_type);
         }
         
-        return $this->db->order_by('fine_type', 'ASC')
-                        ->order_by('min_days', 'ASC')
-                        ->get('fine_rules')
-                        ->result();
+        // Choose ordering column based on schema compatibility
+        $order_col = 'id';
+        if ($this->db->field_exists('min_days', 'fine_rules')) {
+            $order_col = 'min_days';
+        } elseif ($this->db->field_exists('grace_period_days', 'fine_rules')) {
+            $order_col = 'grace_period_days';
+        }
+        
+        $rules = $this->db->order_by('fine_type', 'ASC')
+                          ->order_by($order_col, 'ASC')
+                          ->get('fine_rules')
+                          ->result();
+        
+        // Normalize fields for backward compatibility with views
+        foreach ($rules as $r) {
+            // fine_amount alias
+            if (!isset($r->fine_amount)) {
+                if (isset($r->fine_value)) $r->fine_amount = $r->fine_value;
+                elseif (isset($r->fixed_amount)) $r->fine_amount = $r->fixed_amount;
+                else $r->fine_amount = 0;
+            }
+            // min_days / grace_period_days
+            if (!isset($r->min_days)) {
+                if (isset($r->grace_period_days)) $r->min_days = $r->grace_period_days;
+                elseif (isset($r->grace_period)) $r->min_days = $r->grace_period;
+                else $r->min_days = 0;
+            }
+            // max_days fallback
+            if (!isset($r->max_days)) {
+                $r->max_days = $r->max_days ?? 99999;
+            }
+            // max_fine alias
+            if (!isset($r->max_fine)) {
+                if (isset($r->max_fine_amount)) $r->max_fine = $r->max_fine_amount;
+                else $r->max_fine = null;
+            }
+
+            // Provide view-friendly properties for backward compatibility
+            // amount_type: 'percentage' or 'fixed'
+            if (!isset($r->amount_type)) {
+                if (isset($r->calculation_type) && $r->calculation_type === 'percentage') {
+                    $r->amount_type = 'percentage';
+                } elseif (isset($r->percentage_value)) {
+                    $r->amount_type = 'percentage';
+                } else {
+                    $r->amount_type = 'fixed';
+                }
+            }
+
+            // amount_value: percentage rate or fixed amount
+            if (!isset($r->amount_value)) {
+                if (isset($r->percentage_value)) {
+                    $r->amount_value = $r->percentage_value;
+                } elseif (isset($r->per_day_amount)) {
+                    // Prefer per_day_amount when present
+                    $r->amount_value = $r->per_day_amount;
+                } elseif (isset($r->fine_value)) {
+                    $r->amount_value = $r->fine_value;
+                } elseif (isset($r->fine_amount)) {
+                    $r->amount_value = $r->fine_amount;
+                } elseif (isset($r->fixed_amount)) {
+                    $r->amount_value = $r->fixed_amount;
+                } else {
+                    $r->amount_value = 0;
+                }
+            }
+
+            // grace_days (used by views)
+            if (!isset($r->grace_days)) {
+                if (isset($r->grace_period_days)) $r->grace_days = $r->grace_period_days;
+                elseif (isset($r->min_days)) $r->grace_days = $r->min_days;
+                elseif (isset($r->grace_period)) $r->grace_days = $r->grace_period;
+                else $r->grace_days = 0;
+            }
+
+            // frequency for display / form defaults
+            if (!isset($r->frequency)) {
+                if (isset($r->per_day_amount) && $r->per_day_amount > 0) $r->frequency = 'daily';
+                else $r->frequency = $r->frequency ?? 'one_time';
+            }
+        }
+        
+        return $rules;
     }
     
     /**
@@ -303,6 +401,85 @@ class Fine_model extends MY_Model {
         ->where_in('status', ['pending', 'partial', 'paid', 'waived'])
         ->get($this->table)
         ->row();
+    }
+
+    /**
+     * Request Waiver for a fine (stores reason and requested_by/at).
+     * Returns true on success.
+     */
+    public function request_waiver($fine_id, $reason, $requested_by, $amount = null) {
+        if (empty($fine_id) || empty($reason)) return false;
+        $data = [
+            'waiver_reason' => $reason,
+            'waiver_requested_by' => $requested_by,
+            'waiver_requested_at' => date('Y-m-d H:i:s'),
+            'waiver_requested_amount' => $amount !== null ? (float) $amount : null,
+            'waiver_approved_by' => null,
+            'waiver_approved_at' => null,
+            'waiver_denied_by' => null,
+            'waiver_denied_at' => null,
+            'waiver_denied_reason' => null
+        ];
+        return $this->db->where('id', $fine_id)->update($this->table, $data);
+    }
+
+    /**
+     * Get pending waiver requests
+     */
+    public function get_waiver_requests() {
+        return $this->db->select('f.*, m.member_code, m.first_name, m.last_name')
+                        ->from($this->table . ' f')
+                        ->join('members m', 'm.id = f.member_id')
+                        ->where('f.waiver_reason IS NOT NULL')
+                        ->where('f.waiver_approved_by IS NULL')
+                        ->where('f.waived_by IS NULL')
+                        ->where('f.waiver_denied_by IS NULL')
+                        ->order_by('f.waiver_requested_at', 'DESC')
+                        ->get()
+                        ->result();
+    }
+
+    /**
+     * Approve a waiver request and apply waiver amount
+     */
+    public function approve_waiver($fine_id, $amount, $approved_by) {
+        $fine = $this->get_by_id($fine_id);
+        if (!$fine) return false;
+        $amount = (float) $amount;
+        if ($amount <= 0) return false;
+
+        $new_waived = (float) ($fine->waived_amount ?? 0) + $amount;
+        $new_balance = (float) ($fine->balance_amount ?? 0) - $amount;
+        if ($new_balance < 0) $new_balance = 0;
+
+        $update = [
+            'waived_amount' => $new_waived,
+            'balance_amount' => $new_balance,
+            'waived_by' => $approved_by,
+            'waived_at' => date('Y-m-d H:i:s'),
+            'waiver_approved_by' => $approved_by,
+            'waiver_approved_at' => date('Y-m-d H:i:s')
+        ];
+
+        // Update status if fully waived
+        if ($new_balance == 0) {
+            $update['status'] = 'waived';
+        }
+
+        return $this->db->where('id', $fine_id)->update($this->table, $update);
+    }
+
+    /**
+     * Deny a waiver request (store denial info)
+     */
+    public function deny_waiver($fine_id, $denied_by, $reason = null) {
+        $update = [
+            'waiver_denied_by' => $denied_by,
+            'waiver_denied_at' => date('Y-m-d H:i:s'),
+            'waiver_denied_reason' => $reason,
+            'waiver_reason' => null
+        ];
+        return $this->db->where('id', $fine_id)->update($this->table, $update);
     }
     
     /**
@@ -364,7 +541,7 @@ class Fine_model extends MY_Model {
         $updated = 0;
         
         // Get all pending fines that use daily calculation
-        $pending_fines = $this->db->select('f.*, fr.fine_type, fr.fine_amount, fr.per_day_amount, fr.grace_period, fr.max_fine')
+        $pending_fines = $this->db->select('f.*, fr.fine_type, fr.fine_value as fine_amount, fr.per_day_amount, fr.grace_period_days as grace_period, fr.max_fine_amount as max_fine')
                                   ->from('fines f')
                                   ->join('fine_rules fr', 'fr.id = f.fine_rule_id')
                                   ->where_in('f.status', ['pending', 'partial'])
@@ -373,7 +550,7 @@ class Fine_model extends MY_Model {
                                   ->result();
         
         foreach ($pending_fines as $fine) {
-            $days_late = floor((strtotime(date('Y-m-d')) - strtotime($fine->due_date)) / 86400);
+            $days_late = floor((safe_timestamp(date('Y-m-d')) - safe_timestamp($fine->due_date)) / 86400);
             $new_amount = $this->calculate_fine_amount($fine, $days_late);
             
             // Only update if amount increased

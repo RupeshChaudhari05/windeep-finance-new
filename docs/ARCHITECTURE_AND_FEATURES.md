@@ -216,8 +216,25 @@ All AJAX responses follow JSON `{success: bool, message: string, ...}` via `ajax
 ---
 
 If you want, I can:
-- add a small integration test demonstrating import → mapping → payment recording, or
-- add diagrams (sequence or ERD images) to the docs folder.
+- add a small integration test demonstrating import → mapping → payment recording (done: CLI integration test available), or
+- add sequence/ER diagrams to the docs folder.
+
+---
+
+## Running the Integration Test (CLI)
+
+A CLI integration test has been added to exercise the Bank import -> mapping -> payment flow without persisting changes (the test runs within a DB transaction and rolls back):
+
+- Controller: `application/controllers/cli/Integration.php`
+- Command (from project root):
+
+  php index.php cli integration bank_mapping_test
+
+The test will:
+- Create a temporary member, loan product, loan, and bank transaction
+- Map and process the transaction using `Bank_model::map_and_process_transaction`
+- Verify a `loan_payments` record was created and the loan outstanding values updated
+- Rollback the DB transaction so the test leaves no persistent data
 
 ---
 

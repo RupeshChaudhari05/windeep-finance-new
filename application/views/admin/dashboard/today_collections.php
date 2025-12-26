@@ -72,7 +72,7 @@
                     <?php $i = 1; foreach ($collections as $c): ?>
                     <tr>
                         <td><?= $i++ ?></td>
-                        <td><?= date('h:i A', strtotime($c->created_at)) ?></td>
+                        <td><?= format_date_time($c->created_at, 'h:i A') ?></td>
                         <td><code><?= $c->receipt_number ?></code></td>
                         <td>
                             <a href="<?= site_url('admin/members/view/' . $c->member_id) ?>">

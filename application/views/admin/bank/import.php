@@ -147,7 +147,7 @@
                         </a>
                     </td>
                     <td><?= $import->account_name ?></td>
-                    <td><?= date('d M Y', strtotime($import->statement_date)) ?></td>
+                    <td><?= format_date($import->statement_date, 'd M Y') ?></td>
                     <td><?= $import->total_transactions ?></td>
                     <td>
                         <span class="badge badge-success">
@@ -165,7 +165,7 @@
                     </td>
                     <td>
                         <?= $import->imported_by_name ?>
-                        <br><small class="text-muted"><?= date('d M Y H:i', strtotime($import->created_at)) ?></small>
+                        <br><small class="text-muted"><?= format_date_time($import->created_at, 'd M Y H:i', '-') ?></small>
                     </td>
                     <td>
                         <a href="<?= site_url('admin/bank/view_import/' . $import->id) ?>" class="btn btn-xs btn-info">

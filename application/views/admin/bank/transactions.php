@@ -109,7 +109,7 @@
                                     <small class="text-muted"><?= $txn->transaction_code ?? 'AUTO-' . $txn->id ?></small>
                                 </td>
                                 <td><?= $txn->bank_name ?? '-' ?></td>
-                                <td><?= date('d/m/Y', strtotime($txn->transaction_date)) ?></td>
+                                <td><?= format_date($txn->transaction_date, 'd/m/Y') ?></td>
                                 <td><?= character_limiter($txn->description, 20) ?></td>
                                 <td><?= character_limiter($txn->description2 ?? '', 20) ?></td>
                                 <td class="text-right text-danger">

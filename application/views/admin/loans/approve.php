@@ -20,7 +20,7 @@
                                 </tr>
                                 <tr>
                                     <td class="text-muted">Application Date:</td>
-                                    <td><?= date('d M Y', strtotime($application->application_date)) ?></td>
+                                    <td><?= format_date($application->application_date) ?></td>
                                 </tr>
                                 <tr>
                                     <td class="text-muted">Loan Product:</td>
@@ -109,7 +109,7 @@
                                 </tr>
                                 <tr>
                                     <td class="text-muted">Member Since:</td>
-                                    <td><?= date('d M Y', strtotime($member->created_at)) ?></td>
+                                    <td><?= format_date($member->created_at) ?></td>
                                 </tr>
                                 <tr>
                                     <td class="text-muted">Status:</td>

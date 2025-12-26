@@ -56,7 +56,7 @@
                     <div class="form-group">
                         <label for="date_of_birth">Date of Birth</label>
                         <input type="date" class="form-control" id="date_of_birth" name="date_of_birth" 
-                               value="<?= set_value('date_of_birth') ?>" max="<?= date('Y-m-d', strtotime('-18 years')) ?>"
+                               value="<?= set_value('date_of_birth') ?>" max="<?= date('Y-m-d', safe_timestamp('-18 years')) ?>"
                                title="Must be at least 18 years old">
                         <span class="text-danger"><?= form_error('date_of_birth') ?></span>
                     </div>

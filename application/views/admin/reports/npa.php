@@ -99,7 +99,7 @@
                         <td>
                             <span class="badge badge-<?= $cat_class ?> badge-lg"><?= $row->days_overdue ?> days</span>
                         </td>
-                        <td><?= $row->last_payment_date ? date('d M Y', strtotime($row->last_payment_date)) : 'Never' ?></td>
+                        <td><?= $row->last_payment_date ? format_date($row->last_payment_date) : 'Never' ?></td>
                         <td>
                             <span class="badge badge-<?= $cat_class ?>"><?= $category ?></span>
                         </td>

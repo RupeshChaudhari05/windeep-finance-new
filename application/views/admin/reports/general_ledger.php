@@ -86,7 +86,7 @@
                         $running_balance += ($entry->debit - $entry->credit);
                     ?>
                     <tr>
-                        <td><?= date('d M Y', strtotime($entry->transaction_date)) ?></td>
+                        <td><?= format_date($entry->transaction_date) ?></td>
                         <td>
                             <a href="<?= site_url('admin/accounts/voucher/' . $entry->voucher_id) ?>">
                                 <?= $entry->voucher_number ?>

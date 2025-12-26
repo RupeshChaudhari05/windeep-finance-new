@@ -17,7 +17,7 @@
 
 <div class="card">
     <div class="card-header bg-primary text-white text-center">
-        <h4 class="mb-0">Balance Sheet as on <?= date('d M Y', strtotime($as_on)) ?></h4>
+        <h4 class="mb-0">Balance Sheet as on <?= format_date($as_on) ?></h4>
     </div>
     <div class="card-body">
         <div class="row">

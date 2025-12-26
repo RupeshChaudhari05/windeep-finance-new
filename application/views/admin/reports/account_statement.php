@@ -64,7 +64,7 @@
                     </tr>
                     <tr>
                         <td>Period:</td>
-                        <td><?= date('d M Y', strtotime($filters['from_date'])) ?> to <?= date('d M Y', strtotime($filters['to_date'])) ?></td>
+                        <td><?= format_date($filters['from_date']) ?> to <?= format_date($filters['to_date']) ?></td>
                     </tr>
                 </table>
             </div>
@@ -133,7 +133,7 @@
                 <tbody>
                     <!-- Opening Balance -->
                     <tr class="table-secondary">
-                        <td><?= date('d M Y', strtotime($filters['from_date'])) ?></td>
+                        <td><?= format_date($filters['from_date']) ?></td>
                         <td>-</td>
                         <td><strong>Opening Balance</strong></td>
                         <td class="text-right"><?= ($statement['opening_balance'] ?? 0) > 0 ? number_format($statement['opening_balance'], 2) : '-' ?></td>
@@ -150,7 +150,7 @@
                         $balance += ($entry->debit - $entry->credit);
                     ?>
                     <tr>
-                        <td><?= date('d M Y', strtotime($entry->transaction_date)) ?></td>
+                        <td><?= format_date($entry->transaction_date) ?></td>
                         <td><small><?= $entry->voucher_number ?></small></td>
                         <td><?= $entry->narration ?></td>
                         <td class="text-right"><?= $entry->debit > 0 ? number_format($entry->debit, 2) : '-' ?></td>

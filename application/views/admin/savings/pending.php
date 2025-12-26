@@ -138,9 +138,9 @@
                                     <span class="badge badge-info"><?= $item->scheme_name ?></span>
                                 </td>
                                 <td>
-                                    <?= date('d M Y', strtotime($item->due_date)) ?>
+                                    <?= format_date($item->due_date) ?> 
                                     <?php 
-                                    $days_overdue = floor((time() - strtotime($item->due_date)) / 86400);
+                                    $days_overdue = floor((time() - safe_timestamp($item->due_date)) / 86400);
                                     if ($days_overdue > 0): 
                                     ?>
                                     <br><small class="text-danger"><?= $days_overdue ?> days overdue</small>

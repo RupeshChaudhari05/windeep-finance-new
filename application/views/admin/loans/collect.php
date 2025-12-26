@@ -93,9 +93,9 @@
                     </thead>
                     <tbody>
                         <?php foreach (array_slice($pending_emis, 0, 6) as $emi): ?>
-                        <tr class="<?= strtotime($emi->due_date) < time() ? 'table-danger' : '' ?>">
+                        <tr class="<?= safe_timestamp($emi->due_date) < time() ? 'table-danger' : '' ?>">
                             <td><?= $emi->installment_number ?></td>
-                            <td><?= date('d M Y', strtotime($emi->due_date)) ?></td>
+                            <td><?= format_date($emi->due_date, 'd M Y') ?></td>
                             <td class="text-right">₹<?= number_format($emi->emi_amount) ?></td>
                         </tr>
                         <?php endforeach; ?>
@@ -258,7 +258,7 @@
                     <tbody>
                         <?php foreach (array_slice($recent_payments ?? [], 0, 5) as $pmt): ?>
                         <tr>
-                            <td><?= date('d M Y', strtotime($pmt->payment_date)) ?></td>
+                            <td><?= format_date($pmt->payment_date) ?></td>
                             <td><small><?= $pmt->receipt_number ?></small></td>
                             <td class="text-right">₹<?= number_format($pmt->amount) ?></td>
                             <td><small><?= ucfirst($pmt->payment_mode) ?></small></td>

@@ -52,7 +52,7 @@ class Loan_model extends MY_Model {
         $data['created_at'] = date('Y-m-d H:i:s');
         
         // Set expiry date (30 days from application)
-        $data['expiry_date'] = date('Y-m-d', strtotime('+30 days'));
+        $data['expiry_date'] = date('Y-m-d', safe_timestamp('+30 days'));
         
         // Capture member's current financial position
         $this->load->model('Member_model');
@@ -208,7 +208,7 @@ class Loan_model extends MY_Model {
                 'outstanding_interest' => $calc['total_interest'],
                 'disbursement_date' => $disbursement_data['disbursement_date'],
                 'first_emi_date' => $disbursement_data['first_emi_date'],
-                'last_emi_date' => date('Y-m-d', strtotime($disbursement_data['first_emi_date'] . ' +' . ($tenure - 1) . ' months')),
+                'last_emi_date' => date('Y-m-d', safe_timestamp($disbursement_data['first_emi_date'] . ' +' . ($tenure - 1) . ' months')),
                 'status' => 'active',
                 'disbursement_mode' => $disbursement_data['disbursement_mode'],
                 'disbursement_reference' => $disbursement_data['reference_number'] ?? null,
@@ -445,10 +445,10 @@ class Loan_model extends MY_Model {
         }
         
         // Check if late
-        $is_late = (strtotime(date('Y-m-d')) > strtotime($installment->due_date));
+        $is_late = (safe_timestamp(date('Y-m-d')) > safe_timestamp($installment->due_date));
         $days_late = 0;
         if ($is_late) {
-            $days_late = floor((strtotime(date('Y-m-d')) - strtotime($installment->due_date)) / 86400);
+            $days_late = floor((safe_timestamp(date('Y-m-d')) - safe_timestamp($installment->due_date)) / 86400);
         }
         
         return $this->db->where('id', $installment_id)

@@ -27,20 +27,52 @@ class Savings extends Admin_Controller {
         // Get accounts with pagination
         $page = (int) ($this->input->get('page') ?: 1);
         $per_page = 20;
+        // Filters for the view
+        $data['filters'] = [
+            'search' => $this->input->get('search') ?: '',
+            'scheme' => $this->input->get('scheme') ?: '',
+            'status' => $this->input->get('status') ?: ''
+        ];
         
+        // Build base query for counting
+        $this->db->from('savings_accounts sa');
+        $this->db->join('savings_schemes ss', 'ss.id = sa.scheme_id');
+        $this->db->join('members m', 'm.id = sa.member_id');
+        if ($data['filters']['status']) {
+            $this->db->where('sa.status', $data['filters']['status']);
+        }
+        $total = (int) $this->db->count_all_results();
+
+        // Pagination metadata for view
+        $data['pagination'] = [
+            'current_page' => $page,
+            'per_page' => $per_page,
+            'total' => $total
+        ];
+
+        // Fetch paged results
         $this->db->select('sa.*, ss.scheme_name, m.member_code, m.first_name, m.last_name, m.phone');
         $this->db->from('savings_accounts sa');
         $this->db->join('savings_schemes ss', 'ss.id = sa.scheme_id');
         $this->db->join('members m', 'm.id = sa.member_id');
-        
-        if ($status = $this->input->get('status')) {
-            $this->db->where('sa.status', $status);
+        if ($data['filters']['status']) {
+            $this->db->where('sa.status', $data['filters']['status']);
         }
-        
         $this->db->order_by('sa.created_at', 'DESC');
         $this->db->limit($per_page, ($page - 1) * $per_page);
-        
+
         $data['accounts'] = $this->db->get()->result();
+        // Normalize accounts: compute pending_dues count and display name
+        foreach ($data['accounts'] as &$acc) {
+            // Compute count of pending/partial/overdue schedule entries for the account
+            $acc->pending_dues = (int) $this->db->where('savings_account_id', $acc->id)
+                                                ->where_in('status', ['pending', 'partial', 'overdue'])
+                                                ->count_all_results('savings_schedule');
+            // Provide a member display name
+            if (!isset($acc->member_name)) {
+                $acc->member_name = trim(($acc->first_name ?? '') . ' ' . ($acc->last_name ?? '')) ?: ($acc->member_code ?? '');
+            }
+        }
         $data['schemes'] = $this->Savings_model->get_schemes();
         
         $this->load_view('admin/savings/index', $data);
@@ -72,6 +104,33 @@ class Savings extends Admin_Controller {
         ];
         
         $data['account'] = $account;
+        // Ensure related objects are available to the view
+        $data['member'] = $this->Member_model->get_by_id($account->member_id);
+        $data['scheme'] = $this->db->where('id', $account->scheme_id)->get('savings_schemes')->row();
+        // Count pending dues for the account
+        $data['pending_dues'] = (int) $this->db->where('savings_account_id', $id)
+                                               ->where_in('status', ['pending', 'partial', 'overdue'])
+                                               ->count_all_results('savings_schedule');
+        // Ensure account due_date/day is available (use next pending schedule or fallback to 1st)
+        if (!isset($account->due_date) || empty($account->due_date)) {
+            $next_due = $this->db->where('savings_account_id', $id)
+                                 ->where_in('status', ['pending', 'partial', 'overdue'])
+                                 ->order_by('due_date', 'ASC')
+                                 ->get('savings_schedule')
+                                 ->row();
+            if ($next_due && isset($next_due->due_date)) {
+                $account->due_date = (int) date('j', safe_timestamp($next_due->due_date));
+            } else {
+                // Fallback: use account start_date day or 1
+                $account->due_date = $account->start_date ? (int) date('j', safe_timestamp($account->start_date)) : 1;
+            }
+        }
+        // Compatibility mappings for view fields
+        // Some schema/legacy names differ - ensure view properties exist
+        $account->interest_earned = $account->interest_earned ?? $account->total_interest_earned ?? 0;
+        $account->total_deposited = $account->total_deposited ?? $account->deposited_total ?? 0;
+        $account->current_balance = $account->current_balance ?? $account->balance ?? 0;
+
         $data['schedule'] = $this->Savings_model->get_schedule($id);
         $data['transactions'] = $this->Savings_model->get_transactions($id);
         
@@ -151,6 +210,12 @@ class Savings extends Admin_Controller {
             ['title' => 'Collect', 'url' => '']
         ];
         
+        // Initialize defaults to avoid undefined variable warnings in view
+        $data['account'] = null;
+        $data['member'] = null;
+        $data['scheme'] = null;
+        $data['pending_dues'] = [];
+
         // If account ID provided, pre-fill
         if ($id) {
             $data['account'] = $this->db->select('sa.*, m.member_code, m.first_name, m.last_name')
@@ -160,11 +225,18 @@ class Savings extends Admin_Controller {
                                         ->get()
                                         ->row();
             
-            $data['pending_schedule'] = $this->db->where('savings_account_id', $id)
-                                                  ->where_in('status', ['pending', 'partial'])
-                                                  ->order_by('due_month', 'ASC')
-                                                  ->get('savings_schedule')
-                                                  ->result();
+            $data['pending_dues'] = $this->db->where('savings_account_id', $id)
+                                              ->where_in('status', ['pending', 'partial'])
+                                              ->order_by('due_month', 'ASC')
+                                              ->get('savings_schedule')
+                                              ->result();
+
+            // Load related member and scheme objects for the view
+            if ($data['account']) {
+                $this->load->model('Member_model');
+                $data['member'] = $this->Member_model->get_by_id($data['account']->member_id);
+                $data['scheme'] = $this->db->where('id', $data['account']->scheme_id)->get('savings_schemes')->row();
+            }
         }
         
         $this->load_view('admin/savings/collect', $data);

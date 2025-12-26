@@ -47,7 +47,7 @@
                         <?php endif; ?>
                     </td>
                     <td>
-                        <?= $user->last_login ? date('d M Y h:i A', strtotime($user->last_login)) : 'Never' ?>
+                        <?= $user->last_login ? format_date_time($user->last_login, 'd M Y H:i') : 'Never' ?>
                     </td>
                     <td>
                         <div class="btn-group btn-group-sm">

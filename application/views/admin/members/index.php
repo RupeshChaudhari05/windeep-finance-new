@@ -65,13 +65,7 @@
                             </td>
                             <td>
                                 <div class="d-flex align-items-center">
-                                    <?php if ($member->profile_image): ?>
-                                        <img src="<?= base_url('uploads/profile_images/' . $member->profile_image) ?>" class="img-circle mr-2" style="width: 32px; height: 32px;">
-                                    <?php else: ?>
-                                        <div class="img-circle bg-secondary text-white d-flex align-items-center justify-content-center mr-2" style="width: 32px; height: 32px;">
-                                            <?= strtoupper(substr($member->first_name, 0, 1)) ?>
-                                        </div>
-                                    <?php endif; ?>
+                                    <?= member_avatar_html($member, 32, 'mr-2') ?>
                                     <div>
                                         <strong><?= $member->first_name ?> <?= $member->last_name ?></strong>
                                         <?php if ($member->email): ?>
@@ -86,7 +80,7 @@
                             <td><?= $member->city ?: '-' ?></td>
                             <td>
                                 <?php if ($member->kyc_verified): ?>
-                                    <span class="badge badge-success" title="Verified on <?= date('d M Y', strtotime($member->kyc_verified_at)) ?>">
+                                    <span class="badge badge-success" title="Verified on <?= format_date($member->kyc_verified_at, 'd M Y') ?>">
                                         <i class="fas fa-check-circle"></i> Verified
                                     </span>
                                 <?php else: ?>
@@ -109,8 +103,8 @@
                                 </span>
                             </td>
                             <td>
-                                <span title="<?= date('d M Y H:i', strtotime($member->created_at)) ?>">
-                                    <?= date('d M Y', strtotime($member->created_at)) ?>
+                                <span title="<?= format_date_time($member->created_at, 'd M Y H:i') ?>">
+                                    <?= format_date($member->created_at, 'd M Y') ?>
                                 </span>
                             </td>
                             <td>

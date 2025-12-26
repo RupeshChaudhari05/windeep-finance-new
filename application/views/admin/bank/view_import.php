@@ -18,7 +18,7 @@
                     </tr>
                     <tr>
                         <td class="text-muted">Import Date:</td>
-                        <td><?= date('d M Y h:i A', strtotime($import->imported_at)) ?></td>
+                        <td><?= format_date_time($import->imported_at, 'd M Y h:i A') ?></td>
                     </tr>
                     <tr>
                         <td class="text-muted">Imported By:</td>
@@ -118,7 +118,7 @@
                         <tbody>
                             <?php foreach ($transactions as $txn): ?>
                             <tr data-status="<?= $txn->mapping_status ?>">
-                                <td><?= date('d M Y', strtotime($txn->transaction_date)) ?></td>
+                                <td><?= format_date($txn->transaction_date, 'd M Y') ?></td>
                                 <td>
                                     <?= character_limiter($txn->description, 40) ?>
                                     <?php if ($txn->matched_type): ?>

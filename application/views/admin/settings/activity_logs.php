@@ -46,8 +46,8 @@
                     <tr>
                         <td><?= $i++ ?></td>
                         <td>
-                            <small><?= date('d M Y', strtotime($log->created_at)) ?></small><br>
-                            <small class="text-muted"><?= date('h:i:s A', strtotime($log->created_at)) ?></small>
+                            <small><?= format_date($log->created_at) ?></small><br>
+                            <small class="text-muted"><?= format_date_time($log->created_at, 'h:i:s A') ?></small>
                         </td>
                         <td>
                             <strong><?= $log->user_name ?? 'Guest' ?></strong>
@@ -131,7 +131,7 @@
                     <?php foreach ($recent_logins ?? [] as $login): ?>
                     <li class="list-group-item">
                         <strong><?= $login->user_name ?></strong>
-                        <small class="float-right text-muted"><?= date('d M h:i A', strtotime($login->created_at)) ?></small>
+                        <small class="float-right text-muted"><?= format_date_time($login->created_at, 'd M h:i A') ?></small>
                     </li>
                     <?php endforeach; ?>
                 </ul>

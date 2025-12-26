@@ -90,7 +90,7 @@
                     <td class="label">Loan Product:</td>
                     <td class="value"><?= $loan->product_name ?? 'N/A' ?></td>
                     <td class="label">Disbursement Date:</td>
-                    <td class="value"><?= date('d M Y', strtotime($loan->disbursement_date)) ?></td>
+                    <td class="value"><?= format_date($loan->disbursement_date) ?></td>
                 </tr>
                 <tr>
                     <td class="label">Principal Amount:</td>
@@ -188,7 +188,7 @@
                     ?>
                     <tr>
                         <td><?= $inst->installment_number ?></td>
-                        <td><?= date('d M Y', strtotime($inst->due_date)) ?></td>
+                        <td><?= format_date($inst->due_date) ?></td>
                         <td class="text-right">₹<?= number_format($inst->emi_amount, 2) ?></td>
                         <td class="text-right">₹<?= number_format($inst->principal_component, 2) ?></td>
                         <td class="text-right">₹<?= number_format($inst->interest_component, 2) ?></td>
@@ -197,7 +197,7 @@
                             <span class="badge badge-<?= 
                                 $inst->status == 'paid' ? 'success' : 
                                 ($inst->status == 'partial' ? 'warning' : 
-                                ($inst->status == 'overdue' || (strtotime($inst->due_date) < time() && $inst->status == 'pending') ? 'danger' : 'info'))
+                                ($inst->status == 'overdue' || (safe_timestamp($inst->due_date) < time() && $inst->status == 'pending') ? 'danger' : 'info'))
                             ?>">
                                 <?= strtoupper($inst->status) ?>
                             </span>
@@ -246,7 +246,7 @@
                     <?php else: 
                         foreach ($payments as $payment): ?>
                     <tr>
-                        <td><?= date('d M Y', strtotime($payment->payment_date)) ?></td>
+                        <td><?= format_date($payment->payment_date) ?></td>
                         <td><?= $payment->receipt_number ?? '-' ?></td>
                         <td class="text-right">₹<?= number_format($payment->total_amount, 2) ?></td>
                         <td><?= ucfirst($payment->payment_mode) ?></td>

@@ -38,8 +38,8 @@
                                 <span class="badge badge-success ml-2">Current</span>
                                 <?php endif; ?>
                             </td>
-                            <td><?= date('d M Y', strtotime($year->start_date)) ?></td>
-                            <td><?= date('d M Y', strtotime($year->end_date)) ?></td>
+                            <td><?= format_date($year->start_date, 'd M Y') ?></td>
+                            <td><?= format_date($year->end_date, 'd M Y') ?></td>
                             <td>
                                 <?php if ($year->is_closed): ?>
                                 <span class="badge badge-secondary">Closed</span>
@@ -49,7 +49,7 @@
                                 <span class="badge badge-warning">Pending</span>
                                 <?php endif; ?>
                             </td>
-                            <td><?= date('d M Y', strtotime($year->created_at)) ?></td>
+                            <td><?= format_date($year->created_at) ?></td>
                             <td>
                                 <div class="btn-group btn-group-sm">
                                     <?php if (!$year->is_active && !$year->is_closed): ?>
@@ -88,17 +88,17 @@
                 <table class="table table-borderless table-sm">
                     <tr>
                         <td>Start Date:</td>
-                        <td class="text-right"><?= date('d M Y', strtotime($active->start_date)) ?></td>
+                        <td class="text-right"><?= format_date($active->start_date) ?></td>
                     </tr>
                     <tr>
                         <td>End Date:</td>
-                        <td class="text-right"><?= date('d M Y', strtotime($active->end_date)) ?></td>
+                        <td class="text-right"><?= format_date($active->end_date) ?></td>
                     </tr>
                     <tr>
                         <td>Days Remaining:</td>
                         <td class="text-right">
                             <?php 
-                            $remaining = floor((strtotime($active->end_date) - time()) / 86400);
+                            $remaining = floor((safe_timestamp($active->end_date) - time()) / 86400);
                             echo $remaining > 0 ? $remaining . ' days' : 'Ended';
                             ?>
                         </td>

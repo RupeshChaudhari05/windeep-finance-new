@@ -230,8 +230,8 @@ class Bank_model extends MY_Model {
         }
         
         // Try strtotime
-        $timestamp = strtotime($date_str);
-        if ($timestamp) {
+        $timestamp = safe_timestamp($date_str);
+        if ($timestamp > 0) {
             return date('Y-m-d', $timestamp);
         }
         
@@ -479,6 +479,124 @@ class Bank_model extends MY_Model {
                         ->get('bank_transactions')
                         ->result();
     }
+
+    /**
+     * Map and Process a Transaction (used by controller and integration tests)
+     * @param int $transaction_id
+     * @param array $data - mapping data (paid_by_member_id, paid_for_member_id, transaction_category, related_type, related_id, remarks)
+     * @param int $admin_id
+     * @return bool
+     */
+    public function map_and_process_transaction($transaction_id, $data, $admin_id) {
+        // Update mapping fields
+        $update = [
+            'paid_by_member_id' => $data['paid_by_member_id'] ?? null,
+            'paid_for_member_id' => $data['paid_for_member_id'] ?? ($data['paid_by_member_id'] ?? null),
+            'transaction_category' => $data['transaction_category'] ?? $data['transaction_type'] ?? null,
+            'mapping_status' => 'mapped',
+            'remarks' => $data['mapping_remarks'] ?? $data['remarks'] ?? null,
+            'mapped_by' => $admin_id,
+            'mapped_at' => date('Y-m-d H:i:s'),
+            'updated_by' => $admin_id,
+            'updated_at' => date('Y-m-d H:i:s')
+        ];
+
+        // Conditionally include related_type/related_id if columns exist
+        if ($this->db->field_exists('related_type', 'bank_transactions')) {
+            $update['related_type'] = $data['related_type'] ?? null;
+        }
+        if ($this->db->field_exists('related_id', 'bank_transactions')) {
+            $update['related_id'] = $data['related_id'] ?? null;
+        }
+
+        $this->db->where('id', $transaction_id)->update('bank_transactions', $update);
+
+        // Fetch transaction
+        $txn = $this->db->where('id', $transaction_id)->get('bank_transactions')->row();
+        if (!$txn) return false;
+
+        // Handle different schema possibilities (credit_amount/debit_amount) or single amount
+        $amount = 0;
+        if (isset($txn->credit_amount) && $txn->credit_amount > 0) {
+            $amount = $txn->credit_amount;
+        } elseif (isset($txn->debit_amount) && $txn->debit_amount > 0) {
+            $amount = abs($txn->debit_amount);
+        } else {
+            $amount = $txn->amount ?? 0;
+        }
+        $type = $update['transaction_category'];
+
+        try {
+            // Determine related id/type fallback to passed data if columns not present
+        $related_id = $update['related_id'] ?? ($data['related_id'] ?? null);
+        $related_type = $update['related_type'] ?? ($data['related_type'] ?? null);
+
+        switch ($type) {
+                case 'emi':
+                    $target_loan_id = $related_id ?: ($data['related_id'] ?? null);
+                    if (!empty($target_loan_id)) {
+                        $this->load->model('Loan_model');
+                        $payment_data = [
+                            'loan_id' => $target_loan_id,
+                            'total_amount' => $amount,
+                            'payment_mode' => 'bank_transfer',
+                            'bank_transaction_id' => $transaction_id,
+                            'payment_type' => 'regular',
+                            'created_by' => $admin_id
+                        ];
+                        $payment_id = $this->Loan_model->record_payment($payment_data);
+                        if (!$payment_id) {
+                            throw new Exception('Loan_model::record_payment failed');
+                        }
+                        return $payment_id;
+                    }
+                    break;
+
+                case 'savings':
+                    if (!empty($update['related_type']) && $update['related_type'] == 'savings' && !empty($update['related_id'])) {
+                        $this->load->model('Savings_model');
+                        $payment_data = [
+                            'savings_account_id' => $update['related_id'],
+                            'amount' => $amount,
+                            'transaction_type' => 'deposit',
+                            'reference' => $transaction_id,
+                            'created_by' => $admin_id
+                        ];
+                        $transaction_id = $this->Savings_model->record_payment($payment_data);
+                        if (!$transaction_id) {
+                            throw new Exception('Savings_model::record_payment failed');
+                        }
+                        return $transaction_id;
+                    }
+                    break;
+
+                case 'fine':
+                    $this->load->model('Fine_model');
+                    $fine = $this->db->where('member_id', $update['paid_for_member_id'])
+                                     ->where('status', 'pending')
+                                     ->order_by('fine_date', 'ASC')
+                                     ->get('fines')
+                                     ->row();
+                    if ($fine) {
+                        $res = $this->Fine_model->record_payment($fine->id, $amount, 'bank_transfer', $transaction_id, $admin_id);
+                        if (!$res) {
+                            throw new Exception('Fine_model::record_payment failed');
+                        }
+                        return $res;
+                    }
+                    break;
+
+                default:
+                    // unknown type, just mark mapped
+                    return true;
+            }
+        } catch (Exception $e) {
+            // rethrow for caller to handle
+            throw $e;
+        }
+
+        throw new Exception('No action taken for transaction mapping');
+    }
     
     /**
      * Get Pending Transactions
@@ -536,7 +654,7 @@ class Bank_model extends MY_Model {
                         ->join('members m', 'm.id = sp.member_id')
                         ->join('savings_accounts sa', 'sa.id = sp.savings_account_id')
                         ->where('sp.status', 'pending')
-                        ->where('sp.payment_date >=', date('Y-m-d', strtotime('-30 days')))
+                        ->where('sp.payment_date >=', date('Y-m-d', safe_timestamp('-30 days')))
                         ->order_by('sp.payment_date', 'DESC')
                         ->get()
                         ->result();
@@ -551,7 +669,7 @@ class Bank_model extends MY_Model {
                         ->join('members m', 'm.id = lp.member_id')
                         ->join('loans l', 'l.id = lp.loan_id')
                         ->where('lp.status', 'pending')
-                        ->where('lp.payment_date >=', date('Y-m-d', strtotime('-30 days')))
+                        ->where('lp.payment_date >=', date('Y-m-d', safe_timestamp('-30 days')))
                         ->order_by('lp.payment_date', 'DESC')
                         ->get()
                         ->result();
@@ -596,6 +714,22 @@ class Bank_model extends MY_Model {
         foreach ($transactions as &$txn) {
             $txn->paid_by_name = $txn->paid_by_first ? "{$txn->paid_by_first} {$txn->paid_by_last} ({$txn->paid_by_code})" : null;
             $txn->paid_for_name = $txn->paid_for_first ? "{$txn->paid_for_first} {$txn->paid_for_last} ({$txn->paid_for_code})" : null;
+
+            // Normalize amount fields to avoid undefined property warnings in views
+            $amount = isset($txn->amount) ? (float) $txn->amount : 0.0;
+            if (isset($txn->transaction_type) && $txn->transaction_type === 'credit') {
+                $txn->credit_amount = $amount;
+                $txn->debit_amount = 0.0;
+            } else {
+                $txn->debit_amount = $amount;
+                $txn->credit_amount = 0.0;
+            }
+
+            // Ensure mapping_status is set
+            $txn->mapping_status = $txn->mapping_status ?? 'unmapped';
+
+            // Format updated_by name fallback
+            $txn->updated_by_name = $txn->updated_by_name ?? null;
         }
         
         return $transactions;

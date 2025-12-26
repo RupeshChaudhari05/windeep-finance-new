@@ -149,7 +149,7 @@
                     <div class="form-group">
                         <label>First EMI Date <span class="text-danger">*</span></label>
                         <input type="date" name="first_emi_date" id="first_emi_date" class="form-control" 
-                               value="<?= date('Y-m-d', strtotime('+1 month')) ?>" required>
+                               value="<?= date('Y-m-d', safe_timestamp('+1 month')) ?>" required>
                         <small class="text-muted">Usually 1 month from disbursement</small>
                     </div>
                     

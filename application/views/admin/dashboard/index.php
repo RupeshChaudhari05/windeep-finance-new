@@ -301,7 +301,7 @@
                                         <?= $loan->first_name ?>
                                     </td>
                                     <td>
-                                        <span class="text-danger"><?= date('d M', strtotime($loan->due_date)) ?></span>
+                                        <span class="text-danger"><?= format_date($loan->due_date, 'd M') ?></span>
                                     </td>
                                     <td>₹<?= number_format($loan->emi_amount) ?></td>
                                     <td>
@@ -341,7 +341,7 @@
                     <div>
                         <i class="fas fa-circle bg-primary"></i>
                         <div class="timeline-item">
-                            <span class="time"><i class="far fa-clock"></i> <?= date('h:i A', strtotime($activity->created_at)) ?></span>
+                            <span class="time"><i class="far fa-clock"></i> <?= format_date_time($activity->created_at, 'h:i A') ?></span>
                             <h3 class="timeline-header"><?= htmlspecialchars($activity->activity) ?></h3>
                             <?php if ($activity->details): ?>
                             <div class="timeline-body">

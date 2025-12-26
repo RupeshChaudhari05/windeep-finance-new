@@ -176,11 +176,11 @@ class Savings_model extends MY_Model {
         }
         
         // Check if late
-        $is_late = (strtotime(date('Y-m-d')) > strtotime($schedule->due_date));
+        $is_late = (safe_timestamp(date('Y-m-d')) > safe_timestamp($schedule->due_date));
         $days_late = 0;
         
         if ($is_late && $status === 'paid') {
-            $days_late = floor((strtotime(date('Y-m-d')) - strtotime($schedule->due_date)) / 86400);
+            $days_late = floor((safe_timestamp(date('Y-m-d')) - safe_timestamp($schedule->due_date)) / 86400);
         }
         
         return $this->db->where('id', $schedule_id)
@@ -323,7 +323,7 @@ class Savings_model extends MY_Model {
             'related_id' => $schedule_id,
             'fine_date' => date('Y-m-d'),
             'due_date' => $schedule->due_date,
-            'days_late' => floor((strtotime(date('Y-m-d')) - strtotime($schedule->due_date)) / 86400),
+            'days_late' => floor((safe_timestamp(date('Y-m-d')) - safe_timestamp($schedule->due_date)) / 86400),
             'fine_amount' => $fine_amount,
             'balance_amount' => $fine_amount,
             'status' => 'pending',

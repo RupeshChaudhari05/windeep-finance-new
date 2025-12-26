@@ -290,7 +290,7 @@ class Members extends Admin_Controller {
             
             if ($this->upload->do_upload('profile_image')) {
                 // Delete old image
-                if ($member->profile_image && file_exists($upload_path . $member->profile_image)) {
+                if (!empty($member->profile_image) && file_exists($upload_path . $member->profile_image)) {
                     unlink($upload_path . $member->profile_image);
                 }
                 $member_data['profile_image'] = $this->upload->data('file_name');
@@ -428,7 +428,7 @@ class Members extends Admin_Controller {
                 $m->city,
                 $m->state,
                 $m->status,
-                date('Y-m-d', strtotime($m->created_at))
+                format_date($m->created_at, 'Y-m-d', '')
             ]);
         }
         

@@ -39,9 +39,12 @@
                         <tr>
                             <td><?= $i++ ?></td>
                             <td>
-                                <strong><?= $product->name ?></strong>
-                                <?php if ($product->description): ?>
-                                <br><small class="text-muted"><?= character_limiter($product->description, 50) ?></small>
+                                <strong><?= $product->name ?? $product->product_name ?? 'Unnamed Product' ?></strong>
+                                <?php if (!empty($product->description)): ?>
+                                <br><small class="text-muted"><?=
+                                    function_exists('character_limiter') ? character_limiter($product->description, 50)
+                                    : (strlen($product->description) > 50 ? substr($product->description, 0, 47) . '...' : $product->description)
+                                ?></small>
                                 <?php endif; ?>
                             </td>
                             <td><span class="badge badge-secondary"><?= $product->code ?></span></td>

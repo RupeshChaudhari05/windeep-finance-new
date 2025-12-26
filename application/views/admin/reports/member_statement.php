@@ -64,7 +64,7 @@
                     <div class="card-body">
                         <div class="row">
                             <div class="col-md-2 text-center">
-                                <?php if ($member->profile_image): ?>
+                                <?php if (!empty($member->profile_image)): ?>
                                     <img src="<?= base_url('uploads/profile_images/' . $member->profile_image) ?>" class="img-thumbnail" width="100">
                                 <?php else: ?>
                                     <div class="bg-secondary text-white rounded p-3 mb-2" style="font-size: 40px;">
@@ -82,7 +82,7 @@
                                 <table class="table table-sm table-borderless mb-0">
                                     <tr>
                                         <td><strong>Member Since:</strong></td>
-                                        <td><?= date('d M Y', strtotime($member->joining_date)) ?></td>
+                                        <td><?= format_date($member->joining_date) ?></td>
                                     </tr>
                                     <tr>
                                         <td><strong>Total Savings Balance:</strong></td>
@@ -107,8 +107,8 @@
         <!-- Statement Period -->
         <div class="alert alert-info mb-4">
             <strong><i class="fas fa-calendar-alt mr-1"></i> Statement Period:</strong> 
-            <?= date('d M Y', strtotime($filters['start_date'] ?? date('Y-04-01'))) ?> to 
-            <?= date('d M Y', strtotime($filters['end_date'] ?? date('Y-m-d'))) ?>
+            <?= format_date($filters['start_date'] ?? date('Y-04-01'), 'd M Y') ?> to 
+            <?= format_date($filters['end_date'] ?? date('Y-m-d'), 'd M Y') ?>
         </div>
         
         <!-- Savings Section -->
@@ -154,7 +154,7 @@
                             }
                         ?>
                         <tr>
-                            <td><?= date('d M Y', strtotime($txn->transaction_date)) ?></td>
+                            <td><?= format_date($txn->transaction_date) ?></td>
                             <td><?= $txn->description ?? ucfirst($txn->transaction_type) ?></td>
                             <td><small><?= $txn->receipt_number ?></small></td>
                             <td class="text-right text-success">
@@ -215,8 +215,8 @@
                         <?php foreach ($loan->installments as $inst): ?>
                         <tr class="<?= $inst->status == 'overdue' ? 'table-warning' : '' ?>">
                             <td><?= $inst->installment_number ?></td>
-                            <td><?= date('d M Y', strtotime($inst->due_date)) ?></td>
-                            <td><?= $inst->paid_date ? date('d M Y', strtotime($inst->paid_date)) : '-' ?></td>
+                            <td><?= format_date($inst->due_date) ?></td>
+                            <td><?= $inst->paid_date ? format_date($inst->paid_date) : '-' ?></td>
                             <td class="text-right">₹<?= number_format($inst->emi_amount) ?></td>
                             <td class="text-right">₹<?= number_format($inst->principal_amount) ?></td>
                             <td class="text-right">₹<?= number_format($inst->interest_amount) ?></td>

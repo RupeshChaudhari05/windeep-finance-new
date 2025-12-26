@@ -4,13 +4,7 @@
         <div class="card card-primary card-outline">
             <div class="card-body box-profile">
                 <div class="text-center">
-                    <?php if ($member->profile_image): ?>
-                        <img class="profile-user-img img-fluid img-circle" src="<?= base_url('uploads/profile_images/' . $member->profile_image) ?>" alt="Profile">
-                    <?php else: ?>
-                        <div class="profile-user-img img-fluid img-circle bg-secondary text-white d-flex align-items-center justify-content-center mx-auto" style="width: 100px; height: 100px; font-size: 36px;">
-                            <?= strtoupper(substr($member->first_name, 0, 1) . substr($member->last_name, 0, 1)) ?>
-                        </div>
-                    <?php endif; ?>
+                    <?= member_avatar_html($member, 100) ?>
                 </div>
                 
                 <h3 class="profile-username text-center"><?= $member->first_name ?> <?= $member->last_name ?></h3>
@@ -33,7 +27,7 @@
                     </li>
                     <li class="list-group-item">
                         <b><i class="fas fa-calendar mr-1"></i> Join Date</b>
-                        <span class="float-right"><?= date('d M Y', strtotime($member->created_at)) ?></span>
+                        <span class="float-right"><?= format_date($member->created_at, 'd M Y') ?></span>
                     </li>
                     <li class="list-group-item">
                         <b><i class="fas fa-user-check mr-1"></i> Status</b>
@@ -194,7 +188,7 @@
                                 <table class="table table-sm">
                                     <tr>
                                         <th width="40%">Date of Birth</th>
-                                        <td><?= $member->date_of_birth ? date('d M Y', strtotime($member->date_of_birth)) : '-' ?></td>
+                                        <td><?= $member->date_of_birth ? format_date($member->date_of_birth, 'd M Y') : '-' ?></td>
                                     </tr>
                                     <tr>
                                         <th>Gender</th>
@@ -210,7 +204,7 @@
                                     </tr>
                                     <tr>
                                         <th>Monthly Income</th>
-                                        <td><?= $member->monthly_income ? '₹' . number_format($member->monthly_income) : '-' ?></td>
+                                        <td><?= member_formatted_income($member) ?></td>
                                     </tr>
                                 </table>
                                 
@@ -233,13 +227,7 @@
                             <div class="col-md-6">
                                 <h5>Address</h5>
                                 <address>
-                                    <?= $member->address_line1 ?><br>
-                                    <?php if ($member->address_line2): ?>
-                                        <?= $member->address_line2 ?><br>
-                                    <?php endif; ?>
-                                    <?= $member->city ?><?= $member->state ? ', ' . $member->state : '' ?><br>
-                                    <?= $member->pincode ?>
-                                </address>
+                                    <?= member_formatted_address($member) ?>
                                 
                                 <h5 class="mt-4">Bank Details</h5>
                                 <table class="table table-sm">
@@ -410,7 +398,7 @@
                                         <tr>
                                             <td><a href="<?= site_url('admin/fines/view/' . $fine->id) ?>"><?= $fine->fine_code ?></a></td>
                                             <td><?= ucfirst(str_replace('_', ' ', $fine->fine_type)) ?></td>
-                                            <td><?= date('d M Y', strtotime($fine->fine_date)) ?></td>
+                                            <td><?= format_date($fine->fine_date, 'd M Y') ?></td>
                                             <td>₹<?= number_format($fine->fine_amount) ?></td>
                                             <td>₹<?= number_format($fine->paid_amount) ?></td>
                                             <td class="text-danger">₹<?= number_format($fine->balance_amount) ?></td>
@@ -459,7 +447,7 @@
                                     <tbody>
                                         <?php foreach (array_slice($ledger, -20) as $entry): ?>
                                         <tr>
-                                            <td><?= date('d M Y', strtotime($entry->transaction_date)) ?></td>
+                                            <td><?= format_date($entry->transaction_date) ?></td>
                                             <td><?= ucfirst(str_replace('_', ' ', $entry->entry_type)) ?></td>
                                             <td class="text-danger"><?= $entry->debit_amount > 0 ? '₹' . number_format($entry->debit_amount) : '-' ?></td>
                                             <td class="text-success"><?= $entry->credit_amount > 0 ? '₹' . number_format($entry->credit_amount) : '-' ?></td>

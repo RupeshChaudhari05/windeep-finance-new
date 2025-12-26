@@ -4,7 +4,7 @@
         <h3 class="card-title"><i class="fas fa-calendar-alt mr-1"></i> Monthly Summary Report</h3>
         <div class="card-tools">
             <form class="form-inline" method="get">
-                <input type="month" name="month" class="form-control form-control-sm mr-2" value="<?= date('Y-m', strtotime($month ?? 'now')) ?>">
+                <input type="month" name="month" class="form-control form-control-sm mr-2" value="<?= date('Y-m', safe_timestamp($month ?? 'now')) ?>">
                 <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-filter"></i></button>
             </form>
             <a href="<?= site_url('admin/reports/monthly_summary?export=pdf&month=' . $month) ?>" class="btn btn-danger btn-sm ml-2">
@@ -151,7 +151,7 @@
 <!-- Portfolio Status -->
 <div class="card mt-4">
     <div class="card-header">
-        <h5 class="card-title mb-0"><i class="fas fa-chart-pie mr-1"></i> Portfolio Status as on <?= date('d M Y', strtotime('last day of ' . $month)) ?></h5>
+        <h5 class="card-title mb-0"><i class="fas fa-chart-pie mr-1"></i> Portfolio Status as on <?= format_date(date('Y-m-d', safe_timestamp('last day of ' . $month))) ?></h5>
     </div>
     <div class="card-body">
         <div class="row">

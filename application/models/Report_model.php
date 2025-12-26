@@ -247,7 +247,7 @@ class Report_model extends MY_Model {
         ->join('loan_installments li', 'li.loan_id = l.id')
         ->where('l.status', 'active')
         ->where('li.status', 'pending')
-        ->where('li.due_date <', date('Y-m-d', strtotime('-' . $days_threshold . ' days')))
+        ->where('li.due_date <', date('Y-m-d', safe_timestamp('-' . $days_threshold . ' days')))
         ->group_by('l.id')
         ->order_by('days_overdue', 'DESC')
         ->get()
@@ -336,8 +336,8 @@ class Report_model extends MY_Model {
         ->from('loan_installments li')
         ->join('loans l', 'l.id = li.loan_id')
         ->join('members m', 'm.id = l.member_id')
-        ->where('MONTH(li.due_date)', date('m', strtotime($month)))
-        ->where('YEAR(li.due_date)', date('Y', strtotime($month)))
+        ->where('MONTH(li.due_date)', date('m', safe_timestamp($month)))
+        ->where('YEAR(li.due_date)', date('Y', safe_timestamp($month)))
         ->where_in('li.status', ['pending', 'partial'])
         ->order_by('m.member_code', 'ASC')
         ->get()
@@ -380,7 +380,7 @@ class Report_model extends MY_Model {
      */
     public function get_monthly_summary($year, $month) {
         $start_date = "$year-$month-01";
-        $end_date = date('Y-m-t', strtotime($start_date));
+        $end_date = date('Y-m-t', safe_timestamp($start_date));
         
         return [
             'new_members' => $this->db->where('DATE(created_at) >=', $start_date)
