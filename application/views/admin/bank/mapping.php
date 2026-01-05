@@ -1,4 +1,23 @@
 <div class="content-wrapper">
+    <style>
+    .table-responsive {
+        margin-bottom: 20px;
+    }
+    .card-body .table th, .card-body .table td {
+        padding: 12px 8px;
+    }
+    .modal-body {
+        padding: 20px;
+    }
+    .modal-body .form-group {
+        margin-bottom: 15px;
+    }
+    .mapping-form-section {
+        margin-top: 20px;
+        padding-top: 20px;
+        border-top: 1px solid #dee2e6;
+    }
+    </style>
     <div class="content-header">
         <div class="container-fluid">
             <div class="row mb-2">
@@ -289,7 +308,7 @@
                     </div>
 
                     <!-- Mapping Rows -->
-                    <div class="row mb-3">
+                    <div class="row mb-3 mapping-form-section">
                         <div class="col-md-6">
                             <div class="form-group">
                                 <label>Paid By (Who made the payment) <span class="text-danger">*</span></label>

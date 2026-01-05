@@ -343,9 +343,9 @@
                         <div class="timeline-item">
                             <span class="time"><i class="far fa-clock"></i> <?= format_date_time($activity->created_at, 'h:i A') ?></span>
                             <h3 class="timeline-header"><?= htmlspecialchars($activity->activity) ?></h3>
-                            <?php if ($activity->details): ?>
+                            <?php if ($activity->description): ?>
                             <div class="timeline-body">
-                                <?= htmlspecialchars($activity->details) ?>
+                                <?= htmlspecialchars($activity->description) ?>
                             </div>
                             <?php endif; ?>
                         </div>

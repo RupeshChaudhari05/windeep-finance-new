@@ -317,6 +317,7 @@ class Savings extends Admin_Controller {
         $data['pending_dues'] = $this->Savings_model->get_pending_dues($month);
         $data['month'] = $month;
         $data['collection_summary'] = $this->Savings_model->get_monthly_collection($month);
+        $data['schemes'] = $this->Savings_model->get_schemes();
         
         $this->load_view('admin/savings/pending', $data);
     }

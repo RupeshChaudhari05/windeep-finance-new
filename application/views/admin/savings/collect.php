@@ -86,7 +86,7 @@
                         <?php foreach (array_slice($pending_dues, 0, 6) as $due): ?>
                         <tr class="<?= safe_timestamp($due->due_date) < time() ? 'table-danger' : '' ?>">
                             <td><?= format_date($due->due_date, 'M Y') ?></td>
-                            <td class="text-right">₹<?= number_format($due->amount) ?></td>
+                            <td class="text-right">₹<?= number_format($due->due_amount) ?></td>
                             <td>
                                 <?php if (safe_timestamp($due->due_date) < time()): ?>
                                     <span class="badge badge-danger">Overdue</span>
@@ -108,7 +108,7 @@
                         <tr>
                             <th>Total:</th>
                             <th class="text-right text-danger">
-                                ₹<?= number_format(array_sum(array_column($pending_dues, 'amount'))) ?>
+                                ₹<?= number_format(array_sum(array_column($pending_dues, 'due_amount'))) ?>
                             </th>
                             <th></th>
                         </tr>
@@ -140,7 +140,7 @@
                                 <small class="form-text text-muted">
                                     Monthly: ₹<?= number_format($account->monthly_amount) ?>
                                     <?php if ($pending_dues): ?>
-                                        | Pending Total: ₹<?= number_format(array_sum(array_column($pending_dues, 'amount'))) ?>
+                                        | Pending Total: ₹<?= number_format(array_sum(array_column($pending_dues, 'due_amount'))) ?>
                                     <?php endif; ?>
                                 </small>
                             </div>

@@ -96,11 +96,9 @@ class Bank_model extends MY_Model {
                      ->update('bank_statement_imports', [
                          'status' => 'completed',
                          'total_transactions' => $total,
-                         'matched_transactions' => $matched,
-                         'unmatched_transactions' => $unmatched,
-                         'duplicate_transactions' => $duplicates,
-                         'total_amount' => $total_amount,
-                         'processed_at' => date('Y-m-d H:i:s')
+                         'mapped_count' => $matched,
+                         'unmapped_count' => $unmatched,
+                         'completed_at' => date('Y-m-d H:i:s')
                      ]);
             
             if ($this->db->trans_status() === FALSE) {
@@ -111,6 +109,7 @@ class Bank_model extends MY_Model {
             $this->db->trans_commit();
             
             return [
+                'success' => true,
                 'import_id' => $import_id,
                 'total' => $total,
                 'matched' => $matched,

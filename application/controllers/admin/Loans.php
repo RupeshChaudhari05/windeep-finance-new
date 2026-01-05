@@ -461,6 +461,13 @@ class Loans extends Admin_Controller {
             ['title' => 'Collect', 'url' => '']
         ];
         
+        // Initialize defaults
+        $data['loan'] = null;
+        $data['pending_installments'] = [];
+        $data['overdue_emis'] = [];
+        $data['member'] = null;
+        $data['product'] = null;
+        
         if ($id) {
             $data['loan'] = $this->Loan_model->get_loan_details($id);
             $data['pending_installments'] = $this->db->where('loan_id', $id)
@@ -468,6 +475,19 @@ class Loans extends Admin_Controller {
                                                       ->order_by('installment_number', 'ASC')
                                                       ->get('loan_installments')
                                                       ->result();
+            $data['overdue_emis'] = $this->db->where('loan_id', $id)
+                                              ->where('status', 'pending')
+                                              ->where('due_date <', date('Y-m-d'))
+                                              ->order_by('installment_number', 'ASC')
+                                              ->get('loan_installments')
+                                              ->result();
+            
+            // Load member and product
+            if ($data['loan']) {
+                $this->load->model('Member_model');
+                $data['member'] = $this->Member_model->get_by_id($data['loan']->member_id);
+                $data['product'] = $this->db->where('id', $data['loan']->loan_product_id)->get('loan_products')->row();
+            }
         }
         
         $this->load_view('admin/loans/collect', $data);

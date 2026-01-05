@@ -169,14 +169,19 @@ class Settings extends Admin_Controller {
             $direct_fields = [
                 'currency_symbol', 'date_format',
                 'member_code_prefix', 'loan_prefix', 'savings_prefix', 'receipt_prefix',
-                'max_active_loans', 'max_guarantor', 'npa_days',
-                'auto_apply_fines', 'kyc_required'
+                'max_active_loans', 'max_guarantor', 'npa_days'
             ];
             
             foreach ($direct_fields as $field) {
                 if (isset($post_data[$field])) {
                     $settings[$field] = $post_data[$field];
                 }
+            }
+            
+            // Handle checkboxes (set to 0 if not present)
+            $checkbox_fields = ['auto_apply_fines', 'kyc_required'];
+            foreach ($checkbox_fields as $field) {
+                $settings[$field] = isset($post_data[$field]) ? 1 : 0;
             }
             
             // Capture previous settings for audit

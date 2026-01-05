@@ -35,7 +35,14 @@ class Bank extends Admin_Controller {
         $statement_date = $this->input->post('statement_date');
         
         // Handle file upload
-        $config['upload_path'] = './uploads/bank_statements/';
+        $upload_path = FCPATH . 'uploads/bank_statements/';
+        
+        // Create directory if it doesn't exist
+        if (!is_dir($upload_path)) {
+            mkdir($upload_path, 0755, true);
+        }
+        
+        $config['upload_path'] = $upload_path;
         $config['allowed_types'] = 'csv|xlsx|xls';
         $config['max_size'] = 10240; // 10MB
         $config['file_name'] = 'statement_' . time();
@@ -50,17 +57,22 @@ class Bank extends Admin_Controller {
         $file_data = $this->upload->data();
         
         // Import statement
-        $result = $this->Bank_model->import_statement(
-            $file_data['full_path'],
-            $bank_account_id,
-            $this->session->userdata('admin_id')
-        );
-        
-        if ($result['success']) {
-            $this->session->set_flashdata('success', "Bank statement imported successfully. {$result['imported']} transactions imported, {$result['auto_matched']} auto-matched.");
-            redirect('admin/bank/view_import/' . $result['import_id']);
-        } else {
-            $this->session->set_flashdata('error', $result['message']);
+        try {
+            $result = $this->Bank_model->import_statement(
+                $file_data['full_path'],
+                $bank_account_id,
+                $this->session->userdata('admin_id')
+            );
+            
+            if ($result['success']) {
+                $this->session->set_flashdata('success', "Bank statement imported successfully. {$result['total']} transactions imported, {$result['matched']} auto-matched.");
+                redirect('admin/bank/view_import/' . $result['import_id']);
+            } else {
+                $this->session->set_flashdata('error', $result['message']);
+                redirect('admin/bank/import');
+            }
+        } catch (Exception $e) {
+            $this->session->set_flashdata('error', 'Import failed: ' . $e->getMessage());
             redirect('admin/bank/import');
         }
     }

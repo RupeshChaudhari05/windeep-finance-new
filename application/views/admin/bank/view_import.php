@@ -30,7 +30,7 @@
                     </tr>
                     <tr>
                         <td class="text-muted">Auto Matched:</td>
-                        <td><span class="badge badge-success"><?= $import->auto_matched ?? 0 ?></span></td>
+                        <td><span class="badge badge-success"><?= $import->mapped_count ?? 0 ?></span></td>
                     </tr>
                 </table>
             </div>
@@ -121,8 +121,8 @@
                                 <td><?= format_date($txn->transaction_date, 'd M Y') ?></td>
                                 <td>
                                     <?= character_limiter($txn->description, 40) ?>
-                                    <?php if ($txn->matched_type): ?>
-                                    <br><small class="text-success"><i class="fas fa-link"></i> <?= ucfirst($txn->matched_type) ?></small>
+                                    <?php if ($txn->mapping_status == 'mapped'): ?>
+                                    <br><small class="text-success"><i class="fas fa-link"></i> Mapped</small>
                                     <?php endif; ?>
                                 </td>
                                 <td><small><?= $txn->reference_number ?: '-' ?></small></td>

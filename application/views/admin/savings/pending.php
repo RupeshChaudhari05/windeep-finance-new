@@ -8,7 +8,7 @@
                     <span class="info-box-icon"><i class="fas fa-clock"></i></span>
                     <div class="info-box-content">
                         <span class="info-box-text">Pending This Month</span>
-                        <span class="info-box-number"><?= $pending_this_month ?? 0 ?></span>
+                        <span class="info-box-number"><?= count($pending_dues ?? []) ?></span>
                     </div>
                 </div>
             </div>
@@ -17,7 +17,7 @@
                     <span class="info-box-icon"><i class="fas fa-rupee-sign"></i></span>
                     <div class="info-box-content">
                         <span class="info-box-text">Expected Amount</span>
-                        <span class="info-box-number"><?= number_format($expected_amount ?? 0, 2) ?></span>
+                        <span class="info-box-number"><?= number_format(array_sum(array_column($pending_dues ?? [], 'due_amount')), 2) ?></span>
                     </div>
                 </div>
             </div>
@@ -26,7 +26,7 @@
                     <span class="info-box-icon"><i class="fas fa-check"></i></span>
                     <div class="info-box-content">
                         <span class="info-box-text">Collected Today</span>
-                        <span class="info-box-number"><?= number_format($collected_today ?? 0, 2) ?></span>
+                        <span class="info-box-number"><?= number_format($collection_summary->total_collected ?? 0, 2) ?></span>
                     </div>
                 </div>
             </div>
@@ -35,7 +35,7 @@
                     <span class="info-box-icon"><i class="fas fa-exclamation-triangle"></i></span>
                     <div class="info-box-content">
                         <span class="info-box-text">Overdue</span>
-                        <span class="info-box-number"><?= $overdue_count ?? 0 ?></span>
+                        <span class="info-box-number"><?= count(array_filter($pending_dues ?? [], fn($item) => $item->status === 'overdue')) ?></span>
                     </div>
                 </div>
             </div>
@@ -124,7 +124,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach ($pending as $item): ?>
+                            <?php foreach ($pending_dues as $item): ?>
                             <tr data-id="<?= $item->id ?>">
                                 <td><input type="checkbox" class="row-select" value="<?= $item->id ?>"></td>
                                 <td>
@@ -161,10 +161,10 @@
                                     <?php endif; ?>
                                 </td>
                                 <td>
-                                    <a href="<?= site_url('admin/savings/collect/' . $item->savings_id) ?>" class="btn btn-sm btn-success" title="Collect">
+                                    <a href="<?= site_url('admin/savings/collect/' . $item->savings_account_id) ?>" class="btn btn-sm btn-success" title="Collect">
                                         <i class="fas fa-money-bill"></i>
                                     </a>
-                                    <a href="<?= site_url('admin/savings/view/' . $item->savings_id) ?>" class="btn btn-sm btn-info" title="View Account">
+                                    <a href="<?= site_url('admin/savings/view/' . $item->savings_account_id) ?>" class="btn btn-sm btn-info" title="View Account">
                                         <i class="fas fa-eye"></i>
                                     </a>
                                     <button class="btn btn-sm btn-secondary btn-send-reminder" data-id="<?= $item->member_id ?>" title="Send Reminder">

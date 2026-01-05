@@ -214,11 +214,13 @@ class Savings_model extends MY_Model {
         $this->db->select('
             sch.*, 
             sa.account_number, sa.member_id,
-            m.member_code, m.first_name, m.last_name, m.phone
+            m.member_code, m.first_name, m.last_name, m.phone,
+            ss.scheme_name
         ');
         $this->db->from('savings_schedule sch');
         $this->db->join('savings_accounts sa', 'sa.id = sch.savings_account_id');
         $this->db->join('members m', 'm.id = sa.member_id');
+        $this->db->join('savings_schemes ss', 'ss.id = sa.scheme_id');
         $this->db->where_in('sch.status', ['pending', 'partial', 'overdue']);
         
         if ($month) {
@@ -227,7 +229,14 @@ class Savings_model extends MY_Model {
         
         $this->db->order_by('sch.due_date', 'ASC');
         
-        return $this->db->get()->result();
+        $result = $this->db->get()->result();
+        
+        // Add computed member_name
+        foreach ($result as &$item) {
+            $item->member_name = trim(($item->first_name ?? '') . ' ' . ($item->last_name ?? '')) ?: ($item->member_code ?? '');
+        }
+        
+        return $result;
     }
     
     /**

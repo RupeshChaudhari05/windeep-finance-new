@@ -133,10 +133,10 @@
                                 </td>
                                 <td>
                                     <div class="btn-group btn-group-sm">
-                                        <a href="<?= site_url('admin/savings/collect/' . $item->savings_id) ?>" class="btn btn-success" title="Collect">
-                                            <i class="fas fa-money-bill"></i>
+                                        <a href="<?= site_url('admin/savings/collect/' . $item->savings_account_id) ?>" class="btn btn-success" title="Collect">
+                                            <i class="fas fa-money-bill"></i> Collect
                                         </a>
-                                        <a href="<?= site_url('admin/savings/view/' . $item->savings_id) ?>" class="btn btn-info" title="View">
+                                        <a href="<?= site_url('admin/savings/view/' . $item->savings_account_id) ?>" class="btn btn-info" title="View">
                                             <i class="fas fa-eye"></i>
                                         </a>
                                         <button class="btn btn-warning btn-reminder" data-id="<?= $item->member_id ?>" title="Reminder">
