@@ -8,6 +8,26 @@ class Bank_model extends MY_Model {
     
     protected $table = 'bank_accounts';
     protected $primary_key = 'id';
+    protected $timestamps = true;
+    
+    /**
+     * Override update method for debugging
+     */
+    public function update($id, $data) {
+        // Add timestamp
+        if ($this->timestamps) {
+            $data['updated_at'] = date('Y-m-d H:i:s');
+        }
+        
+        $result = $this->db->where($this->primary_key, $id)
+                          ->update($this->table, $data);
+        
+        // Debug: log the query
+        log_message('debug', 'Bank_model update query: ' . $this->db->last_query());
+        log_message('debug', 'Bank_model update result: ' . ($result ? 'true' : 'false'));
+        
+        return $result;
+    }
     
     /**
      * Get All Bank Accounts
@@ -39,10 +59,13 @@ class Bank_model extends MY_Model {
         
         try {
             // Create import record
+            $import_code = 'IMP-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -6));
             $import_data = [
+                'import_code' => $import_code,
                 'bank_account_id' => $bank_account_id,
                 'file_name' => basename($file_path),
                 'file_path' => $file_path,
+                'file_type' => strtolower(pathinfo($file_path, PATHINFO_EXTENSION)),
                 'status' => 'processing',
                 'imported_by' => $imported_by
             ];
@@ -52,6 +75,7 @@ class Bank_model extends MY_Model {
             
             // Parse the file
             $transactions = $this->parse_statement($file_path, $bank_account_id);
+            log_message('debug', 'Parsed ' . count($transactions) . ' transactions from file: ' . $file_path);
             
             $total = count($transactions);
             $matched = 0;
@@ -60,15 +84,16 @@ class Bank_model extends MY_Model {
             $total_amount = 0;
             
             foreach ($transactions as $txn) {
-                // Check for duplicate
+                // Check for duplicate (less strict check)
                 $exists = $this->db->where('bank_account_id', $bank_account_id)
                                    ->where('transaction_date', $txn['transaction_date'])
-                                   ->where('amount', $txn['amount'])
-                                   ->where('reference_number', $txn['reference_number'] ?? '')
+                                   ->where('amount', abs($txn['amount']))
+                                   ->where('description', $txn['description'])
                                    ->count_all_results('bank_transactions');
                 
                 if ($exists > 0) {
                     $duplicates++;
+                    log_message('debug', 'Duplicate transaction skipped: ' . json_encode($txn));
                     continue;
                 }
                 
@@ -76,19 +101,27 @@ class Bank_model extends MY_Model {
                 $txn['bank_account_id'] = $bank_account_id;
                 $txn['mapping_status'] = 'unmapped';
                 
+                // Ensure amount is positive and transaction_type is set correctly
+                $txn['amount'] = abs($txn['amount']);
+                
                 // Try auto-match
                 $match = $this->auto_match($txn);
                 if ($match) {
                     $txn['mapping_status'] = 'mapped';
                     $txn['detected_member_id'] = $match['member_id'] ?? null;
                     $matched++;
+                    log_message('debug', 'Auto-matched transaction: ' . json_encode($txn));
                 } else {
                     $unmatched++;
+                    log_message('debug', 'Unmatched transaction: ' . json_encode($txn));
                 }
                 
                 $total_amount += $txn['amount'];
                 
-                $this->db->insert('bank_transactions', $txn);
+                $result = $this->db->insert('bank_transactions', $txn);
+                if (!$result) {
+                    log_message('error', 'Failed to insert transaction: ' . json_encode($txn) . ' - Error: ' . $this->db->error());
+                }
             }
             
             // Update import record
@@ -155,12 +188,27 @@ class Bank_model extends MY_Model {
             while (($row = fgetcsv($handle)) !== FALSE) {
                 if (count($row) < 4) continue;
                 
+                // Parse credit and debit columns
+                $credit = $this->parse_amount($row[2] ?? 0);
+                $debit = $this->parse_amount($row[3] ?? 0);
+                
+                // Determine amount and type
+                if ($credit > 0) {
+                    $amount = $credit;
+                    $type = 'credit';
+                } elseif ($debit > 0) {
+                    $amount = -$debit; // Negative for debit
+                    $type = 'debit';
+                } else {
+                    continue; // Skip rows with no amount
+                }
+                
                 $txn = [
                     'transaction_date' => $this->parse_date($row[0]),
                     'description' => trim($row[1]),
-                    'bank_reference' => trim($row[2] ?? ''),
-                    'amount' => $this->parse_amount($row[3]),
-                    'transaction_type' => $this->determine_type($row)
+                    'reference_number' => trim($row[4] ?? ''), // Reference might be in column 4
+                    'amount' => $amount,
+                    'transaction_type' => $type
                 ];
                 
                 if ($txn['amount'] != 0) {
@@ -182,31 +230,51 @@ class Bank_model extends MY_Model {
         
         // Requires PHPSpreadsheet
         if (!class_exists('PhpOffice\\PhpSpreadsheet\\IOFactory')) {
+            log_message('error', 'PHPSpreadsheet not available for Excel parsing');
             return $transactions;
         }
         
         try {
+            log_message('debug', 'Attempting to parse Excel file: ' . $file_path);
             $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($file_path);
             $worksheet = $spreadsheet->getActiveSheet();
             $rows = $worksheet->toArray();
             
+            log_message('debug', 'Excel file loaded, ' . count($rows) . ' rows found');
             array_shift($rows); // Remove header
             
             foreach ($rows as $row) {
                 if (count($row) < 4 || empty($row[0])) continue;
                 
+                // Parse credit and debit columns
+                $credit = $this->parse_amount($row[2] ?? 0);
+                $debit = $this->parse_amount($row[3] ?? 0);
+                
+                // Determine amount and type
+                if ($credit > 0) {
+                    $amount = $credit;
+                    $type = 'credit';
+                } elseif ($debit > 0) {
+                    $amount = -$debit; // Negative for debit
+                    $type = 'debit';
+                } else {
+                    continue; // Skip rows with no amount
+                }
+                
                 $txn = [
                     'transaction_date' => $this->parse_date($row[0]),
                     'description' => trim($row[1]),
-                    'bank_reference' => trim($row[2] ?? ''),
-                    'amount' => $this->parse_amount($row[3]),
-                    'transaction_type' => $this->determine_type($row)
+                    'reference_number' => trim($row[4] ?? ''), // Reference might be in column 4
+                    'amount' => $amount,
+                    'transaction_type' => $type
                 ];
                 
                 if ($txn['amount'] != 0) {
                     $transactions[] = $txn;
                 }
             }
+            
+            log_message('debug', 'Parsed ' . count($transactions) . ' transactions from Excel');
             
         } catch (Exception $e) {
             log_message('error', 'Excel parse error: ' . $e->getMessage());
@@ -246,24 +314,19 @@ class Bank_model extends MY_Model {
     }
     
     /**
-     * Determine Transaction Type
-     */
-    private function determine_type($row) {
-        $amount = $this->parse_amount($row[3]);
-        return $amount >= 0 ? 'credit' : 'debit';
-    }
-    
-    /**
      * Auto Match Transaction
      */
     private function auto_match($txn) {
-        // Try to match by member code in description
-        if (preg_match('/MEM\d{4}[A-Z0-9]+/', $txn['description'], $matches)) {
+        log_message('debug', 'Auto-matching transaction: ' . $txn['description']);
+        
+        // Try to match by member code in description (format: MEMB000001)
+        if (preg_match('/MEMB\d{6}/', $txn['description'], $matches)) {
             $member = $this->db->where('member_code', $matches[0])
                                ->get('members')
                                ->row();
             
             if ($member) {
+                log_message('debug', 'Matched by member code: ' . $matches[0] . ' -> Member ID: ' . $member->id);
                 return [
                     'type' => 'member',
                     'id' => $member->id,
@@ -272,13 +335,14 @@ class Bank_model extends MY_Model {
             }
         }
         
-        // Try to match by phone number
-        if (preg_match('/\d{10}/', $txn['description'], $matches)) {
-            $member = $this->db->where('phone', $matches[0])
+        // Try to match by phone number (10 digits)
+        if (preg_match('/\b(\d{10})\b/', $txn['description'], $matches)) {
+            $member = $this->db->where('phone', $matches[1])
                                ->get('members')
                                ->row();
             
             if ($member) {
+                log_message('debug', 'Matched by phone: ' . $matches[1] . ' -> Member ID: ' . $member->id);
                 return [
                     'type' => 'member',
                     'id' => $member->id,
@@ -287,13 +351,14 @@ class Bank_model extends MY_Model {
             }
         }
         
-        // Try to match by account number
-        if (preg_match('/SAV\d{4}\d+/', $txn['description'], $matches)) {
+        // Try to match by savings account number (format: SAV2025000120)
+        if (preg_match('/SAV\d{10}/', $txn['description'], $matches)) {
             $savings = $this->db->where('account_number', $matches[0])
                                 ->get('savings_accounts')
                                 ->row();
             
             if ($savings) {
+                log_message('debug', 'Matched by savings account: ' . $matches[0] . ' -> Member ID: ' . $savings->member_id);
                 return [
                     'type' => 'savings_account',
                     'id' => $savings->id,
@@ -302,13 +367,14 @@ class Bank_model extends MY_Model {
             }
         }
         
-        // Try to match by loan number
-        if (preg_match('/LN\d{4}\d+/', $txn['description'], $matches)) {
+        // Try to match by loan number (format: LNC440DA)
+        if (preg_match('/LN[A-Z0-9]{5,}/', $txn['description'], $matches)) {
             $loan = $this->db->where('loan_number', $matches[0])
                              ->get('loans')
                              ->row();
             
             if ($loan) {
+                log_message('debug', 'Matched by loan number: ' . $matches[0] . ' -> Member ID: ' . $loan->member_id);
                 return [
                     'type' => 'loan',
                     'id' => $loan->id,
@@ -317,6 +383,7 @@ class Bank_model extends MY_Model {
             }
         }
         
+        log_message('debug', 'No match found for transaction');
         return null;
     }
     

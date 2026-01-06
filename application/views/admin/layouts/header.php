@@ -37,13 +37,23 @@
     <link rel="stylesheet" href="<?= base_url('assets/css/custom.css') ?>">
     
     <style>
-        /* Additional inline styles for quick fixes */
-        .main-sidebar {
-            position: fixed;
-        }
+        /* Layout safety fixes to align with AdminLTE behavior */
+        /* Do NOT force the sidebar to be fixed here; AdminLTE handles positioning.
+           Provide a safe content margin so the content doesn't get hidden under the sidebar. */
         .content-wrapper {
             min-height: calc(100vh - 57px);
+            margin-left: 250px; /* fallback when sidebar is expanded */
+            transition: margin-left .2s ease-in-out;
         }
+        /* When sidebar is collapsed AdminLTE adds `sidebar-collapse` to body */
+        body.sidebar-collapse .content-wrapper {
+            margin-left: 80px;
+        }
+        /* Small screens should not offset content */
+        @media (max-width: 767px) {
+            .content-wrapper { margin-left: 0 !important; }
+        }
+
         .nav-sidebar .nav-item > .nav-link {
             position: relative;
         }

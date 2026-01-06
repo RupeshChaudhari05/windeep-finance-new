@@ -344,6 +344,31 @@ class Loans extends Admin_Controller {
     }
     
     /**
+     * Request Modification
+     */
+    public function request_modification($id) {
+        $remarks = $this->input->post('remarks');
+        if (!$remarks) {
+            $this->json_response(['success' => false, 'message' => 'Remarks are required.']);
+            return;
+        }
+
+        $proposed = [];
+        if ($this->input->post('approved_amount')) $proposed['approved_amount'] = $this->input->post('approved_amount');
+        if ($this->input->post('approved_tenure_months')) $proposed['approved_tenure_months'] = $this->input->post('approved_tenure_months');
+        if ($this->input->post('approved_interest_rate')) $proposed['approved_interest_rate'] = $this->input->post('approved_interest_rate');
+
+        $result = $this->Loan_model->request_modification($id, $remarks, $this->session->userdata('admin_id'), $proposed);
+
+        if ($result) {
+            $this->log_audit('loan_applications', $id, 'modification_requested', null, ['remarks' => $remarks, 'proposed' => $proposed]);
+            $this->json_response(['success' => true, 'message' => 'Member notified to modify application.']);
+        } else {
+            $this->json_response(['success' => false, 'message' => 'Failed to request modification.']);
+        }
+    }
+
+    /**
      * Reject Application
      */
     public function reject($id) {
@@ -882,4 +907,113 @@ class Loans extends Admin_Controller {
         
         $this->load->view('admin/loans/print_statement', $data);
     }
+    
+    /**
+     * Repayment History
+     */
+    public function repayment_history($id = null) {
+        $data['title'] = 'Repayment History';
+        $data['page_title'] = 'Loan Repayment History';
+        $data['breadcrumb'] = [
+            ['title' => 'Dashboard', 'url' => 'admin/dashboard'],
+            ['title' => 'Loans', 'url' => 'admin/loans'],
+            ['title' => 'Repayment History', 'url' => '']
+        ];
+        
+        // Filters
+        $filters = [];
+        $loan_id = $id ?? $this->input->get('loan_id');
+        $member_id = $this->input->get('member_id');
+        $date_from = $this->input->get('date_from');
+        $date_to = $this->input->get('date_to');
+        $payment_mode = $this->input->get('payment_mode');
+        $payment_type = $this->input->get('payment_type');
+        
+        // Build query
+        $this->db->select('lp.*, l.loan_number, l.member_id, m.member_code, m.first_name, m.last_name, m.phone, lp.created_at as payment_created_at');
+        $this->db->from('loan_payments lp');
+        $this->db->join('loans l', 'l.id = lp.loan_id');
+        $this->db->join('members m', 'm.id = l.member_id');
+        $this->db->where('lp.is_reversed', 0);
+        
+        if ($loan_id) {
+            $this->db->where('lp.loan_id', $loan_id);
+            $filters['loan_id'] = $loan_id;
+            
+            // Get loan details for context
+            $data['loan'] = $this->Loan_model->get_loan_details($loan_id);
+        }
+        
+        if ($member_id) {
+            $this->db->where('l.member_id', $member_id);
+            $filters['member_id'] = $member_id;
+        }
+        
+        if ($date_from) {
+            $this->db->where('lp.payment_date >=', $date_from);
+            $filters['date_from'] = $date_from;
+        }
+        
+        if ($date_to) {
+            $this->db->where('lp.payment_date <=', $date_to);
+            $filters['date_to'] = $date_to;
+        }
+        
+        if ($payment_mode) {
+            $this->db->where('lp.payment_mode', $payment_mode);
+            $filters['payment_mode'] = $payment_mode;
+        }
+        
+        if ($payment_type) {
+            $this->db->where('lp.payment_type', $payment_type);
+            $filters['payment_type'] = $payment_type;
+        }
+        
+        $this->db->order_by('lp.payment_date', 'DESC');
+        $this->db->order_by('lp.created_at', 'DESC');
+        
+        $data['payments'] = $this->db->get()->result();
+        $data['filters'] = $filters;
+        
+        // Calculate totals
+        $data['total_amount'] = array_sum(array_column($data['payments'], 'total_amount'));
+        $data['total_principal'] = array_sum(array_column($data['payments'], 'principal_component'));
+        $data['total_interest'] = array_sum(array_column($data['payments'], 'interest_component'));
+        $data['total_fine'] = array_sum(array_column($data['payments'], 'fine_component'));
+        
+        // Get all loans for filter dropdown
+        $data['all_loans'] = $this->db->select('l.id, l.loan_number, m.member_code, m.first_name, m.last_name')
+                                      ->from('loans l')
+                                      ->join('members m', 'm.id = l.member_id')
+                                      ->where_in('l.status', ['active', 'overdue', 'npa'])
+                                      ->order_by('l.loan_number', 'DESC')
+                                      ->get()
+                                      ->result();
+        
+        $this->load_view('admin/loans/repayment_history', $data);
+    }
+    
+    /**
+     * View Single Payment Receipt
+     */
+    public function payment_receipt($payment_id) {
+        $payment = $this->db->select('lp.*, l.loan_number, l.member_id, l.principal_amount, l.interest_rate, m.member_code, m.first_name, m.last_name, m.phone, m.address')
+                           ->from('loan_payments lp')
+                           ->join('loans l', 'l.id = lp.loan_id')
+                           ->join('members m', 'm.id = l.member_id')
+                           ->where('lp.id', $payment_id)
+                           ->get()
+                           ->row();
+        
+        if (!$payment) {
+            $this->session->set_flashdata('error', 'Payment record not found.');
+            redirect('admin/loans/repayment_history');
+        }
+        
+        $data['payment'] = $payment;
+        $data['title'] = 'Payment Receipt - ' . $payment->payment_code;
+        
+        $this->load->view('admin/loans/payment_receipt', $data);
+    }
 }
+

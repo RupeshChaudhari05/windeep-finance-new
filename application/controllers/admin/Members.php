@@ -247,6 +247,23 @@ class Members extends Admin_Controller {
         // Prepare data
         $old_data = (array) $member;
         
+        $aadhaar_raw = $this->input->post('aadhaar_number');
+        $pan_raw = $this->input->post('pan_number');
+        $this->load->helper('format_helper');
+        $aadhaar = sanitize_aadhaar($aadhaar_raw);
+        $pan = sanitize_pan($pan_raw);
+
+        if ($aadhaar && !validate_aadhaar($aadhaar)) {
+            $this->session->set_flashdata('error', 'Aadhaar number is invalid. It must be 12 digits.');
+            redirect('admin/members/edit/' . $id);
+            return;
+        }
+        if ($pan && !validate_pan($pan)) {
+            $this->session->set_flashdata('error', 'PAN number is invalid. Format: AAAAA9999A');
+            redirect('admin/members/edit/' . $id);
+            return;
+        }
+
         $member_data = [
             'first_name' => $this->input->post('first_name', TRUE),
             'last_name' => $this->input->post('last_name', TRUE),
@@ -265,7 +282,8 @@ class Members extends Admin_Controller {
             'pincode' => $this->input->post('pincode', TRUE),
             'id_proof_type' => $this->input->post('id_proof_type'),
             'id_proof_number' => $this->input->post('id_proof_number', TRUE),
-            'pan_number' => strtoupper($this->input->post('pan_number', TRUE)),
+            'pan_number' => $pan,
+            'aadhaar_number' => $aadhaar,
             'bank_name' => $this->input->post('bank_name', TRUE),
             'bank_account_number' => $this->input->post('bank_account_number', TRUE),
             'bank_ifsc' => strtoupper($this->input->post('bank_ifsc', TRUE)),
@@ -294,6 +312,33 @@ class Members extends Admin_Controller {
                     unlink($upload_path . $member->profile_image);
                 }
                 $member_data['profile_image'] = $this->upload->data('file_name');
+            }
+        }
+
+        // Handle document uploads (aadhaar_doc, pan_doc, address_proof_doc)
+        $upload_base = './uploads/members_docs/' . $id . '/';
+        if (!is_dir($upload_base)) mkdir($upload_base, 0755, TRUE);
+        $docs = ['aadhaar_doc' => 'aadhaar_doc', 'pan_doc' => 'pan_doc', 'address_proof_doc' => 'address_proof'];
+        foreach ($docs as $field => $input_name) {
+            if (!empty($_FILES[$input_name]['name'])) {
+                $config = [];
+                $config['upload_path'] = $upload_base;
+                $config['allowed_types'] = 'jpg|jpeg|png|pdf';
+                $config['max_size'] = 4096;
+                $config['file_name'] = $field . '_' . $id . '_' . time();
+
+                $this->load->library('upload', $config);
+                if ($this->upload->do_upload($input_name)) {
+                    // delete old
+                    if (!empty($member->{$field}) && file_exists($upload_base . $member->{$field})) {
+                        @unlink($upload_base . $member->{$field});
+                    }
+                    $member_data[$field] = $this->upload->data('file_name');
+                } else {
+                    $this->session->set_flashdata('error', 'File upload failed: ' . $this->upload->display_errors('', ''));
+                    redirect('admin/members/edit/' . $id);
+                    return;
+                }
             }
         }
         

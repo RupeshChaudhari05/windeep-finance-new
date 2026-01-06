@@ -117,6 +117,14 @@
                 <a href="<?= site_url('admin/loans/collect/' . $loan->id) ?>" class="btn btn-success btn-block">
                     <i class="fas fa-rupee-sign mr-1"></i> Collect EMI
                 </a>
+                <a href="<?= site_url('admin/loans/repayment_history?loan_id=' . $loan->id) ?>" class="btn btn-info btn-block mt-2">
+                    <i class="fas fa-history mr-1"></i> View Repayment History
+                </a>
+                <?php else: ?>
+                <hr>
+                <a href="<?= site_url('admin/loans/repayment_history?loan_id=' . $loan->id) ?>" class="btn btn-info btn-block">
+                    <i class="fas fa-history mr-1"></i> View Repayment History
+                </a>
                 <?php endif; ?>
             </div>
         </div>
@@ -234,37 +242,89 @@
                                 <p>No payments recorded yet</p>
                             </div>
                         <?php else: ?>
-                            <div class="table-responsive">
+                            <div class="mb-3">
+                                <a href="<?= site_url('admin/loans/repayment_history?loan_id=' . $loan->id) ?>" class="btn btn-sm btn-info float-right">
+                                    <i class="fas fa-history mr-1"></i> Detailed History
+                                </a>
+                                <h6><i class="fas fa-rupee-sign mr-2"></i>Payment History</h6>
+                            </div>
+                            <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
                                 <table class="table table-sm table-hover">
-                                    <thead>
+                                    <thead class="thead-light" style="position: sticky; top: 0;">
                                         <tr>
                                             <th>Date</th>
-                                            <th>Receipt No</th>
+                                            <th>Payment Code</th>
+                                            <th>Type</th>
                                             <th class="text-right">Amount</th>
                                             <th class="text-right">Principal</th>
                                             <th class="text-right">Interest</th>
+                                            <th class="text-right">Fine</th>
                                             <th>Mode</th>
+                                            <th>Reference</th>
+                                            <th class="text-center">Receipt</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         <?php foreach ($payments as $pmt): ?>
                                         <tr>
-                                            <td><?= format_date($pmt->payment_date) ?></td>
-                                            <td><small><?= $pmt->receipt_number ?></small></td>
-                                            <td class="text-right font-weight-bold">₹<?= number_format($pmt->amount) ?></td>
-                                            <td class="text-right">₹<?= number_format($pmt->principal_component) ?></td>
-                                            <td class="text-right">₹<?= number_format($pmt->interest_component) ?></td>
-                                            <td><small><?= ucfirst($pmt->payment_mode) ?></small></td>
+                                            <td><?= format_date($pmt->payment_date, 'd M Y') ?></td>
+                                            <td><small class="text-primary"><?= $pmt->payment_code ?? ($pmt->receipt_number ?? 'N/A') ?></small></td>
+                                            <td>
+                                                <?php
+                                                $type_badges = [
+                                                    'emi' => 'primary',
+                                                    'part_payment' => 'info',
+                                                    'advance_payment' => 'success',
+                                                    'foreclosure' => 'warning',
+                                                    'fine_payment' => 'danger'
+                                                ];
+                                                $badge_class = $type_badges[$pmt->payment_type ?? 'emi'] ?? 'secondary';
+                                                ?>
+                                                <span class="badge badge-<?= $badge_class ?> badge-sm">
+                                                    <?= ucfirst(str_replace('_', ' ', $pmt->payment_type ?? 'emi')) ?>
+                                                </span>
+                                            </td>
+                                            <td class="text-right font-weight-bold">₹<?= number_format($pmt->total_amount ?? $pmt->amount ?? 0, 2) ?></td>
+                                            <td class="text-right">₹<?= number_format($pmt->principal_component ?? 0, 2) ?></td>
+                                            <td class="text-right">₹<?= number_format($pmt->interest_component ?? 0, 2) ?></td>
+                                            <td class="text-right">
+                                                <?php if (($pmt->fine_component ?? 0) > 0): ?>
+                                                    <span class="text-danger">₹<?= number_format($pmt->fine_component, 2) ?></span>
+                                                <?php else: ?>
+                                                    <span class="text-muted">-</span>
+                                                <?php endif; ?>
+                                            </td>
+                                            <td>
+                                                <?php
+                                                $mode_icons = [
+                                                    'cash' => 'money-bill-wave',
+                                                    'bank_transfer' => 'university',
+                                                    'cheque' => 'file-invoice-dollar',
+                                                    'upi' => 'mobile-alt',
+                                                    'auto_debit' => 'credit-card'
+                                                ];
+                                                $mode = $pmt->payment_mode ?? 'cash';
+                                                $icon = $mode_icons[$mode] ?? 'rupee-sign';
+                                                ?>
+                                                <small><i class="fas fa-<?= $icon ?> mr-1"></i><?= ucfirst(str_replace('_', ' ', $mode)) ?></small>
+                                            </td>
+                                            <td><small><?= $pmt->reference_number ?: '-' ?></small></td>
+                                            <td class="text-center">
+                                                <a href="<?= site_url('admin/loans/payment_receipt/' . $pmt->id) ?>" target="_blank" class="btn btn-xs btn-outline-primary" title="View Receipt">
+                                                    <i class="fas fa-receipt"></i>
+                                                </a>
+                                            </td>
                                         </tr>
                                         <?php endforeach; ?>
                                     </tbody>
                                     <tfoot class="table-primary">
                                         <tr>
-                                            <th colspan="2">Total:</th>
-                                            <th class="text-right">₹<?= number_format(array_sum(array_column($payments, 'amount'))) ?></th>
-                                            <th class="text-right">₹<?= number_format(array_sum(array_column($payments, 'principal_component'))) ?></th>
-                                            <th class="text-right">₹<?= number_format(array_sum(array_column($payments, 'interest_component'))) ?></th>
-                                            <th></th>
+                                            <th colspan="3" class="text-right">Total:</th>
+                                            <th class="text-right">₹<?= number_format(array_sum(array_map(function($p) { return $p->total_amount ?? $p->amount ?? 0; }, $payments)), 2) ?></th>
+                                            <th class="text-right">₹<?= number_format(array_sum(array_map(function($p) { return $p->principal_component ?? 0; }, $payments)), 2) ?></th>
+                                            <th class="text-right">₹<?= number_format(array_sum(array_map(function($p) { return $p->interest_component ?? 0; }, $payments)), 2) ?></th>
+                                            <th class="text-right">₹<?= number_format(array_sum(array_map(function($p) { return $p->fine_component ?? 0; }, $payments)), 2) ?></th>
+                                            <th colspan="3"></th>
                                         </tr>
                                     </tfoot>
                                 </table>

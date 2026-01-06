@@ -141,6 +141,12 @@
                                 </a>
                             </li>
                             <li class="nav-item">
+                                <a href="<?= base_url('admin/loans/repayment_history') ?>" class="nav-link">
+                                    <i class="far fa-circle nav-icon"></i>
+                                    <p>Repayment History</p>
+                                </a>
+                            </li>
+                            <li class="nav-item">
                                 <a href="<?= base_url('admin/loans/products') ?>" class="nav-link">
                                     <i class="far fa-circle nav-icon"></i>
                                     <p>Loan Products</p>
@@ -169,6 +175,18 @@
                                 <a href="<?= base_url('admin/installments/due-today') ?>" class="nav-link">
                                     <i class="far fa-circle nav-icon"></i>
                                     <p>Due Today</p>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="<?= base_url('admin/installments/upcoming') ?>" class="nav-link">
+                                    <i class="far fa-circle nav-icon"></i>
+                                    <p>Upcoming</p>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="<?= base_url('admin/installments/overdue') ?>" class="nav-link">
+                                    <i class="far fa-circle nav-icon"></i>
+                                    <p>Overdue</p>
                                 </a>
                             </li>
                             <li class="nav-item">

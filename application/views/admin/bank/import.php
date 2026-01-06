@@ -13,7 +13,10 @@
                         <strong>Upload Instructions:</strong>
                         <ul class="mb-0 mt-2">
                             <li>Supported formats: CSV, Excel (.xlsx, .xls)</li>
-                            <li>File should contain: Date, Description, Credit, Debit, Balance columns</li>
+                            <li><strong>Required columns:</strong> Date, Description, Credit, Debit</li>
+                            <li>Use Credit column for money received (positive amounts)</li>
+                            <li>Use Debit column for money spent (positive amounts)</li>
+                            <li>Leave the other column empty for each transaction</li>
                             <li>Maximum file size: 10MB</li>
                             <li>System will auto-match transactions where possible</li>
                         </ul>
@@ -86,16 +89,16 @@
                         </thead>
                         <tbody>
                             <tr>
-                                <td>01/01/2024</td>
-                                <td>UPI-John Doe</td>
+                                <td>05/01/2026</td>
+                                <td>MEMB000001 Deposit</td>
                                 <td>5000</td>
                                 <td></td>
                             </tr>
                             <tr>
-                                <td>02/01/2024</td>
-                                <td>NEFT TRANSFER</td>
+                                <td>06/01/2026</td>
+                                <td>UPI 9707502695</td>
                                 <td></td>
-                                <td>10000</td>
+                                <td>1500</td>
                             </tr>
                         </tbody>
                     </table>
@@ -103,10 +106,11 @@
                 <hr>
                 <p class="mb-2"><strong>Auto-Match Rules:</strong></p>
                 <ul class="small">
-                    <li>Matches based on amount and date proximity</li>
-                    <li>Member phone numbers in description</li>
-                    <li>UPI IDs linked to members</li>
-                    <li>Reference numbers from receipts</li>
+                    <li><strong>Member Code:</strong> MEMB000001 format</li>
+                    <li><strong>Phone Number:</strong> 10-digit numbers (9707502695)</li>
+                    <li><strong>Savings Account:</strong> SAV2025000120 format</li>
+                    <li><strong>Loan Number:</strong> LNC440DA format</li>
+                    <li>Include these in transaction description for auto-matching</li>
                 </ul>
             </div>
         </div>

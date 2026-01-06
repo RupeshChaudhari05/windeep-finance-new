@@ -1,13 +1,17 @@
-<div class="content-wrapper">
+<section class="content">
+    <div class="container-fluid">
     <style>
     .table-responsive {
         margin-bottom: 20px;
     }
     .card-body .table th, .card-body .table td {
-        padding: 12px 8px;
+        padding: 8px 4px;
+        font-size: 0.875rem;
     }
     .modal-body {
         padding: 20px;
+        max-height: 70vh;
+        overflow-y: auto;
     }
     .modal-body .form-group {
         margin-bottom: 15px;
@@ -17,27 +21,58 @@
         padding-top: 20px;
         border-top: 1px solid #dee2e6;
     }
+    .txn-row:hover {
+        background-color: #f8f9fa;
+        cursor: pointer;
+    }
+    .badge {
+        font-size: 0.75rem;
+    }
+    .btn-xs {
+        padding: 0.125rem 0.25rem;
+        font-size: 0.75rem;
+        line-height: 1.5;
+        border-radius: 0.2rem;
+    }
+    .mapping-row {
+        border: 1px solid #e9ecef;
+        border-radius: 0.25rem;
+        margin-bottom: 10px;
+    }
+    .mapping-row .card-body {
+        padding: 10px;
+    }
+    .alert-info {
+        border-left: 4px solid #17a2b8;
+    }
+    @media (max-width: 768px) {
+        .card-body .table th, .card-body .table td {
+            padding: 4px 2px;
+            font-size: 0.75rem;
+        }
+        .btn-sm {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.75rem;
+        }
+        .modal-dialog {
+            margin: 0.5rem;
+            max-width: calc(100vw - 1rem);
+        }
+        .col-md-6 {
+            margin-bottom: 10px;
+        }
+        .table-responsive {
+            font-size: 0.8rem;
+        }
+        th, td {
+            white-space: nowrap;
+        }
+    }
     </style>
-    <div class="content-header">
-        <div class="container-fluid">
-            <div class="row mb-2">
-                <div class="col-sm-6">
-                    <h1 class="m-0">Bank Transaction Mapping</h1>
-                </div>
-                <div class="col-sm-6">
-                    <ol class="breadcrumb float-sm-right">
-                        <li class="breadcrumb-item"><a href="<?= site_url('admin/dashboard') ?>">Dashboard</a></li>
-                        <li class="breadcrumb-item"><a href="<?= site_url('admin/bank/import') ?>">Bank</a></li>
-                        <li class="breadcrumb-item active">Mapping</li>
-                    </ol>
-                </div>
-            </div>
-        </div>
-    </div>
+
 
     <section class="content">
         <div class="container-fluid">
-            <!-- Flash Messages -->
             <?php if ($this->session->flashdata('success')): ?>
                 <div class="alert alert-success alert-dismissible">
                     <button type="button" class="close" data-dismiss="alert">&times;</button>
@@ -120,20 +155,20 @@
                 </div>
                 <div class="card-body p-0">
                     <div class="table-responsive">
-                        <table class="table table-striped table-hover">
-                            <thead>
+                        <table class="table table-striped table-hover table-sm">
+                            <thead class="thead-light">
                                 <tr>
-                                    <th width="60">ID</th>
+                                    <th>ID</th>
                                     <th>Date</th>
                                     <th>Bank Account</th>
                                     <th>Description</th>
-                                    <th width="100" class="text-right">Debit</th>
-                                    <th width="100" class="text-right">Credit</th>
+                                    <th class="text-right">Debit</th>
+                                    <th class="text-right">Credit</th>
                                     <th>Paid By</th>
                                     <th>Paid For</th>
                                     <th>Category</th>
-                                    <th width="80">Status</th>
-                                    <th width="100">Action</th>
+                                    <th>Status</th>
+                                    <th>Action</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -154,48 +189,52 @@
                                             data-reference="<?= htmlspecialchars($txn->bank_reference ?? '') ?>"
                                             data-debit="<?= $txn->debit_amount ?>"
                                             data-credit="<?= $txn->credit_amount ?>">
-                                            <td><?= $txn->id ?></td>
-                                            <td><?= format_date($txn->transaction_date) ?></td>
+                                            <td class="text-center"><small><?= $txn->id ?></small></td>
+                                            <td><small><?= format_date($txn->transaction_date) ?></small></td>
                                             <td>
+                                                <small class="text-muted d-block">
+                                                    <?= $txn->bank_name ?>
+                                                </small>
                                                 <small class="text-muted">
-                                                    <?= $txn->bank_name ?><br>
                                                     <?= $txn->bank_account_number ?>
                                                 </small>
                                             </td>
                                             <td>
-                                                <?= character_limiter($txn->description, 50) ?>
+                                                <div class="text-truncate" style="max-width: 200px;" title="<?= htmlspecialchars($txn->description) ?>">
+                                                    <?= character_limiter($txn->description, 40) ?>
+                                                </div>
                                                 <?php if (!empty($txn->bank_reference)): ?>
-                                                    <br><small class="text-muted">Ref: <?= $txn->bank_reference ?></small>
+                                                    <small class="text-muted">Ref: <?= $txn->bank_reference ?></small>
                                                 <?php endif; ?>
                                             </td>
                                             <td class="text-right">
                                                 <?php if ($txn->debit_amount > 0): ?>
-                                                    <span class="text-danger">₹<?= number_format($txn->debit_amount, 2) ?></span>
+                                                    <span class="text-danger font-weight-bold">₹<?= number_format($txn->debit_amount, 2) ?></span>
                                                 <?php endif; ?>
                                             </td>
                                             <td class="text-right">
                                                 <?php if ($txn->credit_amount > 0): ?>
-                                                    <span class="text-success">₹<?= number_format($txn->credit_amount, 2) ?></span>
+                                                    <span class="text-success font-weight-bold">₹<?= number_format($txn->credit_amount, 2) ?></span>
                                                 <?php endif; ?>
                                             </td>
                                             <td>
-                                                <span class="paid-by-display">
+                                                <small class="paid-by-display">
                                                     <?= $txn->paid_by_name ?: '<span class="text-muted">-</span>' ?>
-                                                </span>
+                                                </small>
                                             </td>
                                             <td>
-                                                <span class="paid-for-display">
+                                                <small class="paid-for-display">
                                                     <?= $txn->paid_for_name ?: '<span class="text-muted">-</span>' ?>
-                                                </span>
+                                                </small>
                                             </td>
                                             <td>
-                                                <span class="category-display">
+                                                <small class="category-display">
                                                     <?php if ($txn->transaction_category): ?>
-                                                        <span class="badge badge-info"><?= ucfirst($txn->transaction_category) ?></span>
+                                                        <span class="badge badge-info badge-sm"><?= ucfirst($txn->transaction_category) ?></span>
                                                     <?php else: ?>
                                                         <span class="text-muted">-</span>
                                                     <?php endif; ?>
-                                                </span>
+                                                </small>
                                             </td>
                                             <td>
                                                 <?php
@@ -207,18 +246,18 @@
                                                 ];
                                                 $badge_class = $status_class[$txn->mapping_status] ?? 'secondary';
                                                 ?>
-                                                <span class="badge badge-<?= $badge_class ?>"><?= ucfirst($txn->mapping_status) ?></span>
+                                                <span class="badge badge-<?= $badge_class ?> badge-sm"><?= ucfirst($txn->mapping_status) ?></span>
                                             </td>
                                             <td>
                                                 <?php if ($txn->mapping_status == 'unmapped'): ?>
-                                                    <button class="btn btn-sm btn-primary map-btn" data-txn-id="<?= $txn->id ?>">
-                                                        <i class="fas fa-link"></i> Map
+                                                    <button class="btn btn-sm btn-primary btn-xs map-btn" data-txn-id="<?= $txn->id ?>" title="Map Transaction">
+                                                        <i class="fas fa-link"></i>
                                                     </button>
                                                 <?php else: ?>
-                                                    <button class="btn btn-sm btn-info view-btn" data-txn-id="<?= $txn->id ?>">
+                                                    <button class="btn btn-sm btn-info btn-xs view-btn" data-txn-id="<?= $txn->id ?>" title="View Mapping">
                                                         <i class="fas fa-eye"></i>
                                                     </button>
-                                                    <button class="btn btn-sm btn-warning edit-map-btn" data-txn-id="<?= $txn->id ?>">
+                                                    <button class="btn btn-sm btn-warning btn-xs edit-map-btn" data-txn-id="<?= $txn->id ?>" title="Edit Mapping">
                                                         <i class="fas fa-edit"></i>
                                                     </button>
                                                 <?php endif; ?>
@@ -236,57 +275,48 @@
 </div>
 
 <!-- Mapping Modal -->
-<div class="modal fade" id="mappingModal" tabindex="-1" role="dialog">
-    <div class="modal-dialog modal-lg" role="document">
+<div class="modal fade" id="mappingModal" tabindex="-1" role="dialog" aria-labelledby="mappingModalLabel">
+    <div class="modal-dialog modal-xl" role="document">
         <div class="modal-content">
-            <div class="modal-header bg-primary">
-                <h5 class="modal-title">Map Bank Transaction</h5>
-                <button type="button" class="close text-white" data-dismiss="modal">
-                    <span>&times;</span>
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title" id="mappingModalLabel">
+                    <i class="fas fa-link"></i> Map Bank Transaction
+                </h5>
+                <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
                 </button>
             </div>
-            <form id="mappingForm">
+            <form id="mappingForm" novalidate>
                 <div class="modal-body">
-                    <input type="hidden" id="transaction_id" name="transaction_id">
-                    
                     <!-- Transaction Details -->
                     <div class="card card-outline card-info mb-3">
                         <div class="card-header">
-                            <h3 class="card-title">Transaction Details</h3>
+                            <h6 class="card-title mb-0">
+                                <i class="fas fa-info-circle"></i> Transaction Details
+                            </h6>
                         </div>
                         <div class="card-body">
                             <div class="row">
                                 <div class="col-md-6">
-                                    <p><strong>Date:</strong> <span id="txn_date"></span></p>
-                                    <p><strong>Bank:</strong> <span id="txn_bank"></span></p>
-                                    <p><strong>Amount:</strong> <span id="txn_amount" class="h5"></span></p>
+                                    <p class="mb-1"><strong>Date:</strong> <span id="txn_date" class="text-primary"></span></p>
+                                    <p class="mb-1"><strong>Bank:</strong> <span id="txn_bank"></span></p>
+                                    <p class="mb-1"><strong>Amount:</strong> <span id="txn_amount" class="h5 font-weight-bold"></span></p>
                                 </div>
                                 <div class="col-md-6">
-                                    <p><strong>Description:</strong> <span id="txn_description"></span></p>
-                                    <p><strong>Reference:</strong> <span id="txn_reference"></span></p>
-                                </div>
-                            </div>
-
-                            <hr>
-
-                            <div class="row mb-2">
-                                <div class="col-md-6">
-                                    <strong>Transaction total:</strong>
-                                    <div id="txn_amount_display_small" class="h5"></div>
-                                </div>
-                                <div class="col-md-6 text-right">
-                                    <strong>Remaining:</strong>
-                                    <div id="txn_remaining_display_small" class="h5"></div>
+                                    <p class="mb-1"><strong>Description:</strong> <span id="txn_description"></span></p>
+                                    <p class="mb-1"><strong>Reference:</strong> <span id="txn_reference"></span></p>
                                 </div>
                             </div>
                         </div>
                     </div>
 
+                    <input type="hidden" id="transaction_id" name="transaction_id">
+
                     <!-- Mapping Form -->
                     <div class="row">
                         <div class="col-md-12">
                             <div class="form-group">
-                                <label>Transaction Category <span class="text-danger">*</span></label>
+                                <label for="transaction_type">Transaction Category <span class="text-danger">*</span></label>
                                 <select class="form-control" id="transaction_type" name="transaction_type" required>
                                     <option value="">Select Category</option>
                                     <?php foreach ($transaction_categories as $key => $label): ?>
@@ -299,56 +329,62 @@
 
                     <div class="row">
                         <div class="col-md-12">
-                            <div class="form-group">
-                                <label>Transaction Amount</label>
-                                <p id="txn_amount_display" class="h4"></p>
-                                <p><small>Remaining to map: <span id="txn_remaining_display">0.00</span></small></p>
+                            <div class="alert alert-info">
+                                <strong>Transaction Amount:</strong> <span id="txn_amount_display" class="h5 font-weight-bold"></span>
+                                <br>
+                                <small>Remaining to map: <span id="txn_remaining_display" class="font-weight-bold">0.00</span></small>
                             </div>
                         </div>
                     </div>
 
                     <!-- Mapping Rows -->
-                    <div class="row mb-3 mapping-form-section">
-                        <div class="col-md-6">
-                            <div class="form-group">
-                                <label>Paid By (Who made the payment) <span class="text-danger">*</span></label>
-                                <div class="input-group">
-                                    <input type="text" class="form-control" id="paying_member_search" placeholder="Search payer by code, name, phone...">
-                                    <div class="input-group-append">
-                                        <button class="btn btn-info" type="button" id="search_paying_member"><i class="fas fa-search"></i></button>
+                    <div class="mapping-form-section">
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label for="paying_member_search">Paid By (Who made the payment) <span class="text-danger">*</span></label>
+                                    <div class="input-group">
+                                        <input type="text" class="form-control" id="paying_member_search" placeholder="Search payer by code, name, phone...">
+                                        <div class="input-group-append">
+                                            <button class="btn btn-info" type="button" id="search_paying_member">
+                                                <i class="fas fa-search"></i>
+                                            </button>
+                                        </div>
                                     </div>
+                                    <input type="hidden" id="paying_member_id" name="paying_member_id" required>
+                                    <div id="paying_member_result" class="mt-2"></div>
                                 </div>
-                                <input type="hidden" id="paying_member_id" name="paying_member_id" required>
-                                <div id="paying_member_result" class="mt-2"></div>
+                            </div>
+                            <div class="col-md-6 text-right">
+                                <label>&nbsp;</label><br>
+                                <button type="button" id="add_mapping_row" class="btn btn-success">
+                                    <i class="fas fa-plus"></i> Add Mapping Row
+                                </button>
                             </div>
                         </div>
-                        <div class="col-md-6 text-right">
-                            <button type="button" id="add_mapping_row" class="btn btn-sm btn-success mt-4">
-                                <i class="fas fa-plus"></i> Add Mapping Row
-                            </button>
-                        </div>
-                    </div>
 
-                    <div class="row">
-                        <div class="col-md-12">
-                            <div id="mapping_rows">
-                                <!-- Template row inserted via JS -->
-                            </div>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <div id="mapping_rows">
+                                    <!-- Template row inserted via JS -->
+                                </div>
 
-                            <div class="mt-3">
-                                <label>Remarks</label>
-                                <textarea class="form-control" id="remarks" name="remarks" rows="2"></textarea>
+                                <div class="mt-3">
+                                    <label for="remarks">Remarks</label>
+                                    <textarea class="form-control" id="remarks" name="remarks" rows="2" placeholder="Optional remarks..."></textarea>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">
+                        <i class="fas fa-times"></i> Cancel
+                    </button>
                     <button type="submit" class="btn btn-primary">
                         <i class="fas fa-save"></i> Save Mapping
                     </button>
                 </div>
-            </form>
         </div>
     </div>
 </div>

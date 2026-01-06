@@ -62,6 +62,7 @@ $route['admin/auth'] = 'admin/auth/index';
 $route['admin/auth/login'] = 'admin/auth/login';
 $route['admin/login'] = 'admin/auth/index';
 $route['auth/login'] = 'admin/auth/index';
+$route['auth/logout'] = 'admin/auth/logout';
 $route['login'] = 'admin/auth/index';
 $route['admin/logout'] = 'admin/auth/logout';
 $route['admin/dashboard'] = 'admin/dashboard/index';
@@ -108,8 +109,19 @@ $route['admin/fines/waive/(:num)'] = 'admin/fines/waive/$1';
 $route['admin/fines/cancel/(:num)'] = 'admin/fines/cancel/$1';
 
 // Bank routes
+$route['admin/bank/accounts/create'] = 'admin/bank/create';
+$route['admin/bank/accounts/edit/(:num)'] = 'admin/bank/edit/$1';
+$route['admin/bank/accounts/toggle/(:num)'] = 'admin/bank/toggle/$1';
+$route['admin/bank/accounts'] = 'admin/bank/accounts';
 $route['admin/bank/import'] = 'admin/bank/import';
+$route['admin/bank/upload'] = 'admin/bank/upload';
 $route['admin/bank/view_import/(:num)'] = 'admin/bank/view_import/$1';
+$route['admin/bank/transactions'] = 'admin/bank/transactions';
+$route['admin/bank/mapping'] = 'admin/bank/mapping';
+$route['admin/bank/save_transaction_mapping'] = 'admin/bank/save_transaction_mapping';
+$route['admin/bank/search_members'] = 'admin/bank/search_members';
+$route['admin/bank/get_member_accounts'] = 'admin/bank/get_member_accounts';
+$route['admin/bank/calculate_fine_due'] = 'admin/bank/calculate_fine_due';
 
 // Reports routes
 $route['admin/reports/collection'] = 'admin/reports/collection';
@@ -120,3 +132,29 @@ $route['admin/reports/ledger'] = 'admin/reports/ledger';
 $route['admin/settings'] = 'admin/settings/index';
 $route['admin/settings/financial_years'] = 'admin/settings/financial_years';
 $route['admin/settings/admin_users'] = 'admin/settings/admin_users';
+
+// Installments routes
+$route['admin/installments'] = 'admin/installments/index';
+$route['admin/installments/due-today'] = 'admin/installments/due_today';
+$route['admin/installments/upcoming'] = 'admin/installments/upcoming';
+$route['admin/installments/overdue'] = 'admin/installments/overdue';
+$route['admin/installments/view/(:num)'] = 'admin/installments/view/$1';
+$route['admin/installments/collection-sheet'] = 'admin/installments/collection_sheet';
+
+// Payments routes
+$route['admin/payments/receive'] = 'admin/payments/receive';
+$route['admin/payments/history'] = 'admin/payments/history';
+$route['admin/payments/receipt/(:num)'] = 'admin/payments/receipt/$1';
+
+// Member Portal routes
+$route['member'] = 'member/auth/login';
+$route['member/login'] = 'member/auth/login';
+$route['member/logout'] = 'member/auth/logout';
+$route['member/dashboard'] = 'member/dashboard/index';
+$route['member/profile'] = 'member/profile/index';
+$route['member/profile/edit'] = 'member/profile/edit';
+$route['member/loans'] = 'member/loans/index';
+$route['member/loans/apply'] = 'member/loans/apply';
+$route['member/loans/view/(:num)'] = 'member/loans/view/$1';
+$route['member/savings'] = 'member/savings/index';
+$route['member/installments'] = 'member/installments/index';

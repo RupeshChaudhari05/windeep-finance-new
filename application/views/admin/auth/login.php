@@ -43,6 +43,14 @@
     
     <div class="card">
         <div class="card-body login-card-body">
+            <ul class="nav nav-tabs mb-3">
+                <li class="nav-item">
+                    <a class="nav-link active" href="#">Admin</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="<?= site_url('member/login') ?>">Member</a>
+                </li>
+            </ul>
             <p class="login-box-msg">Sign in to start your session</p>
             
             <?php if ($this->session->flashdata('error')): ?>

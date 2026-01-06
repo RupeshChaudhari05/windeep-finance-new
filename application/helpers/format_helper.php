@@ -79,3 +79,70 @@ if (!function_exists('safe_timestamp')) {
         return $ts === false || $ts === null ? 0 : (int) $ts;
     }
 }
+
+if (!function_exists('sanitize_aadhaar')) {
+    /**
+     * Remove non-digit characters from Aadhaar and return null when empty
+     */
+    function sanitize_aadhaar($value) {
+        if ($value === null) return null;
+        $v = preg_replace('/\D+/', '', (string) $value);
+        return $v === '' ? null : $v;
+    }
+}
+
+if (!function_exists('validate_aadhaar')) {
+    /**
+     * Validate Aadhaar: exactly 12 digits
+     */
+    function validate_aadhaar($value) {
+        $v = sanitize_aadhaar($value);
+        return $v !== null && preg_match('/^\d{12}$/', $v) === 1;
+    }
+}
+
+if (!function_exists('mask_aadhaar')) {
+    /**
+     * Mask Aadhaar for display (show only last 4 digits)
+     */
+    function mask_aadhaar($value) {
+        $v = sanitize_aadhaar($value);
+        if (!$v) return '-';
+        $last4 = substr($v, -4);
+        return 'XXXX XXXX ' . $last4;
+    }
+}
+
+if (!function_exists('sanitize_pan')) {
+    /**
+     * Normalize PAN to uppercase without spaces
+     */
+    function sanitize_pan($value) {
+        if ($value === null) return null;
+        $v = strtoupper(preg_replace('/\s+/', '', (string) $value));
+        return $v === '' ? null : $v;
+    }
+}
+
+if (!function_exists('validate_pan')) {
+    /**
+     * Validate PAN: 5 letters, 4 digits, 1 letter
+     */
+    function validate_pan($value) {
+        $v = sanitize_pan($value);
+        return $v !== null && preg_match('/^[A-Z]{5}[0-9]{4}[A-Z]$/', $v) === 1;
+    }
+}
+
+if (!function_exists('mask_pan')) {
+    /**
+     * Mask PAN for display (show first 3 chars + last char)
+     */
+    function mask_pan($value) {
+        $v = sanitize_pan($value);
+        if (!$v) return '-';
+        $start = substr($v, 0, 3);
+        $end = substr($v, -1);
+        return $start . '*****' . $end;
+    }
+}

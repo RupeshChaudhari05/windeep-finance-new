@@ -7,6 +7,8 @@ class Bank extends Admin_Controller {
         parent::__construct();
         $this->load->model('Bank_model');
         $this->load->model('Member_model');
+        $this->load->library('form_validation');
+        $this->load->helper('form');
         $this->data['active_menu'] = 'bank';
     }
     
@@ -239,116 +241,6 @@ class Bank extends Admin_Controller {
         $this->load->view('admin/layouts/sidebar', $this->data);
         $this->load->view('admin/bank/transactions', $this->data);
         $this->load->view('admin/layouts/footer', $this->data);
-    }
-    
-    /**
-     * Search Members (AJAX)
-     */
-    public function search_members() {
-        if (!$this->input->is_ajax_request()) {
-            $this->ajax_response(false, 'Invalid request');
-            return;
-        }
-        
-        $search = $this->input->post('search');
-        
-        $members = $this->db->select('id, member_code, first_name, last_name, phone, status')
-                            ->from('members')
-                            ->group_start()
-                                ->like('member_code', $search)
-                                ->or_like('first_name', $search)
-                                ->or_like('last_name', $search)
-                                ->or_like('phone', $search)
-                            ->group_end()
-                            ->limit(20)
-                            ->get()
-                            ->result();
-        
-        $this->ajax_response(true, 'Members found', ['members' => $members]);
-    }
-    
-    /**
-     * Get Member Accounts (AJAX)
-     */
-    public function get_member_accounts() {
-        if (!$this->input->is_ajax_request()) {
-            $this->ajax_response(false, 'Invalid request');
-            return;
-        }
-        
-        $member_id = $this->input->post('member_id');
-        
-        // Get savings accounts
-        $savings_accounts = $this->db->select('id, account_number, current_balance as balance')
-                                     ->from('savings_accounts')
-                                     ->where('member_id', $member_id)
-                                     ->where('status', 'active')
-                                     ->get()
-                                     ->result();
-        
-        // Get active loans
-        $loans = $this->db->select('id, loan_number, outstanding_principal as outstanding')
-                          ->from('loans')
-                          ->where('member_id', $member_id)
-                          ->where('status', 'active')
-                          ->get()
-                          ->result();
-        
-        $this->ajax_response(true, 'Accounts found', [
-            'savings_accounts' => $savings_accounts,
-            'loans' => $loans
-        ]);
-    }
-
-    /**
-     * Calculate fine due for a member as of a date (AJAX)
-     * POST: member_id, as_of (Y-m-d)
-     */
-    public function calculate_fine_due() {
-        if (!$this->input->is_ajax_request()) {
-            $raw = trim(file_get_contents('php://input'));
-            if (empty($raw)) { $this->ajax_response(false, 'Invalid request'); return; }
-        }
-
-        $member_id = $this->input->post('member_id') ?? null;
-        $as_of = $this->input->post('as_of') ?? date('Y-m-d');
-
-        if (empty($member_id)) {
-            $this->ajax_response(false, 'Member required');
-            return;
-        }
-
-        $this->load->model('Fine_model');
-        $pending = $this->Fine_model->get_member_fines($member_id, true);
-
-        $total_due = 0;
-        $details = [];
-
-        foreach ($pending as $fine) {
-            $rule = $this->db->where('id', $fine->fine_rule_id)->get('fine_rules')->row();
-
-            $days_late = floor((safe_timestamp($as_of) - safe_timestamp($fine->due_date)) / 86400);
-            if ($days_late < 0) $days_late = 0;
-
-            // Use fine rule to calculate amount as of date
-            $calculated = $this->Fine_model->calculate_fine_amount($rule ?? (object)[], $days_late, $fine->due_amount ?? 0);
-
-            $balance = $calculated - ($fine->paid_amount ?? 0) - ($fine->waived_amount ?? 0);
-            if ($balance < 0) $balance = 0;
-
-            if ($balance > 0) {
-                $total_due += $balance;
-                $details[] = [
-                    'fine_id' => $fine->id,
-                    'calculated' => round($calculated, 2),
-                    'paid' => round($fine->paid_amount ?? 0, 2),
-                    'waived' => round($fine->waived_amount ?? 0, 2),
-                    'balance' => round($balance, 2)
-                ];
-            }
-        }
-
-        $this->ajax_response(true, 'Fine due calculated', [ 'total_due' => round($total_due, 2), 'details' => $details ]);
     }
     
     /**
@@ -603,11 +495,268 @@ class Bank extends Admin_Controller {
     }
     
     /**
+     * Bank Accounts Management
+     */
+    public function accounts() {
+        $this->data['page_title'] = 'Bank Accounts';
+        $this->data['breadcrumb'] = [['label' => 'Bank Accounts']];
+        
+        // Get all bank accounts
+        $this->data['bank_accounts'] = $this->Bank_model->get_accounts(false);
+        
+        $this->load->view('admin/layouts/header', $this->data);
+        $this->load->view('admin/layouts/sidebar', $this->data);
+        $this->load->view('admin/bank/accounts', $this->data);
+        $this->load->view('admin/layouts/footer', $this->data);
+    }
+    
+    /**
+     * Create Bank Account
+     */
+    public function create() {
+        $this->data['page_title'] = 'Create Bank Account';
+        $this->data['breadcrumb'] = [
+            ['label' => 'Bank Accounts', 'url' => 'admin/bank/accounts'],
+            ['label' => 'Create']
+        ];
+        
+        if ($this->input->post()) {
+            $this->form_validation->set_rules('account_name', 'Account Name', 'required|trim');
+            $this->form_validation->set_rules('bank_name', 'Bank Name', 'required|trim');
+            $this->form_validation->set_rules('account_number', 'Account Number', 'required|trim|is_unique[bank_accounts.account_number]');
+            $this->form_validation->set_rules('account_type', 'Account Type', 'required|in_list[current,savings,cash]');
+            $this->form_validation->set_rules('opening_balance', 'Opening Balance', 'numeric');
+            
+            if ($this->form_validation->run() === TRUE) {
+                $data = [
+                    'account_name' => $this->input->post('account_name'),
+                    'bank_name' => $this->input->post('bank_name'),
+                    'branch_name' => $this->input->post('branch_name'),
+                    'account_number' => $this->input->post('account_number'),
+                    'ifsc_code' => $this->input->post('ifsc_code'),
+                    'account_type' => $this->input->post('account_type'),
+                    'opening_balance' => $this->input->post('opening_balance') ?: 0,
+                    'current_balance' => $this->input->post('opening_balance') ?: 0,
+                    'is_active' => $this->input->post('is_active') ? 1 : 0,
+                    'is_primary' => $this->input->post('is_primary') ? 1 : 0
+                ];
+                
+                $account_id = $this->Bank_model->create_account($data);
+                
+                if ($account_id) {
+                    $this->session->set_flashdata('success', 'Bank account created successfully!');
+                    redirect('admin/bank/accounts');
+                } else {
+                    $this->session->set_flashdata('error', 'Failed to create bank account.');
+                }
+            }
+        }
+        
+        $this->load->view('admin/layouts/header', $this->data);
+        $this->load->view('admin/layouts/sidebar', $this->data);
+        $this->load->view('admin/bank/create_account', $this->data);
+        $this->load->view('admin/layouts/footer', $this->data);
+    }
+    
+    /**
+     * Edit Bank Account
+     */
+    public function edit($id) {
+        $account = $this->Bank_model->get_by_id($id);
+        
+        if (!$account) {
+            show_404();
+        }
+        
+        $this->data['page_title'] = 'Edit Bank Account';
+        $this->data['breadcrumb'] = [
+            ['label' => 'Bank Accounts', 'url' => 'admin/bank/accounts'],
+            ['label' => 'Edit']
+        ];
+        $this->data['account'] = $account;
+        
+        if ($this->input->post()) {
+            $this->form_validation->set_rules('account_name', 'Account Name', 'required|trim');
+            $this->form_validation->set_rules('bank_name', 'Bank Name', 'required|trim');
+            $this->form_validation->set_rules('account_number', 'Account Number', 'required|trim');
+            $this->form_validation->set_rules('account_type', 'Account Type', 'required|in_list[current,savings,cash]');
+            $this->form_validation->set_rules('opening_balance', 'Opening Balance', 'numeric');
+            
+            // Check if account number is unique (excluding current account)
+            if ($this->input->post('account_number') != $account->account_number) {
+                $this->form_validation->set_rules('account_number', 'Account Number', 'is_unique[bank_accounts.account_number]');
+            }
+            
+            if ($this->form_validation->run() === TRUE) {
+                $data = [
+                    'account_name' => $this->input->post('account_name'),
+                    'bank_name' => $this->input->post('bank_name'),
+                    'branch_name' => $this->input->post('branch_name'),
+                    'account_number' => $this->input->post('account_number'),
+                    'ifsc_code' => $this->input->post('ifsc_code'),
+                    'account_type' => $this->input->post('account_type'),
+                    'opening_balance' => $this->input->post('opening_balance') ?: 0,
+                    'is_active' => $this->input->post('is_active') ? 1 : 0,
+                    'is_primary' => $this->input->post('is_primary') ? 1 : 0
+                ];
+                
+                if ($this->Bank_model->update($id, $data)) {
+                    $this->session->set_flashdata('success', 'Bank account updated successfully!');
+                    redirect('admin/bank/accounts');
+                } else {
+                    $this->session->set_flashdata('error', 'Failed to update bank account.');
+                }
+            }
+        }
+        
+        $this->load->view('admin/layouts/header', $this->data);
+        $this->load->view('admin/layouts/sidebar', $this->data);
+        $this->load->view('admin/bank/edit_account', $this->data);
+        $this->load->view('admin/layouts/footer', $this->data);
+    }
+    
+    /**
+     * Toggle Account Status
+     */
+    public function toggle($id) {
+        $account = $this->Bank_model->get_by_id($id);
+        
+        if (!$account) {
+            $this->ajax_response(false, 'Account not found.');
+        }
+        
+        $new_status = $account->is_active ? 0 : 1;
+        
+        $result = $this->Bank_model->update($id, ['is_active' => $new_status]);
+        
+        if ($result) {
+            $message = $new_status ? 'Account activated successfully!' : 'Account deactivated successfully!';
+            $this->ajax_response(true, $message);
+        } else {
+            $this->ajax_response(false, 'Failed to update account status.');
+        }
+    }
+    
+    /**
+     * AJAX: Search Members
+     */
+    public function search_members() {
+        if (!$this->input->is_ajax_request()) {
+            show_404();
+        }
+        
+        $query = $this->input->get('q');
+        $limit = $this->input->get('limit') ?: 10;
+        
+        if (empty($query)) {
+            $this->ajax_response(false, 'Search query required');
+        }
+        
+        $this->load->model('Member_model');
+        $members = $this->Member_model->search_members($query, null, $limit);
+        
+        $results = [];
+        foreach ($members as $member) {
+            $results[] = [
+                'id' => $member->id,
+                'text' => $member->member_code . ' - ' . $member->full_name . ' (' . $member->phone . ')',
+                'member_code' => $member->member_code,
+                'full_name' => $member->full_name,
+                'phone' => $member->phone
+            ];
+        }
+        
+        $this->ajax_response(true, 'Members found', $results);
+    }
+    
+    /**
+     * AJAX: Get Member Accounts
+     */
+    public function get_member_accounts() {
+        if (!$this->input->is_ajax_request()) {
+            show_404();
+        }
+        
+        $member_id = $this->input->get('member_id');
+        
+        if (empty($member_id)) {
+            $this->ajax_response(false, 'Member ID required');
+        }
+        
+        $this->load->model('Savings_model');
+        $this->load->model('Loan_model');
+        
+        $savings_accounts = $this->Savings_model->get_member_accounts($member_id);
+        $loans = $this->Loan_model->get_member_loans($member_id);
+        
+        $accounts = [];
+        
+        // Add savings accounts
+        foreach ($savings_accounts as $acc) {
+            $accounts[] = [
+                'id' => 'savings_' . $acc->id,
+                'text' => 'Savings: ' . $acc->account_number,
+                'type' => 'savings',
+                'account_id' => $acc->id,
+                'account_number' => $acc->account_number,
+                'balance' => $acc->current_balance
+            ];
+        }
+        
+        // Add loans
+        foreach ($loans as $loan) {
+            $accounts[] = [
+                'id' => 'loan_' . $loan->id,
+                'text' => 'Loan: ' . $loan->loan_number . ' (₹' . number_format($loan->pending_amount, 2) . ')',
+                'type' => 'loan',
+                'account_id' => $loan->id,
+                'account_number' => $loan->loan_number,
+                'balance' => $loan->pending_amount
+            ];
+        }
+        
+        $this->ajax_response(true, 'Accounts found', $accounts);
+    }
+    
+    /**
+     * AJAX: Calculate Fine Due
+     */
+    public function calculate_fine_due() {
+        if (!$this->input->is_ajax_request()) {
+            show_404();
+        }
+        
+        $member_id = $this->input->post('member_id');
+        $amount = $this->input->post('amount');
+        
+        if (empty($member_id) || empty($amount)) {
+            $this->ajax_response(false, 'Member ID and amount required');
+        }
+        
+        $this->load->model('Fine_model');
+        $fines = $this->Fine_model->get_member_fines($member_id, true);
+        
+        $total_fine = 0;
+        foreach ($fines as $fine) {
+            $total_fine += $fine->pending_amount;
+        }
+        
+        $this->ajax_response(true, 'Fine calculated', [
+            'total_fine' => $total_fine,
+            'can_pay' => $amount >= $total_fine
+        ]);
+    }
+    
+    /**
      * AJAX Response Helper
      */
-    protected function ajax_response($success, $message, $data = []) {
-        $response = array_merge(['success' => $success, 'message' => $message], $data);
-        echo json_encode($response);
+    private function ajax_response($success, $message, $data = null) {
+        header('Content-Type: application/json');
+        echo json_encode([
+            'success' => $success,
+            'message' => $message,
+            'data' => $data
+        ]);
         exit;
     }
 }

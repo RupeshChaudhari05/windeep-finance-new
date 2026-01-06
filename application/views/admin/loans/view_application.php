@@ -204,10 +204,13 @@
                 <h3 class="card-title"><i class="fas fa-cogs mr-1"></i> Actions</h3>
             </div>
             <div class="card-body">
-                <?php if ($application->status == 'pending' || $application->status == 'under_review'): ?>
+                <?php if ($application->status == 'pending' || $application->status == 'under_review' || $application->status == 'needs_revision'): ?>
                 <a href="<?= site_url('admin/loans/approve/' . $application->id) ?>" class="btn btn-success btn-block mb-2">
                     <i class="fas fa-check mr-1"></i> Review & Approve
                 </a>
+                <button class="btn btn-warning btn-block mb-2" data-toggle="modal" data-target="#modifyModal">
+                    <i class="fas fa-reply mr-1"></i> Request Modification
+                </button>
                 <button class="btn btn-danger btn-block mb-2" data-toggle="modal" data-target="#rejectModal">
                     <i class="fas fa-times mr-1"></i> Reject Application
                 </button>
@@ -254,7 +257,17 @@
                             <small class="text-muted d-block"><?= format_date_time($application->admin_approved_at, 'd M Y h:i A') ?></small>
                         </div>
                     </div>
-                    <?php endif; ?>
+                <?php endif; ?>
+
+                <?php if ($application->status == 'needs_revision'): ?>
+                    <div class="timeline-item">
+                        <span class="timeline-point bg-info"></span>
+                        <div class="timeline-event">
+                            <strong>Modification Requested</strong>
+                            <small class="text-muted d-block"><?= nl2br(htmlspecialchars($application->revision_remarks)) ?></small>
+                        </div>
+                    </div>
+                <?php endif; ?>
                     
                     <?php if ($application->status == 'member_approved'): ?>
                     <div class="timeline-item">
@@ -315,6 +328,87 @@ $(document).ready(function() {
             return;
         }
         
+        $.post('<?= site_url('admin/loans/reject/' . $application->id) ?>', {reason: reason}, function(response) {
+            if (response.success) {
+                toastr.success('Application rejected');
+                location.reload();
+            } else {
+                toastr.error(response.message || 'Failed to reject');
+            }
+        }, 'json');
+    });
+});
+</script>
+
+<!-- Modification Modal -->
+<div class="modal fade" id="modifyModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning">
+                <h5 class="modal-title">Request Modification</h5>
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Remarks (required)</label>
+                    <textarea id="mod_remarks" class="form-control" rows="3"></textarea>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-md-4">
+                        <label>Proposed Amount (optional)</label>
+                        <input type="number" id="mod_amount" class="form-control" step="0.01">
+                    </div>
+                    <div class="form-group col-md-4">
+                        <label>Proposed Tenure (months)</label>
+                        <input type="number" id="mod_tenure" class="form-control">
+                    </div>
+                    <div class="form-group col-md-4">
+                        <label>Proposed Interest (%)</label>
+                        <input type="number" id="mod_interest" class="form-control" step="0.01">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" id="confirmModify" class="btn btn-warning">Send to Member</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+$(document).ready(function() {
+    $('#confirmModify').click(function() {
+        var remarks = $('#mod_remarks').val().trim();
+        if (!remarks) {
+            toastr.error('Please enter remarks');
+            return;
+        }
+        var data = {
+            remarks: remarks,
+            approved_amount: $('#mod_amount').val(),
+            approved_tenure_months: $('#mod_tenure').val(),
+            approved_interest_rate: $('#mod_interest').val()
+        };
+        $.post('<?= site_url('admin/loans/request_modification/' . $application->id) ?>', data, function(resp) {
+            if (resp.success) {
+                toastr.success(resp.message);
+                location.reload();
+            } else {
+                toastr.error(resp.message || 'Failed to send modification request');
+            }
+        }, 'json');
+    });
+
+    // existing reject logic kept
+    $('#confirmReject').click(function() {
+        var reason = $('#reject_reason').val().trim();
+
+        if (!reason) {
+            toastr.error('Please enter rejection reason');
+            return;
+        }
+
         $.post('<?= site_url('admin/loans/reject/' . $application->id) ?>', {reason: reason}, function(response) {
             if (response.success) {
                 toastr.success('Application rejected');

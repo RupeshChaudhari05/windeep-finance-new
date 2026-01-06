@@ -284,64 +284,7 @@ class Admin_Controller extends MY_Controller {
     }
 }
 
-/**
- * Member_Controller - For Member Portal
- */
-class Member_Controller extends MY_Controller {
-    
-    public function __construct() {
-        parent::__construct();
-        
-        $this->load->model('Member_model');
-        
-        // Check member authentication
-        $this->_check_auth();
-        
-        // Load member data for views
-        $this->load->vars([
-            'member' => $this->member_data,
-            'settings' => $this->settings
-        ]);
-    }
-    
-    /**
-     * Check Member Authentication
-     */
-    private function _check_auth() {
-        $member_id = $this->session->userdata('member_id');
-        
-        if (!$member_id) {
-            if ($this->is_ajax()) {
-                $this->error_response('Session expired. Please login again.', [], 401);
-                exit;
-            }
-            redirect('member/login');
-        }
-        
-        $this->member_data = $this->Member_model->get_by_id($member_id);
-        
-        if (!$this->member_data || $this->member_data->status != 'active') {
-            $this->session->sess_destroy();
-            if ($this->is_ajax()) {
-                $this->error_response('Account is inactive.', [], 401);
-                exit;
-            }
-            redirect('member/login');
-        }
-    }
-    
-    /**
-     * Load Member View
-     */
-    protected function load_view($view, $data = []) {
-        $data['page_title'] = isset($data['page_title']) ? $data['page_title'] : 'Dashboard';
-        
-        $this->load->view('member/layouts/header', $data);
-        $this->load->view('member/layouts/sidebar', $data);
-        $this->load->view($view, $data);
-        $this->load->view('member/layouts/footer', $data);
-    }
-}
+// Member_Controller is implemented in application/core/Member_Controller.php and should be autoloaded separately.
 
 /**
  * API_Controller - For API Endpoints

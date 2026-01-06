@@ -123,6 +123,32 @@ class Loan_model extends MY_Model {
         return $this->db->where('id', $application_id)
                         ->update('loan_applications', $update);
     }
+
+    /**
+     * Request modification from member (admin)
+     */
+    public function request_modification($application_id, $remarks, $admin_id, $proposed = []) {
+        $update = [
+            'revision_remarks' => $remarks,
+            'revised_at' => date('Y-m-d H:i:s'),
+            'revised_by' => $admin_id,
+            'status' => 'needs_revision',
+            'updated_at' => date('Y-m-d H:i:s')
+        ];
+
+        if (!empty($proposed['approved_amount'])) {
+            $update['approved_amount'] = $proposed['approved_amount'];
+        }
+        if (!empty($proposed['approved_tenure_months'])) {
+            $update['approved_tenure_months'] = $proposed['approved_tenure_months'];
+        }
+        if (!empty($proposed['approved_interest_rate'])) {
+            $update['approved_interest_rate'] = $proposed['approved_interest_rate'];
+        }
+
+        return $this->db->where('id', $application_id)
+                        ->update('loan_applications', $update);
+    }
     
     /**
      * Member Approve Revised Terms
@@ -614,6 +640,44 @@ class Loan_model extends MY_Model {
                         ->where('is_reversed', 0)
                         ->order_by('payment_date', 'DESC')
                         ->get('loan_payments')
+                        ->result();
+    }
+    
+    /**
+     * Get Payment History with Stats
+     */
+    public function get_payment_history_stats($filters = []) {
+        $this->db->select('COUNT(*) as total_count, SUM(total_amount) as total_amount, SUM(principal_component) as total_principal, SUM(interest_component) as total_interest, SUM(fine_component) as total_fine');
+        $this->db->from('loan_payments');
+        $this->db->where('is_reversed', 0);
+        
+        if (!empty($filters['loan_id'])) {
+            $this->db->where('loan_id', $filters['loan_id']);
+        }
+        
+        if (!empty($filters['date_from'])) {
+            $this->db->where('payment_date >=', $filters['date_from']);
+        }
+        
+        if (!empty($filters['date_to'])) {
+            $this->db->where('payment_date <=', $filters['date_to']);
+        }
+        
+        return $this->db->get()->row();
+    }
+    
+    /**
+     * Get Recent Payments
+     */
+    public function get_recent_payments($limit = 10) {
+        return $this->db->select('lp.*, l.loan_number, m.member_code, m.first_name, m.last_name')
+                        ->from('loan_payments lp')
+                        ->join('loans l', 'l.id = lp.loan_id')
+                        ->join('members m', 'm.id = l.member_id')
+                        ->where('lp.is_reversed', 0)
+                        ->order_by('lp.payment_date', 'DESC')
+                        ->limit($limit)
+                        ->get()
                         ->result();
     }
     
