@@ -84,7 +84,19 @@ class Bank_model extends MY_Model {
             $total_amount = 0;
             
             foreach ($transactions as $txn) {
-                // Check for duplicate (less strict check)
+                // Bug #10 Fix: Check for duplicate UTR number (if provided)
+                if (!empty($txn['utr_number'])) {
+                    $utr_exists = $this->db->where('utr_number', $txn['utr_number'])
+                                           ->count_all_results('bank_transactions');
+                    
+                    if ($utr_exists > 0) {
+                        $duplicates++;
+                        log_message('debug', 'Duplicate UTR skipped: ' . $txn['utr_number']);
+                        continue;
+                    }
+                }
+                
+                // Check for duplicate transaction (date + amount + description)
                 $exists = $this->db->where('bank_account_id', $bank_account_id)
                                    ->where('transaction_date', $txn['transaction_date'])
                                    ->where('amount', abs($txn['amount']))
@@ -662,6 +674,157 @@ class Bank_model extends MY_Model {
         }
 
         throw new Exception('No action taken for transaction mapping');
+    }
+    
+    /**
+     * Map and Process Split Payment
+     * Bug #11 Fix: Support splitting one bank transaction across multiple EMIs/accounts
+     * 
+     * @param int $transaction_id
+     * @param array $splits - Array of split mappings: [['type' => 'emi', 'related_id' => loan_id, 'amount' => 1000], ...]
+     * @param int $admin_id
+     * @return array - Array of processing results
+     */
+    public function map_split_payment($transaction_id, $splits, $admin_id) {
+        $this->db->trans_begin();
+        
+        try {
+            // Get transaction
+            $txn = $this->db->where('id', $transaction_id)->get('bank_transactions')->row();
+            
+            if (!$txn) {
+                throw new Exception('Transaction not found');
+            }
+            
+            // Calculate available amount
+            $txn_amount = 0;
+            if (isset($txn->credit_amount) && $txn->credit_amount > 0) {
+                $txn_amount = $txn->credit_amount;
+            } elseif (isset($txn->debit_amount) && $txn->debit_amount > 0) {
+                $txn_amount = abs($txn->debit_amount);
+            } else {
+                $txn_amount = $txn->amount ?? 0;
+            }
+            
+            // Validate split amounts
+            $total_split_amount = array_sum(array_column($splits, 'amount'));
+            
+            if ($total_split_amount > $txn_amount) {
+                throw new Exception('Split amounts (' . $total_split_amount . ') exceed transaction amount (' . $txn_amount . ')');
+            }
+            
+            $results = [];
+            
+            // Process each split
+            foreach ($splits as $index => $split) {
+                // Create transaction mapping record
+                $mapping_data = [
+                    'bank_transaction_id' => $transaction_id,
+                    'mapping_type' => $split['type'] ?? 'emi',
+                    'related_id' => $split['related_id'] ?? null,
+                    'allocated_amount' => $split['amount'],
+                    'member_id' => $split['member_id'] ?? $txn->paid_by_member_id ?? null,
+                    'remarks' => $split['remarks'] ?? null,
+                    'mapped_by' => $admin_id,
+                    'created_at' => date('Y-m-d H:i:s')
+                ];
+                
+                $this->db->insert('transaction_mappings', $mapping_data);
+                $mapping_id = $this->db->insert_id();
+                
+                // Process based on type
+                switch ($split['type']) {
+                    case 'emi':
+                    case 'loan':
+                        $this->load->model('Loan_model');
+                        $payment_data = [
+                            'loan_id' => $split['related_id'],
+                            'total_amount' => $split['amount'],
+                            'payment_mode' => 'bank_transfer',
+                            'bank_transaction_id' => $transaction_id,
+                            'payment_type' => 'regular',
+                            'created_by' => $admin_id
+                        ];
+                        $payment_id = $this->Loan_model->record_payment($payment_data);
+                        
+                        $results[] = [
+                            'mapping_id' => $mapping_id,
+                            'type' => 'emi',
+                            'related_id' => $split['related_id'],
+                            'amount' => $split['amount'],
+                            'payment_id' => $payment_id,
+                            'status' => $payment_id ? 'success' : 'failed'
+                        ];
+                        break;
+                        
+                    case 'savings':
+                        $this->load->model('Savings_model');
+                        $savings_data = [
+                            'savings_account_id' => $split['related_id'],
+                            'amount' => $split['amount'],
+                            'transaction_type' => 'deposit',
+                            'reference' => $transaction_id,
+                            'created_by' => $admin_id
+                        ];
+                        $savings_id = $this->Savings_model->record_payment($savings_data);
+                        
+                        $results[] = [
+                            'mapping_id' => $mapping_id,
+                            'type' => 'savings',
+                            'related_id' => $split['related_id'],
+                            'amount' => $split['amount'],
+                            'savings_id' => $savings_id,
+                            'status' => $savings_id ? 'success' : 'failed'
+                        ];
+                        break;
+                        
+                    case 'fine':
+                        $this->load->model('Fine_model');
+                        $fine_id = $split['related_id'];
+                        $result = $this->Fine_model->record_payment($fine_id, $split['amount'], 'bank_transfer', $transaction_id, $admin_id);
+                        
+                        $results[] = [
+                            'mapping_id' => $mapping_id,
+                            'type' => 'fine',
+                            'related_id' => $fine_id,
+                            'amount' => $split['amount'],
+                            'fine_payment_id' => $result,
+                            'status' => $result ? 'success' : 'failed'
+                        ];
+                        break;
+                }
+            }
+            
+            // Update bank transaction status
+            $status = ($total_split_amount >= $txn_amount) ? 'mapped' : 'split';
+            $this->db->where('id', $transaction_id)
+                     ->update('bank_transactions', [
+                         'mapping_status' => $status,
+                         'mapped_by' => $admin_id,
+                         'mapped_at' => date('Y-m-d H:i:s'),
+                         'updated_at' => date('Y-m-d H:i:s')
+                     ]);
+            
+            if ($this->db->trans_status() === FALSE) {
+                $this->db->trans_rollback();
+                return ['success' => false, 'error' => 'Transaction failed'];
+            }
+            
+            $this->db->trans_commit();
+            
+            return [
+                'success' => true,
+                'transaction_id' => $transaction_id,
+                'total_amount' => $txn_amount,
+                'allocated_amount' => $total_split_amount,
+                'remaining_amount' => $txn_amount - $total_split_amount,
+                'splits' => $results
+            ];
+            
+        } catch (Exception $e) {
+            $this->db->trans_rollback();
+            return ['success' => false, 'error' => $e->getMessage()];
+        }
     }
     
     /**

@@ -2,6 +2,20 @@
     <div class="card-header"><h3 class="card-title">Apply for Loan</h3></div>
     <form method="post" action="<?= site_url('member/loans/apply') ?>">
         <div class="card-body">
+            <?php if ($this->session->flashdata('error')): ?>
+            <div class="alert alert-danger alert-dismissible">
+                <button type="button" class="close" data-dismiss="alert">&times;</button>
+                <?= $this->session->flashdata('error') ?>
+            </div>
+            <?php endif; ?>
+            
+            <?php if ($this->session->flashdata('success')): ?>
+            <div class="alert alert-success alert-dismissible">
+                <button type="button" class="close" data-dismiss="alert">&times;</button>
+                <?= $this->session->flashdata('success') ?>
+            </div>
+            <?php endif; ?>
+            
             <div class="form-group">
                 <label>Loan Product</label>
                 <select name="loan_product_id" id="loan_product_id" class="form-control" required>
@@ -49,8 +63,9 @@
             </div>
 
             <div class="form-group">
-                <label>Purpose</label>
-                <textarea name="purpose" class="form-control"></textarea>
+                <label>Purpose <span class="text-danger">*</span></label>
+                <textarea name="purpose" class="form-control" rows="3" required><?= set_value('purpose') ?></textarea>
+                <small class="form-text text-muted">Please describe the purpose of this loan</small>
             </div>
 
             <script>

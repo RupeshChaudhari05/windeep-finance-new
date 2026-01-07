@@ -201,9 +201,26 @@ class Admin_Controller extends MY_Controller {
      * Log Audit Trail
      */
     protected function log_audit($action, $module, $table_name, $record_id, $old_values = null, $new_values = null, $remarks = null) {
+        // Determine user type and ID
+        $user_type = 'admin';
+        $user_id = null;
+        
+        if (isset($this->admin_data) && $this->admin_data) {
+            $user_type = 'admin';
+            $user_id = $this->admin_data->id;
+        } elseif (isset($this->member) && $this->member) {
+            $user_type = 'member';
+            $user_id = $this->member->id;
+        }
+        
+        if (!$user_id) {
+            // Fallback - shouldn't happen but prevents errors
+            return;
+        }
+        
         $data = [
-            'user_type' => 'admin',
-            'user_id' => $this->admin_data->id,
+            'user_type' => $user_type,
+            'user_id' => $user_id,
             'action' => $action,
             'module' => $module,
             'table_name' => $table_name,
@@ -259,9 +276,25 @@ class Admin_Controller extends MY_Controller {
     protected function log_activity($activity, $description = null, $module = null) {
         $this->load->model('Activity_model');
         
+        // Determine user type and ID
+        $user_type = 'admin';
+        $user_id = null;
+        
+        if (isset($this->admin_data) && $this->admin_data) {
+            $user_type = 'admin';
+            $user_id = $this->admin_data->id;
+        } elseif (isset($this->member) && $this->member) {
+            $user_type = 'member';
+            $user_id = $this->member->id;
+        }
+        
+        if (!$user_id) {
+            return;
+        }
+        
         $this->Activity_model->create([
-            'user_type' => 'admin',
-            'user_id' => $this->admin_data->id,
+            'user_type' => $user_type,
+            'user_id' => $user_id,
             'activity' => $activity,
             'description' => $description,
             'module' => $module,

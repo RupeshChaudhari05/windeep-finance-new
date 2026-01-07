@@ -65,9 +65,9 @@
                         </div>
                         <div class="col-md-6">
                             <div class="form-group">
-                                <label for="applied_amount">Loan Amount (₹) <span class="text-danger">*</span></label>
-                                <input type="number" class="form-control" id="applied_amount" name="applied_amount" 
-                                       value="<?= set_value('applied_amount') ?>" required min="1000"
+                                <label for="requested_amount">Loan Amount (₹) <span class="text-danger">*</span></label>
+                                <input type="number" class="form-control" id="requested_amount" name="requested_amount" 
+                                       value="<?= set_value('requested_amount') ?>" required min="1000"
                                        placeholder="Enter loan amount">
                                 <small id="amountRange" class="form-text text-muted"></small>
                             </div>
@@ -268,7 +268,7 @@ $(document).ready(function() {
             $('#tenureRange').text('Min: ' + tenureMin + ' months | Max: ' + tenureMax + ' months');
             $('#guarantorRequired').text('(Required: ' + requiredGuarantors + ')');
             
-            $('#applied_amount').attr('min', min).attr('max', max);
+            $('#requested_amount').attr('min', min).attr('max', max);
             $('#tenure_months').attr('min', tenureMin).attr('max', tenureMax);
             
             $('#productDetails').html(`
@@ -286,10 +286,10 @@ $(document).ready(function() {
     });
     
     // Calculate EMI on input change
-    $('#applied_amount, #tenure_months').on('change input', calculateEMI);
+    $('#requested_amount, #tenure_months').on('change input', calculateEMI);
     
     function calculateEMI() {
-        var principal = parseFloat($('#applied_amount').val()) || 0;
+        var principal = parseFloat($('#requested_amount').val()) || 0;
         var tenure = parseInt($('#tenure_months').val()) || 12;
         var selected = $('#product_id').find(':selected');
         var rate = parseFloat(selected.data('rate')) || 0;
@@ -388,7 +388,7 @@ $(document).ready(function() {
     $('#loanForm').on('submit', function(e) {
         var memberId = $('#member_id').val();
         var productId = $('#product_id').val();
-        var amount = $('#applied_amount').val();
+        var amount = $('#requested_amount').val();
         
         if (!memberId || !productId || !amount) {
             e.preventDefault();

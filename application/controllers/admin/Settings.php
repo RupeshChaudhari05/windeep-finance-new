@@ -237,7 +237,7 @@ class Settings extends Admin_Controller {
         $result = $this->Financial_year_model->create($year_data);
         
         if ($result) {
-            $this->log_audit('financial_years', $result, 'create', null, $year_data);
+            $this->log_audit('create', 'financial_years', 'financial_years', $result, null, $year_data);
             $this->session->set_flashdata('success', 'Financial year created successfully.');
         } else {
             $this->session->set_flashdata('error', 'Failed to create financial year.');
@@ -256,7 +256,7 @@ class Settings extends Admin_Controller {
         }
 
         $this->Financial_year_model->set_active($id);
-        $this->log_audit('financial_years', $id, 'set_current', null, ['id' => $id]);
+        $this->log_audit('set_current', 'financial_years', 'financial_years', $id, null, ['id' => $id]);
         $this->session->set_flashdata('success', 'Financial year set as current.');
         redirect('admin/settings/financial_years');
     }
@@ -371,7 +371,7 @@ class Settings extends Admin_Controller {
         $result = $this->Admin_model->create_admin($user_data);
         
         if ($result) {
-            $this->log_audit('admin_users', $result, 'create', null, ['email' => $user_data['email']]);
+            $this->log_audit('create', 'admin_users', 'admin_users', $result, null, ['email' => $user_data['email']]);
             $this->session->set_flashdata('success', 'Admin user created successfully.');
         } else {
             $this->session->set_flashdata('error', 'Failed to create admin user.');
@@ -499,7 +499,7 @@ class Settings extends Admin_Controller {
         
         if ($id) {
             $result = $this->db->where('id', $id)->update('loan_products', $product_data);
-            $this->log_audit('loan_products', $id, 'update', null, $product_data);
+            $this->log_audit('update', 'loan_products', 'loan_products', $id, null, $product_data);
             $message = 'Loan product updated successfully.';
         } else {
             $product_data['created_by'] = $admin_id;
@@ -507,7 +507,7 @@ class Settings extends Admin_Controller {
             $product_data['is_active'] = 1;
             $result = $this->db->insert('loan_products', $product_data);
             $id = $this->db->insert_id();
-            $this->log_audit('loan_products', $id, 'create', null, $product_data);
+            $this->log_audit('create', 'loan_products', 'loan_products', $id, null, $product_data);
             $message = 'Loan product created successfully.';
         }
         

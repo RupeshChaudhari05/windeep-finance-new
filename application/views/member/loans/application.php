@@ -30,10 +30,81 @@
             </ul>
         <?php endif; ?>
 
-        <?php if (in_array($application->status, ['pending','needs_revision','rejected'])): ?>
+        <?php if ($application->status === 'member_review'): ?>
+            <hr>
+            <div class="alert alert-success">
+                <strong>Admin Approved Terms:</strong><br>
+                Amount: ₹<?= number_format($application->approved_amount, 2) ?><br>
+                Tenure: <?= $application->approved_tenure_months ?> months<br>
+                Interest Rate: <?= $application->approved_interest_rate ?>%
+                <?php if (!empty($application->revision_remarks)): ?>
+                    <br><strong>Remarks:</strong> <?= nl2br(htmlspecialchars($application->revision_remarks)) ?>
+                <?php endif; ?>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <button type="button" class="btn btn-success btn-block" data-toggle="modal" data-target="#approveModal">
+                        <i class="fas fa-check"></i> Accept Terms
+                    </button>
+                </div>
+                <div class="col-md-6">
+                    <button type="button" class="btn btn-danger btn-block" data-toggle="modal" data-target="#rejectModal">
+                        <i class="fas fa-times"></i> Reject Terms
+                    </button>
+                </div>
+            </div>
+
+            <!-- Approve Modal -->
+            <div class="modal fade" id="approveModal" tabindex="-1" role="dialog">
+                <div class="modal-dialog" role="document">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Confirm Approval</h5>
+                            <button type="button" class="close" data-dismiss="modal">
+                                <span>&times;</span>
+                            </button>
+                        </div>
+                        <div class="modal-body">
+                            Are you sure you want to accept the admin-approved terms?
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                            <a href="<?= site_url('member/loans/approve_application/' . $application->id) ?>" class="btn btn-success">Yes, Accept</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Reject Modal -->
+            <div class="modal fade" id="rejectModal" tabindex="-1" role="dialog">
+                <div class="modal-dialog" role="document">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Reject Application</h5>
+                            <button type="button" class="close" data-dismiss="modal">
+                                <span>&times;</span>
+                            </button>
+                        </div>
+                        <form action="<?= site_url('member/loans/reject_application/' . $application->id) ?>" method="post">
+                            <div class="modal-body">
+                                <div class="form-group">
+                                    <label for="reason">Reason for rejection:</label>
+                                    <textarea class="form-control" id="reason" name="reason" rows="3" required></textarea>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                                <button type="submit" class="btn btn-danger">Reject Application</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        <?php elseif (in_array($application->status, ['pending','needs_revision','rejected'])): ?>
             <a href="<?= site_url('member/loans/edit_application/' . $application->id) ?>" class="btn btn-primary">Edit & Resubmit</a>
         <?php endif; ?>
 
-        <a href="<?= site_url('member/loans') ?>" class="btn btn-default">Back</a>
+        <a href="<?= site_url('member/loans/applications') ?>" class="btn btn-default">Back</a>
     </div>
 </div>

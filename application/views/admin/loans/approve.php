@@ -24,7 +24,7 @@
                                 </tr>
                                 <tr>
                                     <td class="text-muted">Loan Product:</td>
-                                    <td><?= $product->name ?></td>
+                                    <td><?= $product->product_name ?></td>
                                 </tr>
                                 <tr>
                                     <td class="text-muted">Requested Amount:</td>
@@ -62,9 +62,9 @@
                         </div>
                     </div>
                     
-                    <?php if (!empty($application->remarks)): ?>
+                    <?php if (!empty($application->purpose)): ?>
                     <div class="alert alert-info mt-3 mb-0">
-                        <i class="fas fa-comment mr-1"></i> <strong>Applicant's Remarks:</strong> <?= $application->remarks ?>
+                        <i class="fas fa-comment mr-1"></i> <strong>Applicant's Purpose:</strong> <?= $application->purpose ?>
                     </div>
                     <?php endif; ?>
                 </div>
@@ -101,11 +101,11 @@
                             <table class="table table-borderless table-sm">
                                 <tr>
                                     <td class="text-muted">Savings Balance:</td>
-                                    <td class="text-success">₹<?= number_format($member->savings_balance ?? 0) ?></td>
+                                    <td class="text-success">₹<?= number_format($member->savings_summary->current_balance ?? 0) ?></td>
                                 </tr>
                                 <tr>
                                     <td class="text-muted">Active Loans:</td>
-                                    <td><?= $member->active_loans ?? 0 ?></td>
+                                    <td><?= $member->loan_summary->total_loans ?? 0 ?></td>
                                 </tr>
                                 <tr>
                                     <td class="text-muted">Member Since:</td>
@@ -161,8 +161,8 @@
                         <label>Tenure (Months) <span class="text-danger">*</span></label>
                         <input type="number" name="approved_tenure_months" id="approved_tenure_months" class="form-control" 
                                value="<?= $application->requested_tenure_months ?>" required
-                               min="<?= $product->min_tenure ?>" max="<?= $product->max_tenure ?>">
-                        <small class="text-muted">Range: <?= $product->min_tenure ?> - <?= $product->max_tenure ?> months</small>
+                               min="<?= $product->min_tenure_months ?>" max="<?= $product->max_tenure_months ?>">
+                        <small class="text-muted">Range: <?= $product->min_tenure_months ?> - <?= $product->max_tenure_months ?> months</small>
                     </div>
                     
                     <div class="form-group">

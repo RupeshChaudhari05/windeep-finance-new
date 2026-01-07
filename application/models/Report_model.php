@@ -426,8 +426,9 @@ class Report_model extends MY_Model {
                                         ->fine_amount ?? 0,
             
             'fines_collected' => $this->db->select_sum('paid_amount')
-                                          ->where('payment_date >=', $start_date)
-                                          ->where('payment_date <=', $end_date)
+                                          ->where('updated_at >=', $start_date)
+                                          ->where('updated_at <=', $end_date . ' 23:59:59')
+                                          ->where_in('status', ['paid', 'partial'])
                                           ->get('fines')
                                           ->row()
                                           ->paid_amount ?? 0

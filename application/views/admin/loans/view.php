@@ -142,13 +142,13 @@
                         <div class="d-flex justify-content-between">
                             <div>
                                 <a href="<?= site_url('admin/members/view/' . $g->guarantor_member_id) ?>">
-                                    <?= $g->guarantor_name ?>
+                                    <?= trim($g->first_name . ' ' . $g->last_name) ?>
                                 </a>
-                                <br><small class="text-muted"><?= $g->guarantor_code ?></small>
+                                <br><small class="text-muted"><?= $g->member_code ?></small>
                             </div>
                             <div class="text-right">
-                                <span class="badge badge-<?= $g->status == 'active' ? 'success' : 'secondary' ?>">
-                                    <?= ucfirst($g->status) ?>
+                                <span class="badge badge-<?= $g->consent_status == 'accepted' ? 'success' : ($g->consent_status == 'rejected' ? 'danger' : 'warning') ?>">
+                                    <?= ucfirst($g->consent_status) ?>
                                 </span>
                             </div>
                         </div>

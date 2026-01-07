@@ -189,7 +189,7 @@ class Savings extends Admin_Controller {
         $account_id = $this->Savings_model->create_account($account_data);
         
         if ($account_id) {
-            $this->log_audit('savings_accounts', $account_id, 'create', null, $account_data);
+            $this->log_audit('create', 'savings_accounts', 'savings_accounts', $account_id, null, $account_data);
             $this->session->set_flashdata('success', 'Savings account created successfully.');
             redirect('admin/savings/view/' . $account_id);
         } else {
@@ -287,7 +287,7 @@ class Savings extends Admin_Controller {
                     $this->session->userdata('admin_id')
                 );
                 
-                $this->log_audit('savings_transactions', $transaction_id, 'create', null, $payment_data);
+                $this->log_audit('create', 'savings_transactions', 'savings_transactions', $transaction_id, null, $payment_data);
                 $this->session->set_flashdata('success', 'Payment recorded successfully.');
                 redirect('admin/savings/view/' . $payment_data['savings_account_id']);
             } else {
@@ -300,6 +300,74 @@ class Savings extends Admin_Controller {
         }
     }
     
+    /**
+     * Edit Savings Account
+     */
+    public function edit($id = null) {
+        $data['title'] = 'Edit Savings Account';
+        $data['page_title'] = 'Edit Savings Account';
+        $data['breadcrumb'] = [
+            ['title' => 'Dashboard', 'url' => 'admin/dashboard'],
+            ['title' => 'Savings', 'url' => 'admin/savings'],
+            ['title' => 'Edit', 'url' => '']
+        ];
+        
+        if (!$id) {
+            $this->session->set_flashdata('error', 'Invalid account');
+            redirect('admin/savings');
+        }
+        
+        $data['account'] = $this->db->select('sa.*, m.member_code, m.first_name, m.last_name')
+                                    ->from('savings_accounts sa')
+                                    ->join('members m', 'm.id = sa.member_id')
+                                    ->where('sa.id', $id)
+                                    ->get()
+                                    ->row();
+        
+        if (!$data['account']) {
+            $this->session->set_flashdata('error', 'Savings account not found');
+            redirect('admin/savings');
+        }
+        
+        $data['schemes'] = $this->Savings_model->get_schemes();
+        $this->load->model('Member_model');
+        $data['members'] = $this->Member_model->get_active_members_dropdown();
+        
+        $this->load_view('admin/savings/edit', $data);
+    }
+
+    /**
+     * Update Savings Account
+     */
+    public function update($id = null) {
+        if ($this->input->method() !== 'post') {
+            redirect('admin/savings/edit/' . $id);
+        }
+
+        $this->load->library('form_validation');
+        $this->form_validation->set_rules('monthly_amount', 'Monthly Amount', 'required|numeric|greater_than[0]');
+        $this->form_validation->set_rules('start_date', 'Start Date', 'required');
+
+        if ($this->form_validation->run() === FALSE) {
+            $this->session->set_flashdata('error', validation_errors());
+            redirect('admin/savings/edit/' . $id);
+        }
+
+        $update_data = [
+            'scheme_id' => $this->input->post('scheme_id'),
+            'monthly_amount' => $this->input->post('monthly_amount'),
+            'start_date' => $this->input->post('start_date'),
+            'maturity_date' => $this->input->post('maturity_date'),
+            'status' => $this->input->post('status') ?: 'active',
+            'updated_at' => date('Y-m-d H:i:s')
+        ];
+
+        $this->db->where('id', $id)->update('savings_accounts', $update_data);
+        $this->log_audit('update', 'savings_accounts', 'savings_accounts', $id, null, $update_data);
+        $this->session->set_flashdata('success', 'Savings account updated successfully.');
+        redirect('admin/savings/view/' . $id);
+    }
+
     /**
      * Pending Dues
      */

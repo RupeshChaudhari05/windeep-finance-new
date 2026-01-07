@@ -151,7 +151,7 @@ class Fines extends Admin_Controller {
         $fine_id = $this->Fine_model->create_fine($fine_data);
         
         if ($fine_id) {
-            $this->log_audit('fines', $fine_id, 'create', null, $fine_data);
+            $this->log_audit('create', 'fines', 'fines', $fine_id, null, $fine_data);
             $this->session->set_flashdata('success', 'Fine created successfully.');
             redirect('admin/fines/view/' . $fine_id);
         } else {
@@ -196,7 +196,7 @@ class Fines extends Admin_Controller {
                     $this->session->userdata('admin_id')
                 );
                 
-                $this->log_audit('fines', $id, 'payment', null, ['amount' => $amount]);
+                $this->log_audit('payment', 'fines', 'fines', $id, null, ['amount' => $amount]);
                 $this->session->set_flashdata('success', 'Payment recorded successfully.');
             } else {
                 $this->session->set_flashdata('error', 'Failed to record payment.');
@@ -241,7 +241,7 @@ class Fines extends Admin_Controller {
         $result = $this->Fine_model->waive_fine($id, $waive_amount, $reason, $this->session->userdata('admin_id'));
         
         if ($result) {
-            $this->log_audit('fines', $id, 'waived', null, ['amount' => $waive_amount, 'reason' => $reason]);
+            $this->log_audit('waived', 'fines', 'fines', $id, null, ['amount' => $waive_amount, 'reason' => $reason]);
             $this->json_response(['success' => true, 'message' => 'Fine waived successfully.']);
         } else {
             $this->json_response(['success' => false, 'message' => 'Failed to waive fine.']);
@@ -262,7 +262,7 @@ class Fines extends Admin_Controller {
         $result = $this->Fine_model->cancel_fine($id, $reason, $this->session->userdata('admin_id'));
         
         if ($result) {
-            $this->log_audit('fines', $id, 'cancelled', null, ['reason' => $reason]);
+            $this->log_audit('cancelled', 'fines', 'fines', $id, null, ['reason' => $reason]);
             $this->json_response(['success' => true, 'message' => 'Fine cancelled successfully.']);
         } else {
             $this->json_response(['success' => false, 'message' => 'Failed to cancel fine.']);
@@ -324,7 +324,7 @@ class Fines extends Admin_Controller {
 
         $result = $this->Fine_model->request_waiver($id, $reason, $requested_by, $amount);
         if ($result) {
-            $this->log_audit('fines', $id, 'waiver_requested', null, ['reason' => $reason]);
+            $this->log_audit('waiver_requested', 'fines', 'fines', $id, null, ['reason' => $reason]);
             $this->json_response(['success' => true, 'message' => 'Waiver request submitted']);
         } else {
             $this->json_response(['success' => false, 'message' => 'Failed to submit waiver request']);

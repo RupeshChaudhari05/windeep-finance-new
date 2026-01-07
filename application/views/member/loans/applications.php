@@ -6,6 +6,20 @@
         </div>
     </div>
     <div class="card-body">
+        <?php if ($this->session->flashdata('success')): ?>
+        <div class="alert alert-success alert-dismissible">
+            <button type="button" class="close" data-dismiss="alert">&times;</button>
+            <?= $this->session->flashdata('success') ?>
+        </div>
+        <?php endif; ?>
+        
+        <?php if ($this->session->flashdata('error')): ?>
+        <div class="alert alert-danger alert-dismissible">
+            <button type="button" class="close" data-dismiss="alert">&times;</button>
+            <?= $this->session->flashdata('error') ?>
+        </div>
+        <?php endif; ?>
+        
         <?php if (empty($applications)): ?>
             <p class="text-muted">You have no loan applications.</p>
         <?php else: ?>
@@ -23,6 +37,8 @@
                             <a href="<?= site_url('member/loans/application/' . $app->id) ?>" class="btn btn-sm btn-outline-primary">View</a>
                             <?php if (in_array($app->status, ['pending','needs_revision','rejected'])): ?>
                                 <a href="<?= site_url('member/loans/edit_application/' . $app->id) ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
+                            <?php elseif ($app->status === 'member_review'): ?>
+                                <span class="badge badge-warning">Action Required</span>
                             <?php endif; ?>
                         </td>
                     </tr>

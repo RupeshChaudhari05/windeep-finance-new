@@ -16,16 +16,67 @@ class User_model extends CI_Model {
 
 
 
+    /**
+     * User Login
+     * Security Fix: Use password_verify() instead of MD5
+     */
     public function login($email, $password) {
         $this->db->where('email', $email);
-        $this->db->where('password',$password); // Using md5 for simplicity, consider using a stronger hash function
         $query = $this->db->get('admin');
-        //print_r($query);die;
+        
         if ($query->num_rows() == 1) {
-            return $query->row();
-        } else {
-            return false;
+            $user = $query->row();
+            
+            // Check if password is still MD5 (migration compatibility)
+            if (strlen($user->password) == 32 && ctype_xdigit($user->password)) {
+                // Legacy MD5 password - verify and upgrade
+                if (md5($password) === $user->password) {
+                    // Rehash with bcrypt
+                    $new_hash = password_hash($password, PASSWORD_BCRYPT);
+                    $this->db->where('id', $user->id)
+                             ->update('admin', ['password' => $new_hash]);
+                    
+                    return $user;
+                }
+            } else {
+                // Modern bcrypt password
+                if (password_verify($password, $user->password)) {
+                    // Check if rehash needed (algorithm upgraded)
+                    if (password_needs_rehash($user->password, PASSWORD_BCRYPT)) {
+                        $new_hash = password_hash($password, PASSWORD_BCRYPT);
+                        $this->db->where('id', $user->id)
+                                 ->update('admin', ['password' => $new_hash]);
+                    }
+                    
+                    return $user;
+                }
+            }
         }
+        
+        return false;
+    }
+    
+    /**
+     * Create User with Secure Password
+     */
+    public function create_user($data) {
+        if (isset($data['password'])) {
+            $data['password'] = password_hash($data['password'], PASSWORD_BCRYPT);
+        }
+        
+        $data['created_at'] = date('Y-m-d H:i:s');
+        
+        return $this->db->insert('admin', $data);
+    }
+    
+    /**
+     * Update User Password
+     */
+    public function update_password($user_id, $new_password) {
+        $hashed = password_hash($new_password, PASSWORD_BCRYPT);
+        
+        return $this->db->where('id', $user_id)
+                        ->update('admin', ['password' => $hashed]);
     }
 
     public function get_user_by_email($email) {

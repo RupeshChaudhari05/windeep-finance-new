@@ -174,7 +174,7 @@ class Members extends Admin_Controller {
         $member_id = $this->Member_model->create_member($member_data);
         
         if ($member_id) {
-            $this->log_audit('members', $member_id, 'create', null, $member_data);
+            $this->log_audit('create', 'members', 'members', $member_id, null, $member_data);
             $this->session->set_flashdata('success', 'Member created successfully.');
             redirect('admin/members/view/' . $member_id);
         } else {
@@ -346,7 +346,7 @@ class Members extends Admin_Controller {
         $result = $this->Member_model->update($id, $member_data);
         
         if ($result) {
-            $this->log_audit('members', $id, 'update', $old_data, $member_data);
+            $this->log_audit('update', 'members', 'members', $id, $old_data, $member_data);
             $this->session->set_flashdata('success', 'Member updated successfully.');
         } else {
             $this->session->set_flashdata('error', 'Failed to update member.');
@@ -372,7 +372,7 @@ class Members extends Admin_Controller {
         $result = $this->Member_model->update_status($id, $status, $reason, $this->session->userdata('admin_id'));
         
         if ($result) {
-            $this->log_audit('members', $id, 'status_change', ['status' => $member->status], ['status' => $status, 'reason' => $reason]);
+            $this->log_audit('status_change', 'members', 'members', $id, ['status' => $member->status], ['status' => $status, 'reason' => $reason]);
             $this->json_response(['success' => true, 'message' => 'Status updated successfully.']);
         } else {
             $this->json_response(['success' => false, 'message' => 'Failed to update status.']);
@@ -393,7 +393,7 @@ class Members extends Admin_Controller {
         $result = $this->Member_model->verify_kyc($id, $this->session->userdata('admin_id'));
         
         if ($result) {
-            $this->log_audit('members', $id, 'kyc_verified');
+            $this->log_audit('kyc_verified', 'members', 'members', $id);
             $this->session->set_flashdata('success', 'KYC verified successfully.');
         } else {
             $this->session->set_flashdata('error', 'Failed to verify KYC.');

@@ -181,6 +181,13 @@ class Loans extends Admin_Controller {
         
         $data['applications'] = $this->db->get()->result();
         $data['status'] = $status;
+
+        // Normalize applications: compute member display name
+        foreach ($data['applications'] as &$app) {
+            if (!isset($app->member_name)) {
+                $app->member_name = trim(($app->first_name ?? '') . ' ' . ($app->last_name ?? '')) ?: ($app->member_code ?? '');
+            }
+        }
         
         $this->load_view('admin/loans/applications', $data);
     }
@@ -284,7 +291,7 @@ class Loans extends Admin_Controller {
                 }
             }
             
-            $this->log_audit('loan_applications', $application_id, 'create', null, $application_data);
+            $this->log_audit('create', 'loan_applications', 'loan_applications', $application_id, null, $application_data);
             $this->session->set_flashdata('success', 'Loan application submitted successfully.');
             redirect('admin/loans/view_application/' . $application_id);
         } else {
@@ -315,7 +322,7 @@ class Loans extends Admin_Controller {
             $result = $this->Loan_model->admin_approve($id, $approval_data, $this->session->userdata('admin_id'));
             
             if ($result) {
-                $this->log_audit('loan_applications', $id, 'approved', null, $approval_data);
+                $this->log_audit('approved', 'loan_applications', 'loan_applications', $id, null, $approval_data);
                 $this->session->set_flashdata('success', 'Application approved. Awaiting member confirmation.');
                 redirect('admin/loans/view_application/' . $id);
             } else {
@@ -361,7 +368,7 @@ class Loans extends Admin_Controller {
         $result = $this->Loan_model->request_modification($id, $remarks, $this->session->userdata('admin_id'), $proposed);
 
         if ($result) {
-            $this->log_audit('loan_applications', $id, 'modification_requested', null, ['remarks' => $remarks, 'proposed' => $proposed]);
+            $this->log_audit('modification_requested', 'loan_applications', 'loan_applications', $id, null, ['remarks' => $remarks, 'proposed' => $proposed]);
             $this->json_response(['success' => true, 'message' => 'Member notified to modify application.']);
         } else {
             $this->json_response(['success' => false, 'message' => 'Failed to request modification.']);
@@ -382,7 +389,7 @@ class Loans extends Admin_Controller {
         $result = $this->Loan_model->reject_application($id, $reason, $this->session->userdata('admin_id'));
         
         if ($result) {
-            $this->log_audit('loan_applications', $id, 'rejected', null, ['reason' => $reason]);
+            $this->log_audit('rejected', 'loan_applications', 'loan_applications', $id, null, ['reason' => $reason]);
             $this->json_response(['success' => true, 'message' => 'Application rejected.']);
         } else {
             $this->json_response(['success' => false, 'message' => 'Failed to reject application.']);
@@ -436,7 +443,7 @@ class Loans extends Admin_Controller {
                         );
                     }
                     
-                    $this->log_audit('loans', $loan_id, 'disbursed', null, $disbursement_data);
+                    $this->log_audit('disbursed', 'loans', 'loans', $loan_id, null, $disbursement_data);
                     $this->session->set_flashdata('success', 'Loan disbursed successfully.');
                     redirect('admin/loans/view/' . $loan_id);
                 }
@@ -563,7 +570,7 @@ class Loans extends Admin_Controller {
                     $this->session->userdata('admin_id')
                 );
                 
-                $this->log_audit('loan_payments', $payment_id, 'create', null, $payment_data);
+                $this->log_audit('create', 'loan_payments', 'loan_payments', $payment_id, null, $payment_data);
                 $this->session->set_flashdata('success', 'Payment recorded successfully.');
                 redirect('admin/loans/view/' . $payment_data['loan_id']);
             }
@@ -587,7 +594,18 @@ class Loans extends Admin_Controller {
         ];
         
         $data['applications'] = $this->Loan_model->get_pending_applications();
-        $data['stats'] = $this->Loan_model->get_dashboard_stats();
+        
+        // Get status counts for the cards
+        $data['stats'] = [];
+        $status_counts = $this->db->select('status, COUNT(*) as count')
+                                  ->where_in('status', ['pending', 'under_review', 'guarantor_pending', 'admin_approved', 'member_approved'])
+                                  ->group_by('status')
+                                  ->get('loan_applications')
+                                  ->result();
+        
+        foreach ($status_counts as $stat) {
+            $data['stats'][$stat->status] = $stat->count;
+        }
         
         $this->load_view('admin/loans/pending_approval', $data);
     }
@@ -805,12 +823,12 @@ class Loans extends Admin_Controller {
         if ($id) {
             $data['updated_at'] = date('Y-m-d H:i:s');
             $this->db->where('id', $id)->update('loan_products', $data);
-            $this->log_audit('loan_products', $id, 'update', null, $data);
+            $this->log_audit('update', 'loan_products', 'loan_products', $id, null, $data);
         } else {
             $data['created_at'] = date('Y-m-d H:i:s');
             $this->db->insert('loan_products', $data);
             $id = $this->db->insert_id();
-            $this->log_audit('loan_products', $id, 'create', null, $data);
+            $this->log_audit('create', 'loan_products', 'loan_products', $id, null, $data);
         }
         
         $this->json_response(['success' => true, 'message' => 'Product saved successfully']);
@@ -833,7 +851,7 @@ class Loans extends Admin_Controller {
             'updated_at' => date('Y-m-d H:i:s')
         ]);
         
-        $this->log_audit('loan_products', $id, 'status_change', null, ['is_active' => $is_active]);
+        $this->log_audit('status_change', 'loan_products', 'loan_products', $id, null, ['is_active' => $is_active]);
         $this->json_response(['success' => true]);
     }
     
@@ -858,7 +876,7 @@ class Loans extends Admin_Controller {
         }
         
         $this->db->where('id', $id)->delete('loan_products');
-        $this->log_audit('loan_products', $id, 'delete', null, null);
+        $this->log_audit('delete', 'loan_products', 'loan_products', $id, null, null);
         
         $this->json_response(['success' => true, 'message' => 'Product deleted successfully']);
     }
@@ -883,7 +901,7 @@ class Loans extends Admin_Controller {
         
         // TODO: Implement SMS/WhatsApp reminder
         // For now, just log it
-        $this->log_audit('loans', $loan_id, 'reminder_sent', null, [
+        $this->log_audit('reminder_sent', 'loans', 'loans', $loan_id, null, [
             'member_id' => $loan->member_id,
             'phone' => $loan->phone
         ]);
@@ -929,19 +947,17 @@ class Loans extends Admin_Controller {
         $payment_mode = $this->input->get('payment_mode');
         $payment_type = $this->input->get('payment_type');
         
-        // Build query
-        $this->db->select('lp.*, l.loan_number, l.member_id, m.member_code, m.first_name, m.last_name, m.phone, lp.created_at as payment_created_at');
+        // Build query - reset query builder first
+        $this->db->reset_query();
+        $this->db->select('lp.id, lp.payment_date, lp.total_amount, lp.principal_component, lp.interest_component, lp.fine_component, lp.payment_mode, lp.payment_code, lp.reference_number, lp.payment_type, lp.created_at as payment_created_at, l.loan_number, l.member_id, m.member_code, m.first_name, m.last_name, m.phone');
         $this->db->from('loan_payments lp');
-        $this->db->join('loans l', 'l.id = lp.loan_id');
-        $this->db->join('members m', 'm.id = l.member_id');
+        $this->db->join('loans l', 'l.id = lp.loan_id', 'left');
+        $this->db->join('members m', 'm.id = l.member_id', 'left');
         $this->db->where('lp.is_reversed', 0);
         
         if ($loan_id) {
             $this->db->where('lp.loan_id', $loan_id);
             $filters['loan_id'] = $loan_id;
-            
-            // Get loan details for context
-            $data['loan'] = $this->Loan_model->get_loan_details($loan_id);
         }
         
         if ($member_id) {
@@ -973,6 +989,12 @@ class Loans extends Admin_Controller {
         $this->db->order_by('lp.created_at', 'DESC');
         
         $data['payments'] = $this->db->get()->result();
+        
+        // Get loan details for context (after query execution)
+        if ($loan_id) {
+            $data['loan'] = $this->Loan_model->get_loan_details($loan_id);
+        }
+        
         $data['filters'] = $filters;
         
         // Calculate totals

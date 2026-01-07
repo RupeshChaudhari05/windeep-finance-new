@@ -113,6 +113,10 @@ class Loans extends Member_Controller {
         $this->form_validation->set_rules('purpose', 'Purpose', 'required');
         
         if ($this->form_validation->run() === FALSE) {
+            // Log validation errors and input for debugging
+            log_message('error', 'Member Loans::apply validation failed: ' . validation_errors());
+            log_message('debug', 'Member Loans::apply POST data: ' . json_encode($this->input->post()));
+
             $this->session->set_flashdata('error', validation_errors());
             redirect('member/loans/apply');
             return;
@@ -139,7 +143,7 @@ class Loans extends Member_Controller {
         $application_data = [
             'member_id' => $this->member->id,
             'loan_product_id' => $product_id,
-            'amount_requested' => $this->input->post('amount_requested'),
+            'requested_amount' => $this->input->post('amount_requested'),
             'requested_tenure_months' => $requested_tenure,
             'purpose' => $this->input->post('purpose'),
             'application_date' => date('Y-m-d'),
@@ -163,8 +167,8 @@ class Loans extends Member_Controller {
                 }
             }
 
-            $this->session->set_flashdata('success', 'Loan application submitted successfully. Waiting for approval.');
-            redirect('member/loans');
+            $this->session->set_flashdata('success', 'Loan application submitted successfully. Application Number: ' . $this->Loan_model->get_application($application_id)->application_number);
+            redirect('member/loans/applications');
         } else {
             $this->session->set_flashdata('error', 'Failed to submit application.');
             redirect('member/loans/apply');
@@ -259,7 +263,7 @@ class Loans extends Member_Controller {
 
         $update = [
             'loan_product_id' => $product_id,
-            'amount_requested' => $this->input->post('amount_requested'),
+            'requested_amount' => $this->input->post('amount_requested'),
             'requested_tenure_months' => $requested_tenure,
             'purpose' => $this->input->post('purpose'),
             'status' => 'pending',
@@ -282,6 +286,75 @@ class Loans extends Member_Controller {
         }
 
         $this->session->set_flashdata('success', 'Application updated and resubmitted.');
+        redirect('member/loans/application/' . $application_id);
+    }
+
+    /**
+     * Member approve admin-approved application
+     */
+    public function approve_application($application_id) {
+        $this->load->model('Loan_model');
+        $app = $this->Loan_model->get_application($application_id);
+
+        if (!$app || $app->member_id != $this->member->id) {
+            $this->session->set_flashdata('error', 'Application not found.');
+            redirect('member/loans/applications');
+            return;
+        }
+
+        if ($app->status !== 'member_review') {
+            $this->session->set_flashdata('error', 'Application is not available for review.');
+            redirect('member/loans/application/' . $application_id);
+            return;
+        }
+
+        $result = $this->Loan_model->member_approve($application_id);
+
+        if ($result) {
+            $this->log_audit('member_approved', 'loan_applications', 'loan_applications', $application_id, null, ['status' => 'member_approved']);
+            $this->session->set_flashdata('success', 'Application approved successfully. Awaiting disbursement.');
+        } else {
+            $this->session->set_flashdata('error', 'Failed to approve application.');
+        }
+
+        redirect('member/loans/application/' . $application_id);
+    }
+
+    /**
+     * Member reject admin-approved application
+     */
+    public function reject_application($application_id) {
+        $this->load->model('Loan_model');
+        $app = $this->Loan_model->get_application($application_id);
+
+        if (!$app || $app->member_id != $this->member->id) {
+            $this->session->set_flashdata('error', 'Application not found.');
+            redirect('member/loans/applications');
+            return;
+        }
+
+        if ($app->status !== 'member_review') {
+            $this->session->set_flashdata('error', 'Application is not available for review.');
+            redirect('member/loans/application/' . $application_id);
+            return;
+        }
+
+        $reason = $this->input->post('reason');
+        if (empty($reason)) {
+            $this->session->set_flashdata('error', 'Please provide a reason for rejection.');
+            redirect('member/loans/application/' . $application_id);
+            return;
+        }
+
+        $result = $this->Loan_model->reject_application($application_id, $reason, $this->member->id);
+
+        if ($result) {
+            $this->log_audit('rejected', 'loan_applications', 'loan_applications', $application_id, null, ['reason' => $reason]);
+            $this->session->set_flashdata('success', 'Application rejected successfully.');
+        } else {
+            $this->session->set_flashdata('error', 'Failed to reject application.');
+        }
+
         redirect('member/loans/application/' . $application_id);
     }
 }

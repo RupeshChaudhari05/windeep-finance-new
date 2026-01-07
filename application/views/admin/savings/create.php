@@ -44,8 +44,8 @@
                             <option value="">Select Scheme</option>
                             <?php foreach ($schemes as $scheme): ?>
                                 <option value="<?= $scheme->id ?>" 
-                                        data-min="<?= $scheme->minimum_amount ?>" 
-                                        data-max="<?= $scheme->maximum_amount ?>"
+                                        data-min="<?= $scheme->monthly_amount ?>" 
+                                        data-max="<?= $scheme->maximum_amount ?? '' ?>"
                                         data-interest="<?= $scheme->interest_rate ?>"
                                         data-duration="<?= $scheme->duration_months ?>">
                                     <?= $scheme->scheme_name ?> (<?= $scheme->interest_rate ?>% p.a.)

@@ -294,7 +294,7 @@ class Installments extends Admin_Controller {
         }
         
         // TODO: Implement SMS/WhatsApp reminder
-        $this->log_audit('loan_installments', $installment_id, 'reminder_sent', null, [
+        $this->log_audit('reminder_sent', 'loan_installments', 'loan_installments', $installment_id, null, [
             'loan_number' => $installment->loan_number,
             'phone' => $installment->phone
         ]);

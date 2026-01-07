@@ -65,7 +65,15 @@ class Loan_model extends MY_Model {
         }
         
         $this->db->insert('loan_applications', $data);
-        return $this->db->insert_id();
+
+        // Check insert result and provide helpful logging on failure
+        if ($this->db->affected_rows() > 0) {
+            return $this->db->insert_id();
+        } else {
+            $err = $this->db->error();
+            log_message('error', 'Loan_model::create_application DB error: ' . ($err['message'] ?? json_encode($err)) . ' | Data: ' . json_encode($data));
+            return false;
+        }
     }
     
     /**
@@ -105,8 +113,46 @@ class Loan_model extends MY_Model {
     
     /**
      * Admin Approve/Revise Application
+     * Bug #2 Fix: Validate loan-to-savings ratio
      */
     public function admin_approve($application_id, $data, $admin_id) {
+        // Bug #2 Fix: Get member savings balance and enforce ratio
+        $application = $this->db->where('id', $application_id)
+                                ->get('loan_applications')
+                                ->row();
+        
+        if (!$application) {
+            throw new Exception('Application not found');
+        }
+        
+        // Get product requirements
+        $product = $this->db->where('id', $application->loan_product_id)
+                            ->get('loan_products')
+                            ->row();
+        
+        if ($product && !empty($product->min_savings_balance)) {
+            // Get member's current savings balance
+            $this->load->model('Member_model');
+            $member = $this->Member_model->get_member_details($application->member_id);
+            $savings_balance = $member->savings_summary->current_balance ?? 0;
+            
+            if ($savings_balance < $product->min_savings_balance) {
+                throw new Exception('Member savings balance (₹' . number_format($savings_balance, 2) . ') is below minimum requirement (₹' . number_format($product->min_savings_balance, 2) . ')');
+            }
+        }
+        
+        // Check loan-to-savings ratio (if configured)
+        if ($product && !empty($product->max_loan_to_savings_ratio)) {
+            $member = $this->Member_model->get_member_details($application->member_id);
+            $savings_balance = $member->savings_summary->current_balance ?? 0;
+            
+            $max_loan = $savings_balance * $product->max_loan_to_savings_ratio;
+            
+            if ($data['approved_amount'] > $max_loan) {
+                throw new Exception('Approved amount (₹' . number_format($data['approved_amount'], 2) . ') exceeds maximum based on savings ratio (₹' . number_format($max_loan, 2) . ')');
+            }
+        }
+        
         $update = [
             'approved_amount' => $data['approved_amount'],
             'approved_tenure_months' => $data['approved_tenure_months'],
@@ -179,6 +225,10 @@ class Loan_model extends MY_Model {
     /**
      * Disburse Loan
      */
+    /**
+     * Disburse Loan
+     * Bug #1 Fix: Validate disbursement and first EMI dates
+     */
     public function disburse_loan($application_id, $disbursement_data, $admin_id) {
         $this->db->trans_begin();
         
@@ -189,6 +239,28 @@ class Loan_model extends MY_Model {
             
             if (!$application || $application->status !== 'member_approved') {
                 throw new Exception('Application not ready for disbursement');
+            }
+            
+            // Bug #1 Fix: Validate dates
+            $disbursement_date = strtotime($disbursement_data['disbursement_date']);
+            $first_emi_date = strtotime($disbursement_data['first_emi_date']);
+            $today = strtotime(date('Y-m-d'));
+            
+            if ($disbursement_date > $today) {
+                throw new Exception('Disbursement date cannot be in the future');
+            }
+            
+            if ($first_emi_date <= $disbursement_date) {
+                throw new Exception('First EMI date must be after disbursement date');
+            }
+            
+            $days_diff = ($first_emi_date - $disbursement_date) / 86400;
+            if ($days_diff < 7) {
+                throw new Exception('First EMI date must be at least 7 days after disbursement');
+            }
+            
+            if ($days_diff > 60) {
+                throw new Exception('First EMI date cannot be more than 60 days after disbursement');
             }
             
             // Get loan product
@@ -275,12 +347,15 @@ class Loan_model extends MY_Model {
     
     /**
      * Calculate EMI
+     * Bug #5 Fix: Consistent flat interest calculation
      */
     public function calculate_emi($principal, $rate, $tenure, $type = 'reducing') {
         $monthly_rate = ($rate / 12) / 100;
         
         if ($type === 'flat') {
-            $total_interest = $principal * ($rate / 100) * ($tenure / 12);
+            // Flat interest: Total interest = P × R × T (where T is in years)
+            $years = $tenure / 12;
+            $total_interest = $principal * ($rate / 100) * $years;
             $total_payable = $principal + $total_interest;
             $emi = $total_payable / $tenure;
         } else {
@@ -304,15 +379,21 @@ class Loan_model extends MY_Model {
     
     /**
      * Generate Installment Schedule
+     * Bug #4 Fix: Proper rounding adjustment in last installment
+     * Bug #5 Fix: Consistent flat interest calculation
      */
     public function generate_installment_schedule($loan_id, $principal, $rate, $tenure, $type, $emi, $first_emi_date) {
         $monthly_rate = ($rate / 12) / 100;
         $balance = $principal;
         $due_date = new DateTime($first_emi_date);
+        $total_principal_allocated = 0;
         
         for ($i = 1; $i <= $tenure; $i++) {
             if ($type === 'flat') {
-                $interest = ($principal * ($rate / 100) * ($tenure / 12)) / $tenure;
+                // Use same formula as calculate_emi for consistency
+                $years = $tenure / 12;
+                $total_interest = $principal * ($rate / 100) * $years;
+                $interest = $total_interest / $tenure;
                 $principal_part = $principal / $tenure;
             } else {
                 $interest = $balance * $monthly_rate;
@@ -320,21 +401,27 @@ class Loan_model extends MY_Model {
             }
             
             $outstanding_before = $balance;
-            $balance -= $principal_part;
             
-            // Last installment adjustment
+            // Last installment adjustment - allocate remaining principal exactly
             if ($i === $tenure) {
-                $principal_part += $balance;
+                $principal_part = $principal - $total_principal_allocated;
                 $balance = 0;
+            } else {
+                $principal_part = round($principal_part, 2);
+                $balance -= $principal_part;
+                $total_principal_allocated += $principal_part;
             }
+            
+            $interest = round($interest, 2);
+            $emi_amount = $principal_part + $interest;
             
             $this->db->insert('loan_installments', [
                 'loan_id' => $loan_id,
                 'installment_number' => $i,
                 'due_date' => $due_date->format('Y-m-d'),
-                'principal_amount' => round($principal_part, 2),
-                'interest_amount' => round($interest, 2),
-                'emi_amount' => round($principal_part + $interest, 2),
+                'principal_amount' => $principal_part,
+                'interest_amount' => $interest,
+                'emi_amount' => round($emi_amount, 2),
                 'outstanding_principal_before' => round($outstanding_before, 2),
                 'outstanding_principal_after' => round(max(0, $balance), 2),
                 'status' => $i === 1 ? 'pending' : 'upcoming',
@@ -364,28 +451,29 @@ class Loan_model extends MY_Model {
             $data['payment_code'] = 'PAY-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -6));
             $data['payment_date'] = $data['payment_date'] ?? date('Y-m-d');
             
-            // Determine payment allocation
+            // Determine payment allocation (Bug #16 Fix: RBI-compliant order)
+            // RBI Guidelines: Interest → Principal → Fine
             $amount = $data['total_amount'];
             $principal_paid = 0;
             $interest_paid = 0;
             $fine_paid = 0;
             
-            // Pay fine first
-            if ($loan->outstanding_fine > 0 && $amount > 0) {
-                $fine_paid = min($loan->outstanding_fine, $amount);
-                $amount -= $fine_paid;
-            }
-            
-            // Pay interest next
+            // Pay interest first (RBI compliance)
             if ($loan->outstanding_interest > 0 && $amount > 0) {
                 $interest_paid = min($loan->outstanding_interest, $amount);
                 $amount -= $interest_paid;
             }
             
-            // Pay principal
+            // Pay principal next
             if ($loan->outstanding_principal > 0 && $amount > 0) {
                 $principal_paid = min($loan->outstanding_principal, $amount);
                 $amount -= $principal_paid;
+            }
+            
+            // Pay fine last
+            if ($loan->outstanding_fine > 0 && $amount > 0) {
+                $fine_paid = min($loan->outstanding_fine, $amount);
+                $amount -= $fine_paid;
             }
             
             $data['principal_component'] = $principal_paid;
@@ -546,22 +634,81 @@ class Loan_model extends MY_Model {
     
     /**
      * Adjust Schedule After Skip
+     * Bug #17 Fix: Properly recalculate remaining schedule with correct interest
      */
     private function adjust_schedule_after_skip($loan_id, $skipped_installment_number) {
+        // Get loan details
+        $loan = $this->get_by_id($loan_id);
+        
         // Get skipped installment
         $skipped = $this->db->where('loan_id', $loan_id)
                             ->where('installment_number', $skipped_installment_number)
                             ->get('loan_installments')
                             ->row();
         
-        // Distribute skipped amount to remaining installments
-        $remaining = $this->db->where('loan_id', $loan_id)
-                              ->where('installment_number >', $skipped_installment_number)
-                              ->where('status !=', 'paid')
-                              ->count_all_results('loan_installments');
+        // Get remaining installments
+        $remaining_installments = $this->db->where('loan_id', $loan_id)
+                                          ->where('installment_number >', $skipped_installment_number)
+                                          ->where('status !=', 'paid')
+                                          ->order_by('installment_number', 'ASC')
+                                          ->get('loan_installments')
+                                          ->result();
         
-        if ($remaining > 0) {
-            $additional_per_emi = $skipped->principal_amount / $remaining;
+        $remaining_count = count($remaining_installments);
+        
+        if ($remaining_count === 0) {
+            return true; // No remaining installments to adjust
+        }
+        
+        // Calculate outstanding principal (including skipped amount)
+        $outstanding_principal = $skipped->outstanding_principal_before;
+        
+        // Recalculate EMI for remaining tenure
+        $monthly_rate = ($loan->interest_rate / 12) / 100;
+        
+        if ($loan->interest_type === 'reducing_balance' || $loan->interest_type === 'reducing_monthly') {
+            // Recalculate EMI using reducing balance formula
+            if ($monthly_rate > 0) {
+                $new_emi = $outstanding_principal * $monthly_rate * pow(1 + $monthly_rate, $remaining_count) 
+                          / (pow(1 + $monthly_rate, $remaining_count) - 1);
+            } else {
+                $new_emi = $outstanding_principal / $remaining_count;
+            }
+            
+            // Regenerate schedule for remaining installments
+            $balance = $outstanding_principal;
+            $total_principal_allocated = 0;
+            
+            foreach ($remaining_installments as $index => $inst) {
+                $interest = $balance * $monthly_rate;
+                $principal_part = $new_emi - $interest;
+                
+                // Last installment adjustment
+                if ($index === $remaining_count - 1) {
+                    $principal_part = $outstanding_principal - $total_principal_allocated;
+                } else {
+                    $principal_part = round($principal_part, 2);
+                    $total_principal_allocated += $principal_part;
+                }
+                
+                $interest = round($interest, 2);
+                $emi_amount = $principal_part + $interest;
+                $balance -= $principal_part;
+                
+                // Update installment
+                $this->db->where('id', $inst->id)
+                         ->update('loan_installments', [
+                             'principal_amount' => $principal_part,
+                             'interest_amount' => $interest,
+                             'emi_amount' => round($emi_amount, 2),
+                             'outstanding_principal_before' => round($outstanding_principal - $total_principal_allocated + $principal_part, 2),
+                             'outstanding_principal_after' => round(max(0, $balance), 2),
+                             'updated_at' => date('Y-m-d H:i:s')
+                         ]);
+            }
+        } else {
+            // Flat interest - just distribute principal evenly
+            $additional_per_emi = $skipped->principal_amount / $remaining_count;
             
             $this->db->set('principal_amount', 'principal_amount + ' . $additional_per_emi, FALSE)
                      ->set('emi_amount', 'emi_amount + ' . $additional_per_emi, FALSE)
@@ -578,13 +725,26 @@ class Loan_model extends MY_Model {
      * Get Application Details
      */
     public function get_application($id) {
-        return $this->db->select('la.*, lp.product_name, lp.interest_type, m.member_code, m.first_name, m.last_name, m.phone')
-                        ->from('loan_applications la')
-                        ->join('loan_products lp', 'lp.id = la.loan_product_id')
-                        ->join('members m', 'm.id = la.member_id')
-                        ->where('la.id', $id)
-                        ->get()
-                        ->row();
+        $application = $this->db->select('la.*, lp.product_name, lp.interest_type, m.member_code, m.first_name, m.last_name, m.phone, 
+                                         au.full_name as approver_name')
+                               ->from('loan_applications la')
+                               ->join('loan_products lp', 'lp.id = la.loan_product_id')
+                               ->join('members m', 'm.id = la.member_id')
+                               ->join('admin_users au', 'au.id = la.admin_approved_by', 'left')
+                               ->where('la.id', $id)
+                               ->get()
+                               ->row();
+        
+        // If application is disbursed, get the loan_id
+        if ($application && $application->status === 'disbursed') {
+            $loan = $this->db->select('id')
+                            ->where('loan_application_id', $id)
+                            ->get('loans')
+                            ->row();
+            $application->loan_id = $loan ? $loan->id : null;
+        }
+        
+        return $application;
     }
     
     /**

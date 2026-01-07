@@ -72,7 +72,7 @@
                         <table class="table table-borderless table-sm">
                             <tr>
                                 <td class="text-muted">Rejection Date:</td>
-                                <td><?= format_date($application->rejected_date ?? $application->updated_at) ?></td>
+                                <td><?= format_date($application->rejected_at ?? $application->updated_at) ?></td>
                             </tr>
                             <tr>
                                 <td class="text-muted">Reason:</td>
@@ -140,11 +140,11 @@
                             </tr>
                             <tr>
                                 <td class="text-muted">Savings Balance:</td>
-                                <td class="text-success">₹<?= number_format($member->savings_balance ?? 0) ?></td>
+                                <td class="text-success">₹<?= number_format($member->savings_summary->current_balance ?? 0) ?></td>
                             </tr>
                             <tr>
                                 <td class="text-muted">Active Loans:</td>
-                                <td><?= $member->active_loans ?? 0 ?></td>
+                                <td><?= $member->loan_summary->total_loans ?? 0 ?></td>
                             </tr>
                             <tr>
                                 <td class="text-muted">Member Since:</td>
@@ -184,8 +184,8 @@
                             <td><?= $guarantor->phone ?></td>
                             <td class="text-right">₹<?= number_format($guarantor->guarantee_amount) ?></td>
                             <td>
-                                <span class="badge badge-<?= $guarantor->status == 'approved' ? 'success' : 'warning' ?>">
-                                    <?= ucfirst($guarantor->status ?? 'pending') ?>
+                                <span class="badge badge-<?= $guarantor->consent_status == 'accepted' ? 'success' : ($guarantor->consent_status == 'rejected' ? 'danger' : 'warning') ?>">
+                                    <?= ucfirst($guarantor->consent_status ?? 'pending') ?>
                                 </span>
                             </td>
                         </tr>

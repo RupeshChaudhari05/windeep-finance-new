@@ -79,7 +79,7 @@
                             <table class="table table-borderless table-sm">
                                 <tr>
                                     <td>Total Principal:</td>
-                                    <td>₹<?= number_format($emi_calc['total_principal']) ?></td>
+                                    <td>₹<?= number_format($application->approved_amount) ?></td>
                                 </tr>
                                 <tr>
                                     <td>Total Interest:</td>
@@ -87,7 +87,7 @@
                                 </tr>
                                 <tr>
                                     <td>Total Payable:</td>
-                                    <td class="text-danger"><strong>₹<?= number_format($emi_calc['total_amount']) ?></strong></td>
+                                    <td class="text-danger"><strong>₹<?= number_format($emi_calc['total_payable']) ?></strong></td>
                                 </tr>
                             </table>
                         </div>
@@ -98,11 +98,11 @@
             <!-- Processing Fee -->
             <?php 
             $processing_fee = 0;
-            if ($product->processing_fee > 0) {
+            if (isset($product->processing_fee_value) && $product->processing_fee_value > 0) {
                 if ($product->processing_fee_type == 'percentage') {
-                    $processing_fee = ($application->approved_amount * $product->processing_fee) / 100;
+                    $processing_fee = ($application->approved_amount * $product->processing_fee_value) / 100;
                 } else {
-                    $processing_fee = $product->processing_fee;
+                    $processing_fee = $product->processing_fee_value;
                 }
             }
             $net_disbursement = $application->approved_amount - $processing_fee;
@@ -120,7 +120,7 @@
                             <td class="text-right">₹<?= number_format($application->approved_amount, 2) ?></td>
                         </tr>
                         <tr>
-                            <td>Processing Fee (<?= $product->processing_fee ?><?= $product->processing_fee_type == 'percentage' ? '%' : '' ?>)</td>
+                            <td>Processing Fee (<?= $product->processing_fee_value ?><?= $product->processing_fee_type == 'percentage' ? '%' : '' ?>)</td>
                             <td class="text-right text-danger">- ₹<?= number_format($processing_fee, 2) ?></td>
                         </tr>
                         <tr class="table-success">

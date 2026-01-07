@@ -228,9 +228,13 @@ class Ledger_model extends MY_Model {
     
     /**
      * Create Member Ledger Entry
+     * Bug #13 Fix: Use database locking to prevent race conditions
      */
     private function create_member_ledger_entry($member_id, $transaction_type, $transaction_id, $amount, $gl_entry_id) {
-        // Get current balance
+        // Lock the member ledger table for this member to prevent race conditions
+        $this->db->query("SELECT id FROM member_ledger WHERE member_id = ? ORDER BY id DESC LIMIT 1 FOR UPDATE", [$member_id]);
+        
+        // Get current balance (now safe because we have a lock)
         $last_entry = $this->db->where('member_id', $member_id)
                                ->order_by('id', 'DESC')
                                ->limit(1)

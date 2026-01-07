@@ -31,6 +31,7 @@ class Fine_model extends MY_Model {
     
     /**
      * Apply Loan Late Fine
+     * Bug #7 Fix: Check date to prevent duplicate fines on same day
      */
     public function apply_loan_late_fine($installment_id, $created_by) {
         // Get installment details
@@ -43,9 +44,10 @@ class Fine_model extends MY_Model {
         
         if (!$installment) return false;
         
-        // Check if already fined for this period
+        // Check if already fined for this installment on this date (Bug #7 Fix)
         $existing = $this->db->where('related_type', 'loan_installment')
                              ->where('related_id', $installment_id)
+                             ->where('fine_date', date('Y-m-d'))
                              ->count_all_results($this->table);
         
         if ($existing > 0) return false;
@@ -120,6 +122,7 @@ class Fine_model extends MY_Model {
     
     /**
      * Apply Savings Late Fine
+     * Bug #7 Fix: Check date to prevent duplicate fines on same day
      */
     public function apply_savings_late_fine($schedule_id, $created_by) {
         // Get schedule details
@@ -132,9 +135,10 @@ class Fine_model extends MY_Model {
         
         if (!$schedule) return false;
         
-        // Check if already fined
+        // Check if already fined on this date (Bug #7 Fix)
         $existing = $this->db->where('related_type', 'savings_schedule')
                              ->where('related_id', $schedule_id)
+                             ->where('fine_date', date('Y-m-d'))
                              ->count_all_results($this->table);
         
         if ($existing > 0) return false;
