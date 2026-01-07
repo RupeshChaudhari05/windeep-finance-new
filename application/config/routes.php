@@ -86,6 +86,7 @@ $route['admin/loans/apply'] = 'admin/loans/apply';
 $route['admin/loans/view/(:num)'] = 'admin/loans/view/$1';
 $route['admin/loans/view-application/(:num)'] = 'admin/loans/view_application/$1';
 $route['admin/loans/approve/(:num)'] = 'admin/loans/approve/$1';
+$route['admin/loans/reject/(:num)'] = 'admin/loans/reject/$1';
 $route['admin/loans/disburse/(:num)'] = 'admin/loans/disburse/$1';
 $route['admin/loans/collect/(:num)'] = 'admin/loans/collect/$1';
 $route['admin/loans/pending-approval'] = 'admin/loans/pending_approval';

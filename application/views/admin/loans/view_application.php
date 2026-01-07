@@ -136,7 +136,7 @@
                         <table class="table table-borderless table-sm">
                             <tr>
                                 <td class="text-muted">Status:</td>
-                                <td><span class="badge badge-<?= $member->status == 'active' ? 'success' : 'danger' ?>"><?= ucfirst($member->status) ?></span></td>
+                                <td><span class="badge badge-<?= ($member->status ?? 'inactive') == 'active' ? 'success' : 'danger' ?>"><?= ucfirst($member->status ?? 'inactive') ?></span></td>
                             </tr>
                             <tr>
                                 <td class="text-muted">Savings Balance:</td>
