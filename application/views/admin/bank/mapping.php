@@ -150,12 +150,18 @@
                 <div class="card-header">
                     <h3 class="card-title"><i class="fas fa-exchange-alt"></i> Bank Transactions</h3>
                     <div class="card-tools">
-                        <span class="badge badge-info"><?= count($transactions) ?> transactions</span>
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-default filter-btn active" data-filter="all">All</button>
+                            <button class="btn btn-default filter-btn" data-filter="unmapped">Unmapped</button>
+                            <button class="btn btn-default filter-btn" data-filter="mapped">Mapped</button>
+                            <button class="btn btn-default filter-btn" data-filter="partial">Partial</button>
+                        </div>
+                        <span class="badge badge-info ml-2" id="transactionCount"><?= count($transactions) ?> transactions</span>
                     </div>
                 </div>
                 <div class="card-body p-0">
                     <div class="table-responsive">
-                        <table class="table table-striped table-hover table-sm">
+                        <table class="table table-striped table-hover table-sm" id="transactionsTable">
                             <thead class="thead-light">
                                 <tr>
                                     <th>ID</th>
@@ -182,6 +188,7 @@
                                 <?php else: ?>
                                     <?php foreach ($transactions as $txn): ?>
                                         <tr data-txn-id="<?= $txn->id ?>" class="txn-row"
+                                            data-status="<?= $txn->mapping_status ?>"
                                             data-date="<?= format_date($txn->transaction_date) ?>"
                                             data-bank="<?= htmlspecialchars($txn->bank_name) ?>"
                                             data-account="<?= htmlspecialchars($txn->bank_account_number) ?>"
@@ -277,119 +284,230 @@
     </section>
 </div>
 
-<!-- Mapping Modal -->
-<div class="modal fade" id="mappingModal" tabindex="-1" role="dialog" aria-labelledby="mappingModalLabel">
-    <div class="modal-dialog modal-xl" role="document">
+<!-- Enhanced Match Transaction Modal -->
+<div class="modal fade" id="matchModal" tabindex="-1" data-backdrop="static">
+    <div class="modal-dialog modal-xl">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
-                <h5 class="modal-title" id="mappingModalLabel">
-                    <i class="fas fa-link"></i> Map Bank Transaction
-                </h5>
-                <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
-                    <span aria-hidden="true">&times;</span>
-                </button>
+                <h5 class="modal-title"><i class="fas fa-link mr-2"></i> Map Bank Transaction</h5>
+                <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
             </div>
-            <form id="mappingForm" novalidate>
-                <div class="modal-body">
-                    <!-- Transaction Details -->
-                    <div class="card card-outline card-info mb-3">
-                        <div class="card-header">
-                            <h6 class="card-title mb-0">
-                                <i class="fas fa-info-circle"></i> Transaction Details
-                            </h6>
+            <div class="modal-body" style="max-height: 75vh; overflow-y: auto;">
+                <input type="hidden" id="match_transaction_id">
+                <input type="hidden" id="match_transaction_amount">
+
+                <!-- Transaction Info -->
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <div class="alert alert-info mb-0">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <strong>Transaction Amount:</strong>
+                                    <span id="match_amount" class="h4 ml-2 mb-0">₹0.00</span>
+                                </div>
+                                <div>
+                                    <strong>Date:</strong> <span id="match_date"></span>
+                                </div>
+                            </div>
+                            <small class="d-block mt-1" id="match_description"></small>
                         </div>
-                        <div class="card-body">
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <p class="mb-1"><strong>Date:</strong> <span id="txn_date" class="text-primary"></span></p>
-                                    <p class="mb-1"><strong>Bank:</strong> <span id="txn_bank"></span></p>
-                                    <p class="mb-1"><strong>Amount:</strong> <span id="txn_amount" class="h5 font-weight-bold"></span></p>
-                                </div>
-                                <div class="col-md-6">
-                                    <p class="mb-1"><strong>Description:</strong> <span id="txn_description"></span></p>
-                                    <p class="mb-1"><strong>Reference:</strong> <span id="txn_reference"></span></p>
-                                </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="alert mb-0" id="allocation_status">
+                            <div class="d-flex justify-content-between">
+                                <span><strong>Allocated:</strong> <span id="total_allocated">₹0.00</span></span>
+                                <span><strong>Remaining:</strong> <span id="remaining_amount">₹0.00</span></span>
+                            </div>
+                            <div class="progress mt-2" style="height: 8px;">
+                                <div class="progress-bar bg-success" id="allocation_progress" style="width: 0%"></div>
                             </div>
                         </div>
                     </div>
+                </div>
 
-                    <input type="hidden" id="transaction_id" name="transaction_id">
+                <!-- Paying Member Section -->
+                <div class="card mb-3">
+                    <div class="card-header bg-light py-2">
+                        <strong><i class="fas fa-user mr-1"></i> Paying Member</strong>
+                        <small class="text-muted ml-2">(Who made this payment?)</small>
+                    </div>
+                    <div class="card-body py-2">
+                        <select id="paying_member" class="form-control select2-member" style="width: 100%;">
+                            <option value="">Search member by name, code, or phone...</option>
+                        </select>
+                    </div>
+                </div>
 
-                    <!-- Mapping Form -->
-                    <div class="row">
-                        <div class="col-md-12">
-                            <div class="form-group">
-                                <label for="transaction_type">Transaction Category <span class="text-danger">*</span></label>
-                                <select class="form-control" id="transaction_type" name="transaction_type" required>
-                                    <option value="">Select Category</option>
-                                    <?php foreach ($transaction_categories as $key => $label): ?>
-                                        <option value="<?= $key ?>"><?= $label ?></option>
-                                    <?php endforeach; ?>
+                <!-- Paid For Members Section -->
+                <div class="card mb-3">
+                    <div class="card-header bg-light py-2 d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong><i class="fas fa-users mr-1"></i> Paid For Members</strong>
+                            <small class="text-muted ml-2">(Allocate to loans/savings/fines)</small>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-success" id="add_paid_for_member">
+                            <i class="fas fa-plus"></i> Add Member
+                        </button>
+                    </div>
+                    <div class="card-body" id="paid_for_container">
+                        <div class="text-center text-muted py-3" id="no_members_msg">
+                            <i class="fas fa-info-circle"></i> Click "Add Member" to allocate this transaction
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Manual/Internal Entry Section -->
+                <div class="card mb-3">
+                    <div class="card-header bg-light py-2">
+                        <strong><i class="fas fa-edit mr-1"></i> Internal/Manual Entry</strong>
+                        <small class="text-muted ml-2">(For bank expenses, transfers, etc.)</small>
+                    </div>
+                    <div class="card-body py-2">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <select id="manual_match_type" class="form-control form-control-sm">
+                                    <option value="">-- Select if internal --</option>
+                                    <option value="expense">Bank Expense</option>
+                                    <option value="other_income">Other Income</option>
+                                    <option value="transfer">Internal Transfer</option>
+                                    <option value="ignore">Ignore/Skip</option>
                                 </select>
                             </div>
-                        </div>
-                    </div>
-
-                    <div class="row">
-                        <div class="col-md-12">
-                            <div class="alert alert-info">
-                                <strong>Transaction Amount:</strong> <span id="txn_amount_display" class="h5 font-weight-bold"></span>
-                                <br>
-                                <small>Remaining to map: <span id="txn_remaining_display" class="font-weight-bold">0.00</span></small>
+                            <div class="col-md-4">
+                                <input type="number" id="manual_amount" class="form-control form-control-sm" placeholder="Amount (optional)" step="0.01" min="0">
                             </div>
-                        </div>
-                    </div>
-
-                    <!-- Mapping Rows -->
-                    <div class="mapping-form-section">
-                        <div class="row mb-3">
-                            <div class="col-md-6">
-                                <div class="form-group">
-                                    <label for="paying_member_search">Paid By (Who made the payment) <span class="text-danger">*</span></label>
-                                    <div class="input-group">
-                                        <input type="text" class="form-control" id="paying_member_search" placeholder="Search payer by code, name, phone...">
-                                        <div class="input-group-append">
-                                            <button class="btn btn-info" type="button" id="search_paying_member">
-                                                <i class="fas fa-search"></i>
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <input type="hidden" id="paying_member_id" name="paying_member_id" required>
-                                    <div id="paying_member_result" class="mt-2"></div>
-                                </div>
-                            </div>
-                            <div class="col-md-6 text-right">
-                                <label>&nbsp;</label><br>
-                                <button type="button" id="add_mapping_row" class="btn btn-success">
-                                    <i class="fas fa-plus"></i> Add Mapping Row
+                            <div class="col-md-4">
+                                <button type="button" class="btn btn-sm btn-outline-secondary btn-block" id="add_manual_entry">
+                                    <i class="fas fa-plus"></i> Add as Internal
                                 </button>
                             </div>
                         </div>
-
-                        <div class="row">
-                            <div class="col-md-12">
-                                <div id="mapping_rows">
-                                    <!-- Template row inserted via JS -->
-                                </div>
-
-                                <div class="mt-3">
-                                    <label for="remarks">Remarks</label>
-                                    <textarea class="form-control" id="remarks" name="remarks" rows="2" placeholder="Optional remarks..."></textarea>
-                                </div>
-                            </div>
-                        </div>
                     </div>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-dismiss="modal">
-                        <i class="fas fa-times"></i> Cancel
-                    </button>
-                    <button type="submit" class="btn btn-primary">
-                        <i class="fas fa-save"></i> Save Mapping
-                    </button>
+
+                <!-- Allocations Summary -->
+                <div class="card">
+                    <div class="card-header bg-light py-2">
+                        <strong><i class="fas fa-list-alt mr-1"></i> Allocation Summary</strong>
+                    </div>
+                    <div class="card-body p-0">
+                        <table class="table table-sm table-striped mb-0" id="allocations_table">
+                            <thead class="thead-light">
+                                <tr>
+                                    <th>Member</th>
+                                    <th>Type</th>
+                                    <th>Account/Details</th>
+                                    <th class="text-right">Amount</th>
+                                    <th width="50"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="allocations_body">
+                                <tr id="no_allocations_row">
+                                    <td colspan="5" class="text-center text-muted py-3">No allocations yet</td>
+                                </tr>
+                            </tbody>
+                            <tfoot class="bg-light">
+                                <tr>
+                                    <th colspan="3" class="text-right">Total Allocated:</th>
+                                    <th class="text-right" id="footer_total">₹0.00</th>
+                                    <th></th>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
                 </div>
+
+                <!-- Notes Section -->
+                <div class="form-group mt-3">
+                    <label><i class="fas fa-sticky-note mr-1"></i> Notes/Remarks</label>
+                    <textarea id="mapping_notes" class="form-control" rows="2" placeholder="Add any notes about this mapping..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <div class="mr-auto">
+                    <span class="text-danger" id="validation_error" style="display: none;">
+                        <i class="fas fa-exclamation-triangle"></i> <span id="validation_msg"></span>
+                    </span>
+                </div>
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="confirmMatch" disabled>
+                    <i class="fas fa-check"></i> Save Mapping
+                </button>
+            </div>
         </div>
     </div>
 </div>
+
+<!-- Member Allocation Template (hidden) -->
+<template id="member_allocation_template">
+    <div class="member-allocation-card card mb-2" data-member-id="">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+            <div>
+                <strong class="member-name"></strong>
+                <small class="text-muted member-code ml-2"></small>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-danger remove-member-btn">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="card-body py-2">
+            <div class="row">
+                <!-- Loans Column -->
+                <div class="col-md-4">
+                    <label class="small font-weight-bold"><i class="fas fa-hand-holding-usd"></i> Loans/EMI</label>
+                    <div class="loans-list" style="max-height: 150px; overflow-y: auto;"></div>
+                </div>
+                <!-- Savings Column -->
+                <div class="col-md-4">
+                    <label class="small font-weight-bold"><i class="fas fa-piggy-bank"></i> Savings</label>
+                    <div class="savings-list" style="max-height: 150px; overflow-y: auto;"></div>
+                </div>
+                <!-- Fines Column -->
+                <div class="col-md-4">
+                    <label class="small font-weight-bold"><i class="fas fa-exclamation-circle"></i> Fines</label>
+                    <div class="fines-list" style="max-height: 150px; overflow-y: auto;"></div>
+                </div>
+            </div>
+        </div>
+</template>
+
+<script>
+$(document).ready(function() {
+    // Initialize DataTable
+    $('#transactionsTable').DataTable({
+        "order": [[1, "desc"]], // Sort by date descending
+        "pageLength": 25,
+        "columnDefs": [
+            { "orderable": false, "targets": [10] } // Disable sorting on action column
+        ]
+    });
+
+    // Filter buttons
+    $('.filter-btn').click(function() {
+        $('.filter-btn').removeClass('active');
+        $(this).addClass('active');
+        var filter = $(this).data('filter');
+
+        var table = $('#transactionsTable').DataTable();
+        if (filter == 'all') {
+            table.search('').columns().search('').draw();
+        } else {
+            // Search in the status column (index 9) for the filter text
+            table.column(9).search(filter, true, false).draw();
+        }
+
+        // Update count
+        var info = table.page.info();
+        $('#transactionCount').text(info.recordsDisplay + ' transactions');
+    });
+
+    // Update count on search
+    $('#transactionsTable').on('search.dt', function() {
+        var table = $('#transactionsTable').DataTable();
+        var info = table.page.info();
+        $('#transactionCount').text(info.recordsDisplay + ' transactions');
+    });
+});
+</script>
 
 <?php // Mapping scripts are loaded from assets to ensure they run after jQuery. ?>

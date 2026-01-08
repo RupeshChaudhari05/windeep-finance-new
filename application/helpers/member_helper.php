@@ -6,13 +6,19 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 if (!function_exists('member_profile_image_url')) {
     function member_profile_image_url($member, $size = null) {
         $ci = get_instance();
-        // Accept either profile_image or profile_photo
+        // Prefer admin 'profile_image' stored under uploads/profile_images/
         $img = $member->profile_image ?? ($member->profile_photo ?? null);
         if (!empty($img)) {
             $path = FCPATH . 'uploads/profile_images/' . $img;
             if (file_exists($path)) {
-                // Optionally we could append sizing query, but we return raw URL
                 return base_url('uploads/profile_images/' . $img);
+            }
+        }
+        // Fallback to member-uploaded photo saved under members/uploads/{id}/photo
+        if (!empty($member->photo) && !empty($member->id)) {
+            $member_path = FCPATH . 'members/uploads/' . $member->id . '/' . $member->photo;
+            if (file_exists($member_path)) {
+                return base_url('members/uploads/' . $member->id . '/' . $member->photo);
             }
         }
         return null;
@@ -32,7 +38,8 @@ if (!function_exists('member_avatar_html')) {
         // initials fallback
         $initial = strtoupper(substr(trim($member->first_name ?? ''), 0, 1) ?: substr($member->member_code ?? '-', 0, 1));
         $bg = 'bg-secondary';
-        $html = '<div class="img-circle ' . $bg . ' text-white d-flex align-items-center justify-content-center mr-2" style="width: ' . $w . 'px; height: ' . $h . 'px;">' . html_escape($initial) . '</div>';
+        $classAttr = $class ? ' ' . html_escape($class) : '';
+        $html = '<div class="img-circle ' . $bg . ' text-white d-flex align-items-center justify-content-center' . $classAttr . '" style="width: ' . $w . 'px; height: ' . $h . 'px; font-weight:600;">' . html_escape($initial) . '</div>';
         return $html;
     }
 }

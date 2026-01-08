@@ -476,4 +476,230 @@ class Report_model extends MY_Model {
         
         return $data;
     }
+    
+    /**
+     * Get Member Summary Report
+     */
+    public function get_member_summary_report() {
+        return $this->db->select('
+            m.*, 
+            (SELECT COUNT(*) FROM savings_accounts WHERE member_id = m.id) as savings_accounts,
+            (SELECT SUM(current_balance) FROM savings_accounts WHERE member_id = m.id) as total_savings,
+            (SELECT COUNT(*) FROM loans WHERE member_id = m.id) as total_loans,
+            (SELECT SUM(outstanding_principal) FROM loans WHERE member_id = m.id) as outstanding_loans,
+            (SELECT SUM(balance_amount) FROM fines WHERE member_id = m.id AND status IN ("pending", "partial")) as pending_fines
+        ')
+        ->from('members m')
+        ->where('m.status', 'active')
+        ->order_by('m.member_code', 'ASC')
+        ->get()
+        ->result();
+    }
+    
+    /**
+     * Get KYC Pending Report
+     */
+    public function get_kyc_pending_report() {
+        return $this->db->select('m.*, COUNT(f.id) as pending_documents')
+                        ->from('members m')
+                        ->join('member_documents f', 'f.member_id = m.id AND f.status = "pending"', 'left')
+                        ->where('m.status', 'active')
+                        ->group_by('m.id')
+                        ->having('pending_documents > 0 OR m.id_proof_type IS NULL')
+                        ->order_by('m.member_code', 'ASC')
+                        ->get()
+                        ->result();
+    }
+    
+    /**
+     * Get Ageing Report
+     */
+    public function get_ageing_report() {
+        return $this->db->select('
+            l.*, lp.product_name, m.member_code, m.first_name, m.last_name,
+            DATEDIFF(CURDATE(), MIN(li.due_date)) as days_overdue,
+            SUM(li.emi_amount - li.total_paid) as overdue_amount,
+            CASE 
+                WHEN DATEDIFF(CURDATE(), MIN(li.due_date)) <= 30 THEN "0-30 days"
+                WHEN DATEDIFF(CURDATE(), MIN(li.due_date)) <= 60 THEN "31-60 days"
+                WHEN DATEDIFF(CURDATE(), MIN(li.due_date)) <= 90 THEN "61-90 days"
+                ELSE "90+ days"
+            END as ageing_bucket
+        ')
+        ->from('loans l')
+        ->join('loan_products lp', 'lp.id = l.loan_product_id')
+        ->join('members m', 'm.id = l.member_id')
+        ->join('loan_installments li', 'li.loan_id = l.id')
+        ->where('l.status', 'active')
+        ->where('li.status', 'pending')
+        ->where('li.due_date <', date('Y-m-d'))
+        ->group_by('l.id')
+        ->order_by('days_overdue', 'DESC')
+        ->get()
+        ->result();
+    }
+    
+    /**
+     * Get Cash Book
+     */
+    public function get_cash_book($from_date, $to_date) {
+        $report = [];
+        
+        // Cash receipts
+        $report['receipts'] = $this->db->select('
+            DATE(created_at) as date, 
+            "Receipt" as type,
+            description,
+            amount as debit,
+            0 as credit
+        ')
+        ->from('savings_transactions')
+        ->where('transaction_type', 'deposit')
+        ->where('DATE(created_at) >=', $from_date)
+        ->where('DATE(created_at) <=', $to_date)
+        ->union_all(
+            $this->db->select('
+                DATE(payment_date) as date,
+                "Receipt" as type,
+                CONCAT("Loan Payment - ", l.loan_number) as description,
+                total_amount as debit,
+                0 as credit
+            ')
+            ->from('loan_payments lp')
+            ->join('loans l', 'l.id = lp.loan_id')
+            ->where('lp.payment_date >=', $from_date)
+            ->where('lp.payment_date <=', $to_date)
+            ->where('lp.is_reversed', 0)
+        )
+        ->get()
+        ->result();
+        
+        // Cash payments
+        $report['payments'] = $this->db->select('
+            DATE(created_at) as date,
+            "Payment" as type,
+            description,
+            0 as debit,
+            amount as credit
+        ')
+        ->from('savings_transactions')
+        ->where('transaction_type', 'withdrawal')
+        ->where('DATE(created_at) >=', $from_date)
+        ->where('DATE(created_at) <=', $to_date)
+        ->union_all(
+            $this->db->select('
+                DATE(disbursement_date) as date,
+                "Payment" as type,
+                CONCAT("Loan Disbursement - ", loan_number) as description,
+                0 as debit,
+                principal_amount as credit
+            ')
+            ->from('loans')
+            ->where('disbursement_date >=', $from_date)
+            ->where('disbursement_date <=', $to_date)
+        )
+        ->get()
+        ->result();
+        
+        return $report;
+    }
+    
+    /**
+     * Get Bank Reconciliation
+     */
+    public function get_bank_reconciliation() {
+        // This is a placeholder - would need bank statement data
+        return [];
+    }
+
+    /**
+     * Get Weekly Summary Report
+     */
+    public function get_weekly_summary() {
+        $start_date = date('Y-m-d', strtotime('last monday'));
+        $end_date = date('Y-m-d', strtotime('sunday'));
+
+        $summary = [];
+
+        // New members this week
+        $summary[] = [
+            'metric' => 'New Members',
+            'value' => $this->db->where('status', 'active')
+                               ->where('DATE(created_at) >=', $start_date)
+                               ->where('DATE(created_at) <=', $end_date)
+                               ->count_all_results('members'),
+            'type' => 'count'
+        ];
+
+        // New loans this week
+        $summary[] = [
+            'metric' => 'New Loans',
+            'value' => $this->db->where('DATE(created_at) >=', $start_date)
+                               ->where('DATE(created_at) <=', $end_date)
+                               ->count_all_results('loans'),
+            'type' => 'count'
+        ];
+
+        // Loan disbursements this week
+        $summary[] = [
+            'metric' => 'Loan Disbursements',
+            'value' => $this->db->select_sum('disbursed_amount')
+                               ->where('DATE(disbursement_date) >=', $start_date)
+                               ->where('DATE(disbursement_date) <=', $end_date)
+                               ->get('loans')
+                               ->row()
+                               ->disbursed_amount ?? 0,
+            'type' => 'currency'
+        ];
+
+        // Savings deposits this week
+        $summary[] = [
+            'metric' => 'Savings Deposits',
+            'value' => $this->db->select_sum('amount')
+                               ->where('transaction_type', 'deposit')
+                               ->where('DATE(created_at) >=', $start_date)
+                               ->where('DATE(created_at) <=', $end_date)
+                               ->get('savings_transactions')
+                               ->row()
+                               ->amount ?? 0,
+            'type' => 'currency'
+        ];
+
+        // Loan repayments this week
+        $summary[] = [
+            'metric' => 'Loan Repayments',
+            'value' => $this->db->select_sum('amount')
+                               ->where('payment_type', 'loan_repayment')
+                               ->where('DATE(created_at) >=', $start_date)
+                               ->where('DATE(created_at) <=', $end_date)
+                               ->get('payments')
+                               ->row()
+                               ->amount ?? 0,
+            'type' => 'currency'
+        ];
+
+        // Pending fines
+        $summary[] = [
+            'metric' => 'Pending Fines',
+            'value' => $this->db->select_sum('amount')
+                               ->where('status', 'pending')
+                               ->get('fines')
+                               ->row()
+                               ->amount ?? 0,
+            'type' => 'currency'
+        ];
+
+        // Overdue payments
+        $overdue_count = $this->db->where('due_date <', date('Y-m-d'))
+                                 ->where('status', 'pending')
+                                 ->count_all_results('loan_installments');
+
+        $summary[] = [
+            'metric' => 'Overdue Installments',
+            'value' => $overdue_count,
+            'type' => 'count'
+        ];
+
+        return $summary;
+    }
 }

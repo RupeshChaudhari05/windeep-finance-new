@@ -380,10 +380,10 @@ class Ledger_model extends MY_Model {
         
         // Opening balance
         $opening = $this->db->select('
-            SUM(CASE WHEN debit_account_id = ' . $account_id . ' THEN debit_amount ELSE 0 END) as total_debit,
-            SUM(CASE WHEN credit_account_id = ' . $account_id . ' THEN credit_amount ELSE 0 END) as total_credit
+            SUM(CASE WHEN account_id = ' . $account_id . ' THEN debit_amount ELSE 0 END) as total_debit,
+            SUM(CASE WHEN account_id = ' . $account_id . ' THEN credit_amount ELSE 0 END) as total_credit
         ')
-        ->where('transaction_date <', $from_date)
+        ->where('voucher_date <', $from_date)
         ->get($this->table)
         ->row();
         
@@ -391,17 +391,14 @@ class Ledger_model extends MY_Model {
         
         // Transactions
         $this->db->select('gl.*, 
-            CASE WHEN debit_account_id = ' . $account_id . ' THEN debit_amount ELSE 0 END as debit,
-            CASE WHEN credit_account_id = ' . $account_id . ' THEN credit_amount ELSE 0 END as credit
+            CASE WHEN account_id = ' . $account_id . ' THEN debit_amount ELSE 0 END as debit,
+            CASE WHEN account_id = ' . $account_id . ' THEN credit_amount ELSE 0 END as credit
         ');
         $this->db->from($this->table . ' gl');
-        $this->db->where('transaction_date >=', $from_date);
-        $this->db->where('transaction_date <=', $to_date);
-        $this->db->group_start();
-        $this->db->where('debit_account_id', $account_id);
-        $this->db->or_where('credit_account_id', $account_id);
-        $this->db->group_end();
-        $this->db->order_by('transaction_date', 'ASC');
+        $this->db->where('voucher_date >=', $from_date);
+        $this->db->where('voucher_date <=', $to_date);
+        $this->db->where('account_id', $account_id);
+        $this->db->order_by('voucher_date', 'ASC');
         $this->db->order_by('id', 'ASC');
         
         $transactions = $this->db->get()->result();
@@ -422,8 +419,8 @@ class Ledger_model extends MY_Model {
         
         return $this->db->select('
             coa.*,
-            (SELECT COALESCE(SUM(debit_amount), 0) FROM general_ledger WHERE debit_account_id = coa.id AND transaction_date <= "' . $as_on_date . '") as total_debit,
-            (SELECT COALESCE(SUM(credit_amount), 0) FROM general_ledger WHERE credit_account_id = coa.id AND transaction_date <= "' . $as_on_date . '") as total_credit
+            (SELECT COALESCE(SUM(debit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date <= "' . $as_on_date . '") as total_debit,
+            (SELECT COALESCE(SUM(credit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date <= "' . $as_on_date . '") as total_credit
         ')
         ->from('chart_of_accounts coa')
         ->where('coa.is_active', 1)
@@ -447,8 +444,8 @@ class Ledger_model extends MY_Model {
         // Income accounts
         $result['income'] = $this->db->select('
             coa.account_name,
-            (SELECT COALESCE(SUM(credit_amount), 0) FROM general_ledger WHERE credit_account_id = coa.id AND transaction_date BETWEEN "' . $from_date . '" AND "' . $to_date . '") -
-            (SELECT COALESCE(SUM(debit_amount), 0) FROM general_ledger WHERE debit_account_id = coa.id AND transaction_date BETWEEN "' . $from_date . '" AND "' . $to_date . '") as amount
+            (SELECT COALESCE(SUM(credit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date BETWEEN "' . $from_date . '" AND "' . $to_date . '") -
+            (SELECT COALESCE(SUM(debit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date BETWEEN "' . $from_date . '" AND "' . $to_date . '") as amount
         ')
         ->from('chart_of_accounts coa')
         ->where('coa.account_type', 'income')
@@ -463,8 +460,8 @@ class Ledger_model extends MY_Model {
         // Expense accounts
         $result['expenses'] = $this->db->select('
             coa.account_name,
-            (SELECT COALESCE(SUM(debit_amount), 0) FROM general_ledger WHERE debit_account_id = coa.id AND transaction_date BETWEEN "' . $from_date . '" AND "' . $to_date . '") -
-            (SELECT COALESCE(SUM(credit_amount), 0) FROM general_ledger WHERE credit_account_id = coa.id AND transaction_date BETWEEN "' . $from_date . '" AND "' . $to_date . '") as amount
+            (SELECT COALESCE(SUM(debit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date BETWEEN "' . $from_date . '" AND "' . $to_date . '") -
+            (SELECT COALESCE(SUM(credit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date BETWEEN "' . $from_date . '" AND "' . $to_date . '") as amount
         ')
         ->from('chart_of_accounts coa')
         ->where('coa.account_type', 'expense')
@@ -501,8 +498,8 @@ class Ledger_model extends MY_Model {
         // Assets
         $result['assets'] = $this->db->select('
             coa.account_name,
-            (SELECT COALESCE(SUM(debit_amount), 0) FROM general_ledger WHERE debit_account_id = coa.id AND transaction_date <= "' . $as_on_date . '") -
-            (SELECT COALESCE(SUM(credit_amount), 0) FROM general_ledger WHERE credit_account_id = coa.id AND transaction_date <= "' . $as_on_date . '") as amount
+            (SELECT COALESCE(SUM(debit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date <= "' . $as_on_date . '") -
+            (SELECT COALESCE(SUM(credit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date <= "' . $as_on_date . '") as amount
         ')
         ->from('chart_of_accounts coa')
         ->where('coa.account_type', 'asset')
@@ -517,8 +514,8 @@ class Ledger_model extends MY_Model {
         // Liabilities
         $result['liabilities'] = $this->db->select('
             coa.account_name,
-            (SELECT COALESCE(SUM(credit_amount), 0) FROM general_ledger WHERE credit_account_id = coa.id AND transaction_date <= "' . $as_on_date . '") -
-            (SELECT COALESCE(SUM(debit_amount), 0) FROM general_ledger WHERE debit_account_id = coa.id AND transaction_date <= "' . $as_on_date . '") as amount
+            (SELECT COALESCE(SUM(credit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date <= "' . $as_on_date . '") -
+            (SELECT COALESCE(SUM(debit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date <= "' . $as_on_date . '") as amount
         ')
         ->from('chart_of_accounts coa')
         ->where('coa.account_type', 'liability')
@@ -533,8 +530,8 @@ class Ledger_model extends MY_Model {
         // Equity
         $result['equity'] = $this->db->select('
             coa.account_name,
-            (SELECT COALESCE(SUM(credit_amount), 0) FROM general_ledger WHERE credit_account_id = coa.id AND transaction_date <= "' . $as_on_date . '") -
-            (SELECT COALESCE(SUM(debit_amount), 0) FROM general_ledger WHERE debit_account_id = coa.id AND transaction_date <= "' . $as_on_date . '") as amount
+            (SELECT COALESCE(SUM(credit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date <= "' . $as_on_date . '") -
+            (SELECT COALESCE(SUM(debit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date <= "' . $as_on_date . '") as amount
         ')
         ->from('chart_of_accounts coa')
         ->where('coa.account_type', 'equity')

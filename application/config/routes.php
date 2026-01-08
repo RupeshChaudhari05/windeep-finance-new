@@ -129,9 +129,31 @@ $route['admin/bank/get_member_accounts'] = 'admin/bank/get_member_accounts';
 $route['admin/bank/calculate_fine_due'] = 'admin/bank/calculate_fine_due';
 
 // Reports routes
+$route['admin/reports'] = 'admin/reports/index';
 $route['admin/reports/collection'] = 'admin/reports/collection';
 $route['admin/reports/outstanding'] = 'admin/reports/outstanding';
 $route['admin/reports/ledger'] = 'admin/reports/ledger';
+$route['admin/reports/disbursement'] = 'admin/reports/disbursement';
+$route['admin/reports/npa'] = 'admin/reports/npa';
+$route['admin/reports/demand'] = 'admin/reports/demand';
+$route['admin/reports/guarantor'] = 'admin/reports/guarantor';
+$route['admin/reports/trial-balance'] = 'admin/reports/trial_balance';
+$route['admin/reports/profit-loss'] = 'admin/reports/profit_loss';
+$route['admin/reports/balance-sheet'] = 'admin/reports/balance_sheet';
+$route['admin/reports/general-ledger'] = 'admin/reports/general_ledger';
+$route['admin/reports/account-statement'] = 'admin/reports/account_statement';
+$route['admin/reports/monthly-summary'] = 'admin/reports/monthly_summary';
+$route['admin/reports/export/(:any)'] = 'admin/reports/export/$1';
+$route['admin/reports/overdue'] = 'admin/reports/overdue';
+$route['admin/reports/member-summary'] = 'admin/reports/member_summary';
+$route['admin/reports/kyc-pending'] = 'admin/reports/kyc_pending';
+$route['admin/reports/ageing'] = 'admin/reports/ageing';
+$route['admin/reports/audit-log'] = 'admin/reports/audit_log';
+$route['admin/reports/cash-book'] = 'admin/reports/cash_book';
+$route['admin/reports/bank-reconciliation'] = 'admin/reports/bank_reconciliation';
+$route['admin/reports/custom'] = 'admin/reports/custom';
+// Friendly dashed route for member statement
+$route['admin/reports/member-statement'] = 'admin/reports/member_statement';
 
 // Settings routes
 $route['admin/settings'] = 'admin/settings/index';

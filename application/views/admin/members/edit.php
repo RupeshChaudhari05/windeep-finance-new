@@ -17,31 +17,31 @@
                     <div class="form-group">
                         <label for="first_name">First Name <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" id="first_name" name="first_name" 
-                               value="<?= set_value('first_name', $member->first_name) ?>" required>
+                               value="<?= set_value('first_name', isset($member->first_name) ? $member->first_name : '') ?>" required>
                         <span class="text-danger"><?= form_error('first_name') ?></span>
                     </div>
                 </div>
                 <div class="col-md-3">
                     <div class="form-group">
                         <label for="last_name">Last Name <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" id="last_name" name="last_name" 
-                               value="<?= set_value('last_name', $member->last_name) ?>" required>
+                           <input type="text" class="form-control" id="last_name" name="last_name" 
+                               value="<?= set_value('last_name', isset($member->last_name) ? $member->last_name : '') ?>" required>
                         <span class="text-danger"><?= form_error('last_name') ?></span>
                     </div>
                 </div>
                 <div class="col-md-3">
                     <div class="form-group">
                         <label for="phone">Phone Number <span class="text-danger">*</span></label>
-                        <input type="tel" class="form-control" id="phone" name="phone" 
-                               value="<?= set_value('phone', $member->phone) ?>" required maxlength="10">
+                           <input type="tel" class="form-control" id="phone" name="phone" 
+                               value="<?= set_value('phone', isset($member->phone) ? $member->phone : '') ?>" required maxlength="10">
                         <span class="text-danger"><?= form_error('phone') ?></span>
                     </div>
                 </div>
                 <div class="col-md-3">
                     <div class="form-group">
                         <label for="email">Email</label>
-                        <input type="email" class="form-control" id="email" name="email" 
-                               value="<?= set_value('email', $member->email) ?>">
+                           <input type="email" class="form-control" id="email" name="email" 
+                               value="<?= set_value('email', isset($member->email) ? $member->email : '') ?>">
                         <span class="text-danger"><?= form_error('email') ?></span>
                     </div>
                 </div>
@@ -51,8 +51,8 @@
                 <div class="col-md-3">
                     <div class="form-group">
                         <label for="date_of_birth">Date of Birth</label>
-                        <input type="date" class="form-control" id="date_of_birth" name="date_of_birth" 
-                               value="<?= set_value('date_of_birth', $member->date_of_birth) ?>">
+                           <input type="date" class="form-control" id="date_of_birth" name="date_of_birth" 
+                               value="<?= set_value('date_of_birth', isset($member->date_of_birth) ? $member->date_of_birth : '') ?>">
                         <span class="text-danger"><?= form_error('date_of_birth') ?></span>
                     </div>
                 </div>
@@ -61,9 +61,9 @@
                         <label for="gender">Gender</label>
                         <select class="form-control" id="gender" name="gender">
                             <option value="">Select Gender</option>
-                            <option value="male" <?= set_select('gender', 'male', $member->gender == 'male') ?>>Male</option>
-                            <option value="female" <?= set_select('gender', 'female', $member->gender == 'female') ?>>Female</option>
-                            <option value="other" <?= set_select('gender', 'other', $member->gender == 'other') ?>>Other</option>
+                            <option value="male" <?= set_select('gender', 'male', (isset($member->gender) && $member->gender == 'male')) ?>>Male</option>
+                            <option value="female" <?= set_select('gender', 'female', (isset($member->gender) && $member->gender == 'female')) ?>>Female</option>
+                            <option value="other" <?= set_select('gender', 'other', (isset($member->gender) && $member->gender == 'other')) ?>>Other</option>
                         </select>
                     </div>
                 </div>
@@ -72,10 +72,10 @@
                         <label for="marital_status">Marital Status</label>
                         <select class="form-control" id="marital_status" name="marital_status">
                             <option value="">Select Status</option>
-                            <option value="single" <?= set_select('marital_status', 'single', $member->marital_status == 'single') ?>>Single</option>
-                            <option value="married" <?= set_select('marital_status', 'married', $member->marital_status == 'married') ?>>Married</option>
-                            <option value="widowed" <?= set_select('marital_status', 'widowed', $member->marital_status == 'widowed') ?>>Widowed</option>
-                            <option value="divorced" <?= set_select('marital_status', 'divorced', $member->marital_status == 'divorced') ?>>Divorced</option>
+                            <option value="single" <?= set_select('marital_status', 'single', (isset($member->marital_status) && $member->marital_status == 'single')) ?>>Single</option>
+                            <option value="married" <?= set_select('marital_status', 'married', (isset($member->marital_status) && $member->marital_status == 'married')) ?>>Married</option>
+                            <option value="widowed" <?= set_select('marital_status', 'widowed', (isset($member->marital_status) && $member->marital_status == 'widowed')) ?>>Widowed</option>
+                            <option value="divorced" <?= set_select('marital_status', 'divorced', (isset($member->marital_status) && $member->marital_status == 'divorced')) ?>>Divorced</option>
                         </select>
                     </div>
                 </div>
@@ -83,9 +83,9 @@
                     <div class="form-group">
                         <label for="status">Member Status <span class="text-danger">*</span></label>
                         <select class="form-control" id="status" name="status" required>
-                            <option value="active" <?= set_select('status', 'active', $member->status == 'active') ?>>Active</option>
-                            <option value="inactive" <?= set_select('status', 'inactive', $member->status == 'inactive') ?>>Inactive</option>
-                            <option value="suspended" <?= set_select('status', 'suspended', $member->status == 'suspended') ?>>Suspended</option>
+                            <option value="active" <?= set_select('status', 'active', (isset($member->status) && $member->status == 'active')) ?>>Active</option>
+                            <option value="inactive" <?= set_select('status', 'inactive', (isset($member->status) && $member->status == 'inactive')) ?>>Inactive</option>
+                            <option value="suspended" <?= set_select('status', 'suspended', (isset($member->status) && $member->status == 'suspended')) ?>>Suspended</option>
                         </select>
                     </div>
                 </div>
@@ -96,11 +96,11 @@
                     <div class="form-group">
                         <label>Current Photo</label>
                         <div>
-                            <?php if (!empty($member->profile_image)): ?>
-                                <img src="<?= base_url('uploads/profile_images/' . $member->profile_image) ?>" class="img-thumbnail" style="width: 80px; height: 80px;">
-                            <?php else: ?>
-                                <span class="text-muted">No photo</span>
-                            <?php endif; ?>
+                            <?php if (isset($member->profile_image) && !empty($member->profile_image)): ?>
+                                    <img src="<?= base_url('uploads/profile_images/' . $member->profile_image) ?>" class="img-thumbnail" style="width: 80px; height: 80px;">
+                                <?php else: ?>
+                                    <span class="text-muted">No photo</span>
+                                <?php endif; ?>
                         </div>
                     </div>
                 </div>
@@ -125,11 +125,11 @@
                         <label for="id_proof_type">ID Type <span class="text-danger">*</span></label>
                         <select class="form-control" id="id_proof_type" name="id_proof_type" required>
                             <option value="">Select ID Type</option>
-                            <option value="aadhar" <?= set_select('id_proof_type', 'aadhar', $member->id_proof_type == 'aadhar') ?>>Aadhar Card</option>
-                            <option value="voter_id" <?= set_select('id_proof_type', 'voter_id', $member->id_proof_type == 'voter_id') ?>>Voter ID</option>
-                            <option value="driving_license" <?= set_select('id_proof_type', 'driving_license', $member->id_proof_type == 'driving_license') ?>>Driving License</option>
-                            <option value="passport" <?= set_select('id_proof_type', 'passport', $member->id_proof_type == 'passport') ?>>Passport</option>
-                            <option value="ration_card" <?= set_select('id_proof_type', 'ration_card', $member->id_proof_type == 'ration_card') ?>>Ration Card</option>
+                            <option value="aadhar" <?= set_select('id_proof_type', 'aadhar', (isset($member->id_proof_type) && $member->id_proof_type == 'aadhar')) ?>>Aadhar Card</option>
+                            <option value="voter_id" <?= set_select('id_proof_type', 'voter_id', (isset($member->id_proof_type) && $member->id_proof_type == 'voter_id')) ?>>Voter ID</option>
+                            <option value="driving_license" <?= set_select('id_proof_type', 'driving_license', (isset($member->id_proof_type) && $member->id_proof_type == 'driving_license')) ?>>Driving License</option>
+                            <option value="passport" <?= set_select('id_proof_type', 'passport', (isset($member->id_proof_type) && $member->id_proof_type == 'passport')) ?>>Passport</option>
+                            <option value="ration_card" <?= set_select('id_proof_type', 'ration_card', (isset($member->id_proof_type) && $member->id_proof_type == 'ration_card')) ?>>Ration Card</option>
                         </select>
                         <span class="text-danger"><?= form_error('id_proof_type') ?></span>
                     </div>
@@ -137,16 +137,16 @@
                 <div class="col-md-3">
                     <div class="form-group">
                         <label for="id_proof_number">ID Number <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" id="id_proof_number" name="id_proof_number" 
-                               value="<?= set_value('id_proof_number', $member->id_proof_number) ?>" required>
+                           <input type="text" class="form-control" id="id_proof_number" name="id_proof_number" 
+                               value="<?= set_value('id_proof_number', isset($member->id_proof_number) ? $member->id_proof_number : '') ?>" required>
                         <span class="text-danger"><?= form_error('id_proof_number') ?></span>
                     </div>
                 </div>
                 <div class="col-md-3">
                     <div class="form-group">
                         <label for="pan_number">PAN Number</label>
-                        <input type="text" class="form-control text-uppercase" id="pan_number" name="pan_number" 
-                               value="<?= set_value('pan_number', $member->pan_number) ?>" maxlength="10">
+                           <input type="text" class="form-control text-uppercase" id="pan_number" name="pan_number" 
+                               value="<?= set_value('pan_number', isset($member->pan_number) ? $member->pan_number : '') ?>" maxlength="10">
                         <span class="text-danger"><?= form_error('pan_number') ?></span>
                     </div>
                 </div>
@@ -169,16 +169,16 @@
                 <div class="col-md-6">
                     <div class="form-group">
                         <label for="address_line1">Address Line 1 <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" id="address_line1" name="address_line1" 
-                               value="<?= set_value('address_line1', $member->address_line1) ?>" required>
+                           <input type="text" class="form-control" id="address_line1" name="address_line1" 
+                               value="<?= set_value('address_line1', isset($member->address_line1) ? $member->address_line1 : '') ?>" required>
                         <span class="text-danger"><?= form_error('address_line1') ?></span>
                     </div>
                 </div>
                 <div class="col-md-6">
                     <div class="form-group">
                         <label for="address_line2">Address Line 2</label>
-                        <input type="text" class="form-control" id="address_line2" name="address_line2" 
-                               value="<?= set_value('address_line2', $member->address_line2) ?>">
+                           <input type="text" class="form-control" id="address_line2" name="address_line2" 
+                               value="<?= set_value('address_line2', isset($member->address_line2) ? $member->address_line2 : '') ?>">
                     </div>
                 </div>
             </div>
@@ -186,8 +186,8 @@
                 <div class="col-md-3">
                     <div class="form-group">
                         <label for="city">City <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" id="city" name="city" 
-                               value="<?= set_value('city', $member->city) ?>" required>
+                           <input type="text" class="form-control" id="city" name="city" 
+                               value="<?= set_value('city', isset($member->city) ? $member->city : '') ?>" required>
                         <span class="text-danger"><?= form_error('city') ?></span>
                     </div>
                 </div>
@@ -200,7 +200,7 @@
                             $states = ['Andhra Pradesh', 'Bihar', 'Delhi', 'Gujarat', 'Haryana', 'Karnataka', 'Maharashtra', 'Punjab', 'Rajasthan', 'Tamil Nadu', 'Telangana', 'Uttar Pradesh', 'West Bengal'];
                             foreach ($states as $state):
                             ?>
-                            <option value="<?= $state ?>" <?= set_select('state', $state, $member->state == $state) ?>><?= $state ?></option>
+                            <option value="<?= $state ?>" <?= set_select('state', $state, (isset($member->state) && $member->state == $state)) ?>><?= $state ?></option>
                             <?php endforeach; ?>
                         </select>
                         <span class="text-danger"><?= form_error('state') ?></span>
@@ -209,8 +209,8 @@
                 <div class="col-md-3">
                     <div class="form-group">
                         <label for="pincode">PIN Code <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" id="pincode" name="pincode" 
-                               value="<?= set_value('pincode', $member->pincode) ?>" required maxlength="6">
+                           <input type="text" class="form-control" id="pincode" name="pincode" 
+                               value="<?= set_value('pincode', isset($member->pincode) ? $member->pincode : '') ?>" required maxlength="6">
                         <span class="text-danger"><?= form_error('pincode') ?></span>
                     </div>
                 </div>
@@ -224,22 +224,22 @@
                 <div class="col-md-4">
                     <div class="form-group">
                         <label for="occupation">Occupation</label>
-                        <input type="text" class="form-control" id="occupation" name="occupation" 
-                               value="<?= set_value('occupation', $member->occupation) ?>">
+                           <input type="text" class="form-control" id="occupation" name="occupation" 
+                               value="<?= set_value('occupation', isset($member->occupation) ? $member->occupation : '') ?>">
                     </div>
                 </div>
                 <div class="col-md-4">
                     <div class="form-group">
                         <label for="monthly_income">Monthly Income (₹)</label>
-                        <input type="number" class="form-control" id="monthly_income" name="monthly_income" 
-                               value="<?= set_value('monthly_income', $member->monthly_income) ?>" min="0">
+                           <input type="number" class="form-control" id="monthly_income" name="monthly_income" 
+                               value="<?= set_value('monthly_income', isset($member->monthly_income) ? $member->monthly_income : '') ?>" min="0">
                     </div>
                 </div>
                 <div class="col-md-4">
                     <div class="form-group">
                         <label for="employer_name">Employer / Business Name</label>
-                        <input type="text" class="form-control" id="employer_name" name="employer_name" 
-                               value="<?= set_value('employer_name', $member->employer_name) ?>">
+                           <input type="text" class="form-control" id="employer_name" name="employer_name" 
+                               value="<?= set_value('employer_name', isset($member->employer_name) ? $member->employer_name : '') ?>">
                     </div>
                 </div>
             </div>
@@ -252,22 +252,22 @@
                 <div class="col-md-4">
                     <div class="form-group">
                         <label for="bank_name">Bank Name</label>
-                        <input type="text" class="form-control" id="bank_name" name="bank_name" 
-                               value="<?= set_value('bank_name', $member->bank_name) ?>">
+                           <input type="text" class="form-control" id="bank_name" name="bank_name" 
+                               value="<?= set_value('bank_name', isset($member->bank_name) ? $member->bank_name : '') ?>">
                     </div>
                 </div>
                 <div class="col-md-4">
                     <div class="form-group">
                         <label for="bank_account_number">Account Number</label>
-                        <input type="text" class="form-control" id="bank_account_number" name="bank_account_number" 
-                               value="<?= set_value('bank_account_number', $member->bank_account_number) ?>">
+                           <input type="text" class="form-control" id="bank_account_number" name="bank_account_number" 
+                               value="<?= set_value('bank_account_number', isset($member->bank_account_number) ? $member->bank_account_number : '') ?>">
                     </div>
                 </div>
                 <div class="col-md-4">
                     <div class="form-group">
                         <label for="bank_ifsc">IFSC Code</label>
-                        <input type="text" class="form-control text-uppercase" id="bank_ifsc" name="bank_ifsc" 
-                               value="<?= set_value('bank_ifsc', $member->bank_ifsc) ?>" maxlength="11">
+                           <input type="text" class="form-control text-uppercase" id="bank_ifsc" name="bank_ifsc" 
+                               value="<?= set_value('bank_ifsc', isset($member->bank_ifsc) ? $member->bank_ifsc : '') ?>" maxlength="11">
                     </div>
                 </div>
             </div>
@@ -280,8 +280,8 @@
                 <div class="col-md-4">
                     <div class="form-group">
                         <label for="nominee_name">Nominee Name <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" id="nominee_name" name="nominee_name" 
-                               value="<?= set_value('nominee_name', $member->nominee_name) ?>" required>
+                           <input type="text" class="form-control" id="nominee_name" name="nominee_name" 
+                               value="<?= set_value('nominee_name', isset($member->nominee_name) ? $member->nominee_name : '') ?>" required>
                         <span class="text-danger"><?= form_error('nominee_name') ?></span>
                     </div>
                 </div>
@@ -294,7 +294,7 @@
                             $relationships = ['spouse', 'father', 'mother', 'son', 'daughter', 'brother', 'sister', 'other'];
                             foreach ($relationships as $rel):
                             ?>
-                            <option value="<?= $rel ?>" <?= set_select('nominee_relationship', $rel, $member->nominee_relationship == $rel) ?>><?= ucfirst($rel) ?></option>
+                            <option value="<?= $rel ?>" <?= set_select('nominee_relationship', $rel, (isset($member->nominee_relationship) && $member->nominee_relationship == $rel)) ?>><?= ucfirst($rel) ?></option>
                             <?php endforeach; ?>
                         </select>
                         <span class="text-danger"><?= form_error('nominee_relationship') ?></span>
@@ -303,8 +303,8 @@
                 <div class="col-md-4">
                     <div class="form-group">
                         <label for="nominee_phone">Nominee Phone</label>
-                        <input type="tel" class="form-control" id="nominee_phone" name="nominee_phone" 
-                               value="<?= set_value('nominee_phone', $member->nominee_phone) ?>" maxlength="10">
+                           <input type="tel" class="form-control" id="nominee_phone" name="nominee_phone" 
+                               value="<?= set_value('nominee_phone', isset($member->nominee_phone) ? $member->nominee_phone : '') ?>" maxlength="10">
                     </div>
                 </div>
             </div>
@@ -317,7 +317,7 @@
                 <div class="col-md-12">
                     <div class="form-group">
                         <label for="remarks">Remarks</label>
-                        <textarea class="form-control" id="remarks" name="remarks" rows="2"><?= set_value('remarks', $member->remarks) ?></textarea>
+                        <textarea class="form-control" id="remarks" name="remarks" rows="2"><?= set_value('remarks', isset($member->remarks) ? $member->remarks : '') ?></textarea>
                     </div>
                 </div>
             </div>

@@ -41,7 +41,8 @@ class Members extends Admin_Controller {
             'total_pages' => $paginated_result['total_pages']
         ];
         $data['filters'] = $filters;
-        
+        //echo"<pre>";
+        //print_r($data);die;
         $this->load_view('admin/members/index', $data);
     }
     
@@ -494,5 +495,97 @@ class Members extends Admin_Controller {
         
         $data['member'] = $member;
         $this->load->view('admin/members/print_card', $data);
+    }
+
+    /**
+     * Send Email to Member
+     */
+    public function send_email($id = null) {
+        if ($id) {
+            // Send to specific member
+            $member = $this->Member_model->get_member_details($id);
+            if (!$member) {
+                $this->session->set_flashdata('error', 'Member not found.');
+                redirect('admin/members');
+            }
+            $data['member'] = $member;
+            $data['bulk'] = false;
+        } else {
+            // Bulk email interface
+            $data['bulk'] = true;
+            $data['member'] = null;
+        }
+
+        $data['title'] = 'Send Email';
+        $data['page_title'] = $id ? 'Send Email to Member' : 'Send Bulk Email';
+        $data['breadcrumb'] = [
+            ['title' => 'Dashboard', 'url' => 'admin/dashboard'],
+            ['title' => 'Members', 'url' => 'admin/members'],
+            ['title' => 'Send Email', 'url' => '']
+        ];
+
+        $this->load_view('admin/members/send_email', $data);
+    }
+
+    /**
+     * Process Email Sending (AJAX)
+     */
+    public function process_send_email() {
+        if (!$this->input->is_ajax_request()) {
+            show_404();
+        }
+
+        $member_ids = $this->input->post('member_ids');
+        $subject = $this->input->post('subject');
+        $message = $this->input->post('message');
+
+        if (empty($subject) || empty($message)) {
+            echo json_encode(['success' => false, 'message' => 'Subject and message are required']);
+            return;
+        }
+
+        $sent_count = 0;
+        $failed_count = 0;
+        $errors = [];
+
+        if (!empty($member_ids)) {
+            // Send to specific members
+            foreach ($member_ids as $member_id) {
+                $member = $this->Member_model->get_member_details($member_id);
+                if ($member && !empty($member->email)) {
+                    $result = send_manual_member_email($member->email, $subject, $message);
+                    if ($result['success']) {
+                        $sent_count++;
+                    } else {
+                        $failed_count++;
+                        $errors[] = "Failed to send to {$member->email}: {$result['message']}";
+                    }
+                } else {
+                    $failed_count++;
+                    $errors[] = "Member {$member_id} has no email address";
+                }
+            }
+        } else {
+            // Send to all members with email addresses
+            $members = $this->Member_model->get_members_with_email();
+            foreach ($members as $member) {
+                $result = send_manual_member_email($member->email, $subject, $message);
+                if ($result['success']) {
+                    $sent_count++;
+                } else {
+                    $failed_count++;
+                    $errors[] = "Failed to send to {$member->email}: {$result['message']}";
+                }
+                // Small delay for bulk emails
+                usleep(100000); // 0.1 seconds
+            }
+        }
+
+        echo json_encode([
+            'success' => true,
+            'sent' => $sent_count,
+            'failed' => $failed_count,
+            'errors' => $errors
+        ]);
     }
 }

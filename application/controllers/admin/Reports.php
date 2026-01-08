@@ -403,4 +403,211 @@ class Reports extends Admin_Controller {
         fclose($output);
         exit;
     }
+    
+    /**
+     * Overdue Report (alias for demand)
+     */
+    public function overdue() {
+        $this->demand();
+    }
+    
+    /**
+     * Member Summary Report
+     */
+    public function member_summary() {
+        $data['title'] = 'Member Summary Report';
+        $data['page_title'] = 'Member Summary Report';
+        $data['breadcrumb'] = [
+            ['title' => 'Dashboard', 'url' => 'admin/dashboard'],
+            ['title' => 'Reports', 'url' => 'admin/reports'],
+            ['title' => 'Member Summary', 'url' => '']
+        ];
+        
+        $data['report'] = $this->Report_model->get_member_summary_report();
+        
+        $this->load_view('admin/reports/member_summary', $data);
+    }
+    
+    /**
+     * KYC Pending Report
+     */
+    public function kyc_pending() {
+        $data['title'] = 'KYC Pending Report';
+        $data['page_title'] = 'KYC Pending Members';
+        $data['breadcrumb'] = [
+            ['title' => 'Dashboard', 'url' => 'admin/dashboard'],
+            ['title' => 'Reports', 'url' => 'admin/reports'],
+            ['title' => 'KYC Pending', 'url' => '']
+        ];
+        
+        $data['report'] = $this->Report_model->get_kyc_pending_report();
+        
+        $this->load_view('admin/reports/kyc_pending', $data);
+    }
+    
+    /**
+     * Ageing Analysis Report
+     */
+    public function ageing() {
+        $data['title'] = 'Ageing Analysis';
+        $data['page_title'] = 'Loan Ageing Analysis';
+        $data['breadcrumb'] = [
+            ['title' => 'Dashboard', 'url' => 'admin/dashboard'],
+            ['title' => 'Reports', 'url' => 'admin/reports'],
+            ['title' => 'Ageing Analysis', 'url' => '']
+        ];
+        
+        $data['report'] = $this->Report_model->get_ageing_report();
+        
+        $this->load_view('admin/reports/ageing', $data);
+    }
+    
+    /**
+     * Audit Log Report
+     */
+    public function audit_log() {
+        $data['title'] = 'Audit Trail';
+        $data['page_title'] = 'Audit Trail Report';
+        $data['breadcrumb'] = [
+            ['title' => 'Dashboard', 'url' => 'admin/dashboard'],
+            ['title' => 'Reports', 'url' => 'admin/reports'],
+            ['title' => 'Audit Trail', 'url' => '']
+        ];
+        
+        $data['logs'] = $this->Audit_model->search_audit_logs();
+        
+        $this->load_view('admin/reports/audit_log', $data);
+    }
+    
+    /**
+     * Cash Book Report
+     */
+    public function cash_book() {
+        $data['title'] = 'Cash Book';
+        $data['page_title'] = 'Cash Book Report';
+        $data['breadcrumb'] = [
+            ['title' => 'Dashboard', 'url' => 'admin/dashboard'],
+            ['title' => 'Reports', 'url' => 'admin/reports'],
+            ['title' => 'Cash Book', 'url' => '']
+        ];
+        
+        $from_date = $this->input->get('from_date') ?: date('Y-m-01');
+        $to_date = $this->input->get('to_date') ?: date('Y-m-d');
+        
+        $data['report'] = $this->Report_model->get_cash_book($from_date, $to_date);
+        $data['from_date'] = $from_date;
+        $data['to_date'] = $to_date;
+        
+        $this->load_view('admin/reports/cash_book', $data);
+    }
+    
+    /**
+     * Bank Reconciliation Report
+     */
+    public function bank_reconciliation() {
+        $data['title'] = 'Bank Reconciliation';
+        $data['page_title'] = 'Bank Reconciliation Report';
+        $data['breadcrumb'] = [
+            ['title' => 'Dashboard', 'url' => 'admin/dashboard'],
+            ['title' => 'Reports', 'url' => 'admin/reports'],
+            ['title' => 'Bank Reconciliation', 'url' => '']
+        ];
+        
+        $data['report'] = $this->Report_model->get_bank_reconciliation();
+        
+        $this->load_view('admin/reports/bank_reconciliation', $data);
+    }
+    
+    /**
+     * Custom Report Builder
+     */
+    public function custom() {
+        $data['title'] = 'Custom Report';
+        $data['page_title'] = 'Custom Report Builder';
+        $data['breadcrumb'] = [
+            ['title' => 'Dashboard', 'url' => 'admin/dashboard'],
+            ['title' => 'Reports', 'url' => 'admin/reports'],
+            ['title' => 'Custom Report', 'url' => '']
+        ];
+        
+        $this->load_view('admin/reports/custom', $data);
+    }
+
+    /**
+     * Send Report via Email (AJAX)
+     */
+    public function send_email() {
+        if (!$this->input->is_ajax_request()) {
+            show_404();
+        }
+
+        $report_type = $this->input->post('report_type');
+        $recipients = $this->input->post('recipients');
+        $additional_message = $this->input->post('additional_message');
+
+        if (empty($report_type) || empty($recipients)) {
+            echo json_encode(['success' => false, 'message' => 'Report type and recipients are required']);
+            return;
+        }
+
+        // Get report data based on type
+        $report_data = $this->get_report_data_for_email($report_type);
+
+        if ($report_data === false) {
+            echo json_encode(['success' => false, 'message' => 'Invalid report type']);
+            return;
+        }
+
+        // Split recipients by comma and trim
+        $recipient_emails = array_map('trim', explode(',', $recipients));
+
+        // Send email
+        $result = send_report_email($report_type, $report_data, $recipient_emails, null, $additional_message);
+
+        echo json_encode($result);
+    }
+
+    /**
+     * Get report data for email sending
+     */
+    private function get_report_data_for_email($report_type) {
+        switch ($report_type) {
+            case 'member-summary':
+                return $this->Report_model->get_member_summary_report();
+            case 'kyc-pending':
+                return $this->Report_model->get_kyc_pending_report();
+            case 'ageing':
+                return $this->Report_model->get_ageing_report();
+            case 'cash-book':
+                return $this->Report_model->get_cash_book();
+            case 'bank-reconciliation':
+                return $this->Report_model->get_bank_reconciliation();
+            case 'trial-balance':
+                return $this->Ledger_model->get_trial_balance();
+            case 'profit-loss':
+                return $this->Ledger_model->get_profit_loss();
+            case 'balance-sheet':
+                return $this->Ledger_model->get_balance_sheet();
+            case 'general-ledger':
+                return $this->Ledger_model->get_general_ledger();
+            case 'account-statement':
+                return $this->Ledger_model->get_account_statement();
+            case 'monthly-summary':
+                return $this->Ledger_model->get_monthly_summary();
+            case 'disbursement':
+                return $this->Report_model->get_disbursement_report();
+            case 'npa':
+                return $this->Report_model->get_npa_report();
+            case 'demand':
+                return $this->Report_model->get_demand_report();
+            case 'guarantor':
+                return $this->Report_model->get_guarantor_report();
+            case 'overdue':
+                return $this->Report_model->get_overdue_report();
+            case 'audit-log':
+                return $this->Report_model->get_audit_log_report();
+            default:
+                return false;
+        }
+    }
 }

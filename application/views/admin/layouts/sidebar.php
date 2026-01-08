@@ -280,7 +280,7 @@
 
                     <!-- Guarantors -->
                     <li class="nav-item">
-                        <a href="<?= base_url('admin/guarantors') ?>" class="nav-link <?= $this->uri->segment(2) == 'guarantors' ? 'active' : '' ?>">
+                        <a href="<?= base_url('admin/reports/guarantor') ?>" class="nav-link <?= ($this->uri->segment(2) == 'reports' && $this->uri->segment(3) == 'guarantor') ? 'active' : '' ?>">
                             <i class="nav-icon fas fa-user-shield"></i>
                             <p>Guarantors</p>
                         </a>

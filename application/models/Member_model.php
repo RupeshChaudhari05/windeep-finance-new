@@ -417,4 +417,17 @@ class Member_model extends MY_Model {
         
         return $credit - $debit;
     }
+
+    /**
+     * Get Members with Email Addresses
+     */
+    public function get_members_with_email() {
+        return $this->db->select('id, member_code, first_name, last_name, email')
+                        ->where('status', 'active')
+                        ->where('email IS NOT NULL')
+                        ->where('email !=', '')
+                        ->order_by('first_name', 'ASC')
+                        ->get('members')
+                        ->result();
+    }
 }

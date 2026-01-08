@@ -4,9 +4,45 @@
 
     const config = window.BANK_MAPPING_CONFIG || {};
 
+    // Global state
+    var allocations = [];
+    var transactionAmount = 0;
+
+    // Initialize Select2 for member search
+    function initMemberSelect2(selector) {
+      $(selector).select2({
+        ajax: {
+          url: config.search_members_url,
+          dataType: 'json',
+          delay: 250,
+          data: function (params) { return { q: params.term, limit: 15 }; },
+          processResults: function (resp) {
+            // server returns { success, message, data }
+            var items = resp && resp.data ? resp.data : [];
+            return { results: items };
+          }
+        },
+        placeholder: 'Search member by name, code, or phone...',
+        minimumInputLength: 1,
+        allowClear: true,
+        width: '100%',
+        dropdownParent: $('#matchModal'),
+        templateResult: function (item) {
+          if (!item.id) return item.text;
+          var label = item.full_name ? item.full_name : item.text;
+          var sub = item.member_code ? (' <small class="text-muted">' + item.member_code + '</small>') : '';
+          return $('<span>' + label + sub + '</span>');
+        },
+        templateSelection: function (item) {
+          if (!item.id) return item.text || '';
+          return item.full_name ? (item.member_code ? item.member_code + ' - ' + item.full_name : item.full_name) : item.text;
+        }
+      });
+    }
+
     let currentTransaction = null;
 
-    // Delegate click handler
+    // Delegate click handler for map buttons
     $(document).on('click', '.map-btn, .edit-map-btn', function (e) {
       e.preventDefault();
       console.log('Map button clicked!');
@@ -31,470 +67,360 @@
 
       console.log('Transaction data:', currentTransaction);
 
-      // Populate modal
-      $('#transaction_id').val(currentTransaction.id);
-      $('#txn_date').text(currentTransaction.date);
-      $('#txn_bank').html(currentTransaction.bank + '<br><small>' + currentTransaction.account + '</small>');
-      $('#txn_description').text(currentTransaction.description);
-      $('#txn_reference').text(currentTransaction.reference || 'N/A');
-
-      // Set amount
-      let amount = '';
-      let amountClass = '';
+      // Determine amount
+      let amount = 0;
       if (parseFloat(currentTransaction.credit) > 0) {
-        amount = '₹' + parseFloat(currentTransaction.credit).toFixed(2);
-        amountClass = 'text-success';
+        amount = parseFloat(currentTransaction.credit);
       } else if (parseFloat(currentTransaction.debit) > 0) {
-        amount = '₹' + parseFloat(currentTransaction.debit).toFixed(2);
-        amountClass = 'text-danger';
+        amount = parseFloat(currentTransaction.debit);
       }
 
-      $('#txn_amount').text(amount).removeClass('text-danger text-success').addClass(amountClass);
+      // Reset modal
+      allocations = [];
+      transactionAmount = amount;
+      $('#match_transaction_id').val(currentTransaction.id);
+      $('#match_transaction_amount').val(amount);
+      $('#match_amount').text('₹' + amount.toLocaleString('en-IN', { minimumFractionDigits: 2 }));
+      $('#match_date').text(currentTransaction.date);
+      $('#match_description').text(currentTransaction.description);
+      $('#paid_for_container').html('<div class="text-center text-muted py-3" id="no_members_msg"><i class="fas fa-info-circle"></i> Click "Add Member" to allocate this transaction</div>');
+      $('#allocations_body').html('<tr id="no_allocations_row"><td colspan="5" class="text-center text-muted py-3">No allocations yet</td></tr>');
+      $('#mapping_notes').val('');
+      $('#manual_match_type').val('');
+      $('#manual_amount').val('');
+      $('#paying_member').val(null).trigger('change');
 
-      // Reset form
-      $('#mappingForm')[0].reset();
-      // remove any existing rows and add a fresh one
-      $('#mapping_rows').empty();
-      mappingRowIndex = 0;
-      addMappingRow();
-      $('#paying_member_result').html('');
-      // clear any row-scoped paid_for results
-      $('#mapping_rows').find('.paid_for-result').html('');
-      $('#related_account_row').hide();
-
-      // Set transaction amounts for multi-mapping UI
-      const txnAmt = parseFloat((currentTransaction.credit && currentTransaction.credit !== '') ? currentTransaction.credit : currentTransaction.debit || 0);
-      window._current_txn_amount = txnAmt;
-      $('#txn_amount_display').text('₹' + txnAmt.toFixed(2));
-      $('#txn_amount_display_small').text('₹' + txnAmt.toFixed(2));
-      updateRemaining();
-
+      updateAllocationStatus();
+      initMemberSelect2('#paying_member');
       console.log('Opening modal...');
-      $('#mappingModal').modal('show');
+      $('#matchModal').modal('show');
     });
 
-    // Mapping rows and helpers
-    let mappingRowIndex = 0;
+    // Add Paid For Member
+    $('#add_paid_for_member').click(function () {
+      $('#no_members_msg').hide();
+      var cardId = 'member_card_' + Date.now();
+      var template = $('#member_allocation_template').html();
+      var $card = $(template);
+      $card.attr('id', cardId);
 
-    function formatCurrency(v) {
-      return '₹' + parseFloat(v || 0).toFixed(2);
-    }
+      // Add member search
+      var $searchDiv = $('<div class="mb-2"><select class="form-control member-search-select" style="width: 100%;"><option value="">Search member...</option></select></div>');
+      $card.find('.card-body').prepend($searchDiv);
+      $('#paid_for_container').append($card);
 
-    function addMappingRow(data = {}) {
-      const i = mappingRowIndex++;
-      const html = `
-      <div class="mapping-row card p-2 mb-2" data-row-index="${i}">
-        <div class="row">
-          <div class="col-md-4">
-            <label>Paid For</label>
-            <div class="input-group">
-              <input type="text" class="form-control member-search paid-for-search" placeholder="Member to credit">
-              <div class="input-group-append">
-                <button class="btn btn-info btn-search-member" data-role="paid_for" type="button"><i class="fas fa-search"></i></button>
-              </div>
-            </div>
-            <input type="hidden" class="paid_for-member-id" name="mappings[${i}][paid_for_member_id]" value="${data.paid_for_member_id || ''}">
-            <div class="paid_for-result mt-1">${data.paid_for_display || ''}</div>
-          </div>
-          <div class="col-md-2">
-            <label>Category</label>
-            <select class="form-control mapping-type" name="mappings[${i}][transaction_type]">
-              <option value="">Select</option>
-              <option value="emi">Loan EMI Payment</option>
-              <option value="savings">Savings Deposit</option>
-              <option value="fine">Fine Payment</option>
-              <option value="share">Share Capital</option>
-              <option value="other">Other</option>
-            </select>
-          </div>
-          <div class="col-md-3">
-            <label>Related Account</label>
-            <select class="form-control related-account" name="mappings[${i}][related_account]"><option value="">Select Account</option></select>
-          </div>
-          <div class="col-md-2">
-            <label>Amount</label>
-            <input type="number" step="0.01" min="0" class="form-control mapping-amount" name="mappings[${i}][amount]" value="${data.amount || ''}">
-          </div>
-          <div class="col-md-1">
-            <label>&nbsp;</label>
-            <button type="button" class="btn btn-danger remove-mapping-row btn-block"><i class="fas fa-trash"></i></button>
-          </div>
-        </div>
-      </div>
-      `;
-
-      $('#mapping_rows').append(html);
-    }
-
-    $(document).on('click', '#add_mapping_row', function () { addMappingRow(); updateRemaining(); });
-
-    $(document).on('click', '.remove-mapping-row', function () {
-      $(this).closest('.mapping-row').remove();
-      updateRemaining();
-    });
-
-    function updateRemaining() {
-      let sum = 0;
-      $('.mapping-amount').each(function () { sum += parseFloat($(this).val() || 0); });
-      const remaining = (window._current_txn_amount || 0) - sum;
-      $('#txn_remaining_display').text(formatCurrency(remaining > 0 ? remaining : 0));
-      $('#txn_remaining_display_small').text(formatCurrency(remaining > 0 ? remaining : 0));
-    }
-
-    // Row-scoped member search and selection
-    $(document).on('click', '.btn-search-member', function () {
-      const role = $(this).data('role');
-      const $row = $(this).closest('.mapping-row');
-      const query = $row.find('input.member-search').val().trim();
-      if (!query) { alert('Please enter search term'); return; }
-      searchMemberForRow(role, $row, query);
-    });
-
-    function searchMemberForRow(role, $row, query) {
-      const url = config.search_members_url;
-      $row.find('.' + role + '-result').html('<i class="fas fa-spinner fa-spin"></i> Searching...');
-
-      $.ajax({
-        url: url,
-        type: 'POST',
-        data: { search: query },
-        dataType: 'json',
-        success: function (response) {
-          if (response.success && response.members.length > 0) {
-            let html = '<div class="list-group">';
-            response.members.forEach(function (member) {
-              const statusClass = member.status === 'active' ? 'success' : 'secondary';
-              html += `<a href="#" class="list-group-item list-group-item-action select-member-row" data-role="${role}" data-id="${member.id}" data-code="${member.member_code}" data-name="${member.first_name} ${member.last_name}">${member.member_code} - ${member.first_name} ${member.last_name} <span class="badge badge-${statusClass} float-right">${member.status}</span></a>`;
-            });
-            html += '</div>';
-            $row.find('.' + role + '-result').html(html);
-          } else {
-            $row.find('.' + role + '-result').html('<div class="alert alert-warning">No members found</div>');
-          }
+      // Initialize select2
+      var $select = $card.find('.member-search-select');
+      $select.select2({
+        ajax: {
+          url: config.search_members_url,
+          dataType: 'json',
+          delay: 300,
+          data: function (params) { return { q: params.term, limit: 15 }; },
+          processResults: function (resp) { return { results: resp && resp.data ? resp.data : [] }; }
         },
-        error: function () {
-          $row.find('.' + role + '-result').html('<div class="alert alert-danger">Search failed</div>');
+        placeholder: 'Search member...',
+        minimumInputLength: 1,
+        allowClear: true,
+        width: '100%',
+        dropdownParent: $('#matchModal'),
+        templateResult: function (item) {
+          if (!item.id) return item.text;
+          var label = item.full_name ? item.full_name : item.text;
+          var sub = item.member_code ? (' <small class="text-muted">' + item.member_code + '</small>') : '';
+          return $('<span>' + label + sub + '</span>');
+        },
+        templateSelection: function (item) {
+          if (!item.id) return item.text || '';
+          return item.full_name ? (item.member_code ? item.member_code + ' - ' + item.full_name : item.full_name) : item.text;
         }
+      });
+
+      // On member select, load their accounts
+      $select.on('select2:select', function (e) {
+        var member = e.params.data;
+        $card.attr('data-member-id', member.id);
+        $card.find('.member-name').text(member.full_name);
+        $card.find('.member-code').text(member.member_code);
+        loadMemberAccounts($card, member.id);
+      });
+
+      // Remove member card
+      $card.find('.remove-member-btn').click(function () {
+        var memberId = $card.attr('data-member-id');
+        // Remove allocations for this member
+        allocations = allocations.filter(a => a.member_id != memberId);
+        $card.remove();
+        updateAllocationsTable();
+        updateAllocationStatus();
+        if ($('#paid_for_container .member-allocation-card').length === 0) {
+          $('#no_members_msg').show();
+        }
+      });
+    });
+
+    // Load member accounts (loans, savings, fines)
+    function loadMemberAccounts($card, memberId) {
+      $.get(config.get_member_details_url, { member_id: memberId }, function (response) {
+        if (response.success) {
+          var data = response.data;
+          renderLoans($card.find('.loans-list'), data.loans, memberId);
+          renderSavings($card.find('.savings-list'), data.savings, memberId);
+          renderFines($card.find('.fines-list'), data.fines, memberId);
+        }
+      }, 'json');
+    }
+
+    function renderLoans($container, loans, memberId) {
+      if (!loans || loans.length === 0) {
+        $container.html('<small class="text-muted">No active loans</small>');
+        return;
+      }
+      var html = '';
+      loans.forEach(function (loan) {
+        html += '<div class="border rounded p-2 mb-1 loan-item" data-loan-id="' + loan.id + '">';
+        html += '<div class="d-flex justify-content-between"><strong>' + loan.loan_number + '</strong><span class="badge badge-info">₹' + parseFloat(loan.pending_amount).toLocaleString('en-IN') + '</span></div>';
+        if (loan.installments && loan.installments.length > 0) {
+          html += '<div class="mt-1">';
+          loan.installments.forEach(function (inst) {
+            html += '<div class="d-flex justify-content-between align-items-center py-1 installment-row" data-inst-id="' + inst.id + '">';
+            html += '<small>EMI #' + inst.installment_number + ' - Due: ' + inst.due_date + '</small>';
+            html += '<div class="input-group input-group-sm" style="width: 120px;">';
+            html += '<input type="number" class="form-control allocation-input" data-type="emi" data-member="' + memberId + '" data-related="loan_' + inst.id + '" data-label="EMI #' + inst.installment_number + ' (' + loan.loan_number + ')" placeholder="₹" step="0.01" min="0" max="' + inst.pending_amount + '">';
+            html += '</div></div>';
+          });
+          html += '</div>';
+        }
+        html += '</div>';
+      });
+      $container.html(html);
+    }
+
+    function renderSavings($container, savings, memberId) {
+      if (!savings || savings.length === 0) {
+        $container.html('<small class="text-muted">No savings accounts</small>');
+        return;
+      }
+      var html = '';
+      savings.forEach(function (acc) {
+        html += '<div class="border rounded p-2 mb-1">';
+        html += '<div class="d-flex justify-content-between"><strong>' + acc.account_number + '</strong><span class="badge badge-success">₹' + parseFloat(acc.current_balance).toLocaleString('en-IN') + '</span></div>';
+        html += '<div class="input-group input-group-sm mt-1">';
+        html += '<input type="number" class="form-control allocation-input" data-type="savings" data-member="' + memberId + '" data-related="savings_' + acc.id + '" data-label="Savings ' + acc.account_number + '" placeholder="Deposit amount" step="0.01" min="0">';
+        html += '</div></div>';
+      });
+      $container.html(html);
+    }
+
+    function renderFines($container, fines, memberId) {
+      if (!fines || fines.length === 0) {
+        $container.html('<small class="text-muted">No pending fines</small>');
+        return;
+      }
+      var html = '';
+      fines.forEach(function (fine) {
+        html += '<div class="border rounded p-2 mb-1">';
+        html += '<div class="d-flex justify-content-between"><small>' + fine.fine_type + '</small><span class="badge badge-danger">₹' + parseFloat(fine.pending_amount).toLocaleString('en-IN') + '</span></div>';
+        html += '<div class="input-group input-group-sm mt-1">';
+        html += '<input type="number" class="form-control allocation-input" data-type="fine" data-member="' + memberId + '" data-related="fine_' + fine.id + '" data-label="Fine: ' + fine.fine_type + '" placeholder="Pay amount" step="0.01" min="0" max="' + fine.pending_amount + '">';
+        html += '</div></div>';
+      });
+      $container.html(html);
+    }
+
+    // Handle allocation input changes
+    $(document).on('input', '.allocation-input', function () {
+      var $input = $(this);
+      var amount = parseFloat($input.val()) || 0;
+      var type = $input.data('type');
+      var memberId = $input.data('member');
+      var related = $input.data('related');
+      var label = $input.data('label');
+
+      // Remove existing allocation for this input
+      allocations = allocations.filter(a => !(a.member_id == memberId && a.related == related));
+
+      // Add new allocation if amount > 0
+      if (amount > 0) {
+        allocations.push({
+          member_id: memberId,
+          type: type,
+          related: related,
+          label: label,
+          amount: amount
+        });
+      }
+
+      updateAllocationsTable();
+      updateAllocationStatus();
+    });
+
+    // Add manual/internal entry
+    $('#add_manual_entry').click(function () {
+      var type = $('#manual_match_type').val();
+      var amount = parseFloat($('#manual_amount').val()) || transactionAmount - getTotalAllocated();
+
+      if (!type) {
+        toastr.warning('Please select an internal entry type');
+        return;
+      }
+      if (amount <= 0) {
+        toastr.warning('Amount must be greater than 0');
+        return;
+      }
+
+      allocations.push({
+        member_id: null,
+        type: type,
+        related: null,
+        label: type.replace('_', ' ').toUpperCase(),
+        amount: amount
+      });
+
+      $('#manual_match_type').val('');
+      $('#manual_amount').val('');
+      updateAllocationsTable();
+      updateAllocationStatus();
+    });
+
+    function updateAllocationsTable() {
+      var $tbody = $('#allocations_body');
+      $tbody.empty();
+
+      if (allocations.length === 0) {
+        $tbody.html('<tr id="no_allocations_row"><td colspan="5" class="text-center text-muted py-3">No allocations yet</td></tr>');
+        return;
+      }
+
+      allocations.forEach(function (alloc, index) {
+        var memberName = alloc.member_id ? ($('.member-allocation-card[data-member-id="' + alloc.member_id + '"] .member-name').text() || 'Member #' + alloc.member_id) : '-';
+        var row = '<tr data-index="' + index + '">';
+        row += '<td>' + memberName + '</td>';
+        row += '<td><span class="badge badge-' + getTypeBadgeClass(alloc.type) + '">' + alloc.type.toUpperCase() + '</span></td>';
+        row += '<td>' + alloc.label + '</td>';
+        row += '<td class="text-right">₹' + alloc.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 }) + '</td>';
+        row += '<td><button type="button" class="btn btn-xs btn-danger remove-allocation-btn" data-index="' + index + '"><i class="fas fa-times"></i></button></td>';
+        row += '</tr>';
+        $tbody.append(row);
       });
     }
 
-    $(document).on('click', '.select-member-row', function (e) {
-      e.preventDefault();
-      const role = $(this).data('role');
-      const memberId = $(this).data('id');
-      const code = $(this).data('code');
-      const name = $(this).data('name');
-      const $row = $(this).closest('.mapping-row');
-
-      $row.find('input.' + role + '-member-id').val(memberId);
-      $row.find('.' + role + '-result').html(`<div class="alert alert-success"><strong>${code}</strong> - ${name} <button type="button" class="close remove-selected-member" data-role="${role}"><span>&times;</span></button></div>`);
-
-      // If paid_for selected and type requires accounts, load accounts for this row
-      if (role === 'paid_for') {
-        const txnType = $row.find('.mapping-type').val();
-        if (txnType === 'emi' || txnType === 'savings') {
-          loadMemberAccountsForRow(memberId, txnType, $row);
-        }
+    function getTypeBadgeClass(type) {
+      switch (type) {
+        case 'emi': return 'primary';
+        case 'savings': return 'success';
+        case 'fine': return 'danger';
+        case 'expense': return 'warning';
+        default: return 'secondary';
       }
-    });
-
-    $(document).on('click', '.remove-selected-member', function () { const role = $(this).data('role'); const $row = $(this).closest('.mapping-row'); $row.find('input.' + role + '-member-id').val(''); $row.find('.' + role + '-result').html(''); });
-
-    function loadMemberAccountsForRow(memberId, type, $row) {
-      const url = config.get_member_accounts_url;
-      $.ajax({
-        url: url,
-        type: 'POST',
-        data: { member_id: memberId },
-        dataType: 'json',
-        success: function (response) {
-          if (response.success) {
-            let html = '<option value="">Select Account</option>';
-
-            if (type === 'savings' && response.savings_accounts) {
-              response.savings_accounts.forEach(function (account) {
-                html += `<option value="savings_${account.id}" data-balance="${parseFloat(account.balance)}">${account.account_number} (Balance: ₹${parseFloat(account.balance).toFixed(2)})</option>`;
-              });
-              $row.find('.related-account').html(html);
-              $row.find('.related-account').data('label', 'Savings Account');
-            } else if (type === 'emi' && response.loans) {
-              response.loans.forEach(function (loan) {
-                html += `<option value="loan_${loan.id}" data-outstanding="${parseFloat(loan.outstanding)}">${loan.loan_number} (Outstanding: ₹${parseFloat(loan.outstanding).toFixed(2)})</option>`;
-              });
-              $row.find('.related-account').html(html);
-              $row.find('.related-account').data('label', 'Loan Account');
-            }
-
-            $row.find('.related-account').show();
-          }
-        }
-      });
     }
 
-    // When mapping type changes in a row
-    $(document).on('change', '.mapping-type', function () {
-      const $row = $(this).closest('.mapping-row');
-      const type = $(this).val();
-      const paidForId = $row.find('input.paid_for-member-id').val();
-      $row.find('.related-account').html('<option value="">Select Account</option>');
-      if (type === 'emi' || type === 'savings') {
-        if (paidForId) loadMemberAccountsForRow(paidForId, type, $row);
-      } else if (type === 'fine') {
-        if (paidForId) calculateFineForRow(paidForId, currentTransaction.date, $row);
+    // Remove allocation
+    $(document).on('click', '.remove-allocation-btn', function () {
+      var index = $(this).data('index');
+      var alloc = allocations[index];
+      allocations.splice(index, 1);
+
+      // Clear the input if it was from a member card
+      if (alloc.member_id && alloc.related) {
+        $('.allocation-input[data-member="' + alloc.member_id + '"][data-related="' + alloc.related + '"]').val('');
       }
+
+      updateAllocationsTable();
+      updateAllocationStatus();
     });
 
-    // When related account selected in a row, autofill amount
-    $(document).on('change', '.related-account', function () {
-      const $row = $(this).closest('.mapping-row');
-      const val = $(this).val();
-      if (!val) return;
-      const parts = val.split('_');
-      if (parts[0] === 'loan') {
-        const outstanding = parseFloat($(this).find('option:selected').data('outstanding') || 0);
-        const remaining = parseFloat($('#txn_remaining_display').text().replace(/[₹,]/g, '') || 0);
-        $row.find('.mapping-amount').val(Math.min(outstanding, remaining).toFixed(2));
-      } else if (parts[0] === 'savings') {
-        const balance = parseFloat($(this).find('option:selected').data('balance') || 0);
-        const remaining = parseFloat($('#txn_remaining_display').text().replace(/[₹,]/g, '') || 0);
-        $row.find('.mapping-amount').val(Math.min(remaining, remaining).toFixed(2));
-      }
-      updateRemaining();
-    });
-
-    // Calculate fine amount for member as of transaction date
-    function calculateFineForRow(memberId, txnDate, $row) {
-      const url = config.calculate_fine_url || (window.BASE_URL + 'admin/bank/calculate_fine_due');
-      $row.find('.mapping-amount').val('');
-      $.ajax({
-        url: url,
-        type: 'POST',
-        data: { member_id: memberId, as_of: txnDate },
-        dataType: 'json',
-        success: function (response) {
-          if (response.success) {
-            const due = parseFloat(response.total_due || 0);
-            const remaining = parseFloat($('#txn_remaining_display').text().replace(/[₹,]/g, '') || 0);
-            $row.find('.mapping-amount').val(Math.min(due, remaining).toFixed(2));
-            updateRemaining();
-          }
-        }
-      });
+    function getTotalAllocated() {
+      return allocations.reduce((sum, a) => sum + a.amount, 0);
     }
 
-    // Update remaining when amounts change
-    $(document).on('input', '.mapping-amount', function () { updateRemaining(); });
+    function updateAllocationStatus() {
+      var total = getTotalAllocated();
+      var remaining = transactionAmount - total;
+      var percent = transactionAmount > 0 ? (total / transactionAmount) * 100 : 0;
 
-    // Submit mapping form (now supports multiple rows)
-    $(document).on('submit', '#mappingForm', function (e) {
-      e.preventDefault();
+      $('#total_allocated').text('₹' + total.toLocaleString('en-IN', { minimumFractionDigits: 2 }));
+      $('#remaining_amount').text('₹' + remaining.toLocaleString('en-IN', { minimumFractionDigits: 2 }));
+      $('#footer_total').text('₹' + total.toLocaleString('en-IN', { minimumFractionDigits: 2 }));
+      $('#allocation_progress').css('width', Math.min(percent, 100) + '%');
 
-      const txnId = $('#transaction_id').val();
-      const mappings = [];
-      $('.mapping-row').each(function () {
-        const $r = $(this);
-        // Use global paying member if row does not specify a paying id
-        const paying_id = $('#paying_member_id').val() || $r.find('input.paying-member-id').val() || null;
-        const paid_for_id = $r.find('input.paid_for-member-id').val();
-        const type = $r.find('.mapping-type').val();
-        const related = $r.find('.related-account').val();
-        const amount = parseFloat($r.find('.mapping-amount').val() || 0);
-        if (!amount || amount <= 0) return;
-        mappings.push({ paying_member_id: paying_id || null, paid_for_member_id: paid_for_id || null, transaction_type: type, related_account: related || null, amount: amount });
+      var $status = $('#allocation_status');
+      var $error = $('#validation_error');
+      var $btn = $('#confirmMatch');
+
+      if (total > transactionAmount) {
+        $status.removeClass('alert-info alert-success').addClass('alert-danger');
+        $error.show();
+        $('#validation_msg').text('Total allocated (₹' + total.toLocaleString('en-IN') + ') exceeds transaction amount (₹' + transactionAmount.toLocaleString('en-IN') + ')');
+        $btn.prop('disabled', true);
+      } else if (allocations.length === 0) {
+        $status.removeClass('alert-danger alert-success').addClass('alert-info');
+        $error.hide();
+        $btn.prop('disabled', true);
+      } else {
+        $status.removeClass('alert-danger alert-info').addClass('alert-success');
+        $error.hide();
+        $btn.prop('disabled', false);
+      }
+    }
+
+    // Confirm and save mapping
+    $('#confirmMatch').click(function () {
+      var transactionId = $('#match_transaction_id').val();
+      var payingMemberId = $('#paying_member').val();
+      var notes = $('#mapping_notes').val();
+
+      if (allocations.length === 0) {
+        toastr.error('Please add at least one allocation');
+        return;
+      }
+
+      var total = getTotalAllocated();
+      if (total > transactionAmount) {
+        toastr.error('Total allocated exceeds transaction amount');
+        return;
+      }
+
+      // Build mappings array
+      var mappings = allocations.map(function (a) {
+        return {
+          paying_member_id: payingMemberId,
+          paid_for_member_id: a.member_id,
+          transaction_type: a.type,
+          related_account: a.related,
+          amount: a.amount,
+          remarks: notes
+        };
       });
 
-      const totalMapped = mappings.reduce((s, m) => s + (m.amount || 0), 0);
-      const txnAmt = window._current_txn_amount || 0;
-      if (totalMapped > txnAmt) { Swal.fire('Error', 'Mapped amounts exceed transaction amount', 'error'); return; }
-      // allow partial maps, but if partial ensure user confirms
-      const payload = { transaction_id: txnId, mappings: mappings, remarks: $('#remarks').val() };
+      var $btn = $(this);
+      $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Saving...');
 
       $.ajax({
         url: config.save_mapping_url,
         type: 'POST',
         contentType: 'application/json',
-        headers: { 'X-CSRF-TOKEN': window.CSRF_TOKEN },
-        data: JSON.stringify(payload),
-        dataType: 'json',
+        data: JSON.stringify({
+          transaction_id: transactionId,
+          mappings: mappings,
+          remarks: notes
+        }),
         success: function (response) {
           if (response.success) {
-            Swal.fire({ icon: 'success', title: 'Mapped', text: response.message || 'Transaction mapped successfully' }).then(function () { $('#mappingModal').modal('hide'); location.reload(); });
+            toastr.success(response.message || 'Transaction mapped successfully');
+            $('#matchModal').modal('hide');
+            location.reload();
           } else {
-            Swal.fire('Error', response.message || 'Mapping failed', 'error');
-          }
-        },
-        error: function () { Swal.fire('Error', 'Failed to save mapping. Please try again.', 'error'); }
-      });
-    });
-
-    // Search member handlers
-    $(document).on('click', '#search_paying_member', function () { searchMember('paying'); });
-    $(document).on('keypress', '#paying_member_search', function (e) { if (e.which === 13) { e.preventDefault(); searchMember('paying'); } });
-    $(document).on('click', '#search_paid_for_member', function () { searchMember('paid_for'); });
-    $(document).on('keypress', '#paid_for_member_search', function (e) { if (e.which === 13) { e.preventDefault(); searchMember('paid_for'); } });
-
-    // When selecting global paying member we should update existing rows if needed
-    $(document).on('click', '#search_paying_member', function () { /* kept for backward compat */ });
-
-    // Override select-member behavior for global paying selection
-    $(document).on('click', '.select-member', function (e) {
-      e.preventDefault();
-      const type = $(this).data('type');
-      const memberId = $(this).data('id');
-      const memberCode = $(this).data('code');
-      const memberName = $(this).data('name');
-
-      if (type === 'paying') {
-        $('#paying_member_id').val(memberId);
-        $('#paying_member_result').html(
-          `<div class="alert alert-success"><strong>${memberCode}</strong> - ${memberName} <button type="button" class="close" id="remove_paying_member"><span>&times;</span></button></div>`
-        );
-        return;
-      }
-
-      // fallback for paid_for which will be handled per-row
-      $('#' + type + '_member_id').val(memberId);
-      $('#' + type + '_member_result').html(
-        `<div class="alert alert-success"><strong>${memberCode}</strong> - ${memberName} <button type="button" class="close" onclick="$('#${type}_member_id').val(''); $('#${type}_member_result').html('');"><span>&times;</span></button></div>`
-      );
-
-      // If paid_for member selected and transaction type is emi/savings, load accounts
-      if (type === 'paid_for') {
-        const txnType = $('#transaction_type').val();
-        if (txnType === 'emi' || txnType === 'savings') {
-          loadMemberAccounts(memberId, txnType);
-        }
-      }
-    });
-
-    function searchMember(type) {
-      const url = config.search_members_url;
-      const search = $('#' + type + '_member_search').val().trim();
-      if (!search) {
-        alert('Please enter search term');
-        return;
-      }
-
-      const resultDiv = '#' + type + '_member_result';
-      $(resultDiv).html('<i class="fas fa-spinner fa-spin"></i> Searching...');
-
-      $.ajax({
-        url: url,
-        type: 'POST',
-        data: { search: search },
-        dataType: 'json',
-        success: function (response) {
-          if (response.success && response.members.length > 0) {
-            let html = '<div class="list-group">';
-            response.members.forEach(function (member) {
-              const statusClass = member.status === 'active' ? 'success' : 'secondary';
-              html += `<a href="#" class="list-group-item list-group-item-action select-member" 
-                                       data-type="${type}" 
-                                       data-id="${member.id}" 
-                                       data-code="${member.member_code}"
-                                       data-name="${member.first_name} ${member.last_name}">
-                                       <strong>${member.member_code}</strong> - ${member.first_name} ${member.last_name}
-                                       <span class="badge badge-${statusClass} float-right">${member.status}</span>
-                                     </a>`;
-            });
-            html += '</div>';
-            $(resultDiv).html(html);
-          } else {
-            $(resultDiv).html('<div class="alert alert-warning">No members found</div>');
+            toastr.error(response.message || 'Failed to save mapping');
+            $btn.prop('disabled', false).html('<i class="fas fa-check"></i> Save Mapping');
           }
         },
         error: function () {
-          $(resultDiv).html('<div class="alert alert-danger">Search failed</div>');
-        }
-      });
-    }
-
-    $(document).on('click', '.select-member', function (e) {
-      e.preventDefault();
-      const type = $(this).data('type');
-      const memberId = $(this).data('id');
-      const memberCode = $(this).data('code');
-      const memberName = $(this).data('name');
-
-      $('#' + type + '_member_id').val(memberId);
-      $('#' + type + '_member_result').html(
-        `<div class="alert alert-success">
-                    <strong>${memberCode}</strong> - ${memberName}
-                    <button type="button" class="close" onclick="$('#${type}_member_id').val(''); $('#${type}_member_result').html('');">
-                        <span>&times;</span>
-                    </button>
-                </div>`
-      );
-
-      // If paid_for member selected and transaction type is emi/savings, load accounts
-      if (type === 'paid_for') {
-        const txnType = $('#transaction_type').val();
-        if (txnType === 'emi' || txnType === 'savings') {
-          loadMemberAccounts(memberId, txnType);
-        }
-      }
-    });
-
-    function loadMemberAccounts(memberId, type) {
-      const url = config.get_member_accounts_url;
-      $.ajax({
-        url: url,
-        type: 'POST',
-        data: { member_id: memberId },
-        dataType: 'json',
-        success: function (response) {
-          if (response.success) {
-            let html = '<option value="">Select Account</option>';
-
-            if (type === 'savings' && response.savings_accounts) {
-              response.savings_accounts.forEach(function (account) {
-                html += `<option value="savings_${account.id}">
-                                            ${account.account_number} (Balance: ₹${parseFloat(account.balance).toFixed(2)})
-                                         </option>`;
-              });
-              $('#related_account_label').text('Savings Account');
-            } else if (type === 'emi' && response.loans) {
-              response.loans.forEach(function (loan) {
-                html += `<option value="loan_${loan.id}">
-                                            ${loan.loan_number} (Outstanding: ₹${parseFloat(loan.outstanding).toFixed(2)})
-                                         </option>`;
-              });
-              $('#related_account_label').text('Loan Account');
-            }
-
-            $('#related_account').html(html);
-            $('#related_account_row').show();
-          }
-        }
-      });
-    }
-
-    // Submit mapping form
-    $(document).on('submit', '#mappingForm', function (e) {
-      e.preventDefault();
-
-      const url = config.save_mapping_url;
-      const formData = $(this).serialize();
-
-      $.ajax({
-        url: url,
-        type: 'POST',
-        data: formData,
-        dataType: 'json',
-        success: function (response) {
-          if (response.success) {
-            Swal.fire({ icon: 'success', title: 'Mapped', text: 'Transaction mapped successfully' }).then(function () {
-              $('#mappingModal').modal('hide');
-              location.reload();
-            });
-          } else {
-            Swal.fire('Error', response.message || 'Mapping failed', 'error');
-          }
-        },
-        error: function () {
-          Swal.fire('Error', 'Failed to save mapping. Please try again.', 'error');
+          toastr.error('An error occurred. Please try again.');
+          $btn.prop('disabled', false).html('<i class="fas fa-check"></i> Save Mapping');
         }
       });
     });
+
   });
 })(window, jQuery);

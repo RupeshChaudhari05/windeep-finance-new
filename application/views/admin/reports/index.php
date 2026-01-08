@@ -59,7 +59,7 @@
                                         </a>
                                     </li>
                                     <li class="py-2 border-bottom border-light">
-                                        <a href="<?= site_url('admin/reports/overdue') ?>" class="text-white">
+                                        <a href="<?= site_url('admin/reports/demand') ?>" class="text-white">
                                             <i class="fas fa-arrow-right mr-2"></i> Overdue/Demand Report
                                         </a>
                                     </li>
@@ -87,7 +87,7 @@
                                         </a>
                                     </li>
                                     <li class="py-2 border-bottom border-light">
-                                        <a href="<?= site_url('admin/reports/member_summary') ?>" class="text-white">
+                                        <a href="<?= site_url('admin/reports/member-summary') ?>" class="text-white">
                                             <i class="fas fa-arrow-right mr-2"></i> Member Summary
                                         </a>
                                     </li>
@@ -97,7 +97,7 @@
                                         </a>
                                     </li>
                                     <li class="py-2">
-                                        <a href="<?= site_url('admin/reports/kyc_pending') ?>" class="text-white">
+                                        <a href="<?= site_url('admin/reports/kyc-pending') ?>" class="text-white">
                                             <i class="fas fa-arrow-right mr-2"></i> KYC Pending
                                         </a>
                                     </li>
@@ -181,17 +181,17 @@
                             <div class="card-body">
                                 <ul class="list-unstyled mb-0">
                                     <li class="py-2 border-bottom border-light">
-                                        <a href="<?= site_url('admin/reports/audit_log') ?>" class="text-white">
+                                        <a href="<?= site_url('admin/reports/audit-log') ?>" class="text-white">
                                             <i class="fas fa-arrow-right mr-2"></i> Audit Trail
                                         </a>
                                     </li>
                                     <li class="py-2 border-bottom border-light">
-                                        <a href="<?= site_url('admin/reports/cash_book') ?>" class="text-white">
+                                        <a href="<?= site_url('admin/reports/cash-book') ?>" class="text-white">
                                             <i class="fas fa-arrow-right mr-2"></i> Cash Book
                                         </a>
                                     </li>
                                     <li class="py-2 border-bottom border-light">
-                                        <a href="<?= site_url('admin/reports/bank_reconciliation') ?>" class="text-white">
+                                        <a href="<?= site_url('admin/reports/bank-reconciliation') ?>" class="text-white">
                                             <i class="fas fa-arrow-right mr-2"></i> Bank Reconciliation
                                         </a>
                                     </li>

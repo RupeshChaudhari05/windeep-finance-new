@@ -21,6 +21,9 @@
                 </form>
             </div>
             <div class="col-md-6 text-right">
+                <a href="<?= site_url('admin/members/send_email') ?>" class="btn btn-info btn-sm mr-2">
+                    <i class="fas fa-envelope"></i> Send Email
+                </a>
                 <a href="<?= site_url('admin/members/create') ?>" class="btn btn-primary btn-sm">
                     <i class="fas fa-plus"></i> Add New Member
                 </a>
@@ -115,6 +118,11 @@
                                     <a href="<?= site_url('admin/members/edit/' . $member->id) ?>" class="btn btn-xs btn-warning" title="Edit">
                                         <i class="fas fa-edit"></i>
                                     </a>
+                                    <?php if ($member->email): ?>
+                                        <a href="<?= site_url('admin/members/send_email/' . $member->id) ?>" class="btn btn-xs btn-secondary" title="Send Email">
+                                            <i class="fas fa-envelope"></i>
+                                        </a>
+                                    <?php endif; ?>
                                     <a href="<?= site_url('admin/loans/apply?member_id=' . $member->id) ?>" class="btn btn-xs btn-success" title="New Loan">
                                         <i class="fas fa-hand-holding-usd"></i>
                                     </a>

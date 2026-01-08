@@ -200,6 +200,7 @@ class Bank extends Admin_Controller {
         $config = "<script>\n" .
                   "window.BANK_MAPPING_CONFIG = {\n" .
                   "  search_members_url: '" . site_url('admin/bank/search_members') . "',\n" .
+                  "  get_member_details_url: '" . site_url('admin/bank/get_member_details') . "',\n" .
                   "  get_member_accounts_url: '" . site_url('admin/bank/get_member_accounts') . "',\n" .
                   "  save_mapping_url: '" . site_url('admin/bank/save_transaction_mapping') . "',\n" .
                   "  calculate_fine_url: '" . site_url('admin/bank/calculate_fine_due') . "'\n" .
