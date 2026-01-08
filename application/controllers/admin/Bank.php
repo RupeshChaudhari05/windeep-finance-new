@@ -57,13 +57,17 @@ class Bank extends Admin_Controller {
         }
         
         $file_data = $this->upload->data();
-        
+
+        // Optional mapping column (1-based index)
+        $mapping_column = $this->input->post('mapping_column');
+
         // Import statement
         try {
             $result = $this->Bank_model->import_statement(
                 $file_data['full_path'],
                 $bank_account_id,
-                $this->session->userdata('admin_id')
+                $this->session->userdata('admin_id'),
+                $mapping_column
             );
             
             if ($result['success']) {
@@ -293,6 +297,7 @@ class Bank extends Admin_Controller {
                     $type = $m['transaction_type'] ?? null;
                     $related = $m['related_account'] ?? null;
                     $amount = (float) ($m['amount'] ?? 0);
+                    $m_remarks = $m['remarks'] ?? null;
 
                     if ($amount <= 0) continue;
 
@@ -306,10 +311,38 @@ class Bank extends Admin_Controller {
                         'mapped_at' => date('Y-m-d H:i:s')
                     ];
 
+                    // If there is no member specified or member doesn't exist (internal bank expense etc.),
+                    // avoid inserting into `transaction_mappings` which requires a valid member_id.
+                    $member_exists = false;
+                    if (!empty($paid_for) && is_numeric($paid_for)) {
+                        $member_exists = $this->db->where('id', $paid_for)->count_all_results('members') > 0;
+                    }
+                    if (empty($paid_for) || !$member_exists) {
+                        // Mark the bank transaction with mapping remarks and skip creating a mapping row.
+                        $updateTxn = [
+                            'mapping_status' => 'mapped',
+                            'updated_at' => date('Y-m-d H:i:s')
+                        ];
+                        if ($this->db->field_exists('mapped_by', 'bank_transactions')) {
+                            $updateTxn['mapped_by'] = $admin_id;
+                        }
+                        if ($this->db->field_exists('mapped_at', 'bank_transactions')) {
+                            $updateTxn['mapped_at'] = date('Y-m-d H:i:s');
+                        }
+                        if ($this->db->field_exists('mapping_remarks', 'bank_transactions')) {
+                            $updateTxn['mapping_remarks'] = $m_remarks ?? 'Internal bank transaction';
+                        }
+                        $this->db->where('id', $transaction_id)->update('bank_transactions', $updateTxn);
+                        // No further processing for memberless mapping types (e.g., expense)
+                        continue;
+                    }
+
                     if ($related) {
                         $parts = explode('_', $related);
                         if (count($parts) == 2) {
-                            $insert['related_type'] = $parts[0];
+                            if ($this->db->field_exists('related_type', 'transaction_mappings')) {
+                                $insert['related_type'] = $parts[0];
+                            }
                             $insert['related_id'] = $parts[1];
                         }
                     }
@@ -339,7 +372,7 @@ class Bank extends Admin_Controller {
                                     'savings_account_id' => $insert['related_id'],
                                     'amount' => $amount,
                                     'transaction_type' => 'deposit',
-                                    'reference' => $transaction_id,
+                                    'reference_number' => $transaction_id,
                                     'created_by' => $admin_id
                                 ];
                                 $this->Savings_model->record_payment($payment_data);
@@ -365,14 +398,18 @@ class Bank extends Admin_Controller {
 
                 // Update bank transaction mapping status
                 $new_status = ($total == $txn_amount) ? 'mapped' : 'partial';
-                $this->db->where('id', $transaction_id)
-                         ->update('bank_transactions', [
-                             'mapping_status' => $new_status,
-                             'mapped_by' => $admin_id,
-                             'mapped_at' => date('Y-m-d H:i:s'),
-                             'updated_by' => $admin_id,
-                             'updated_at' => date('Y-m-d H:i:s')
-                         ]);
+                $update = [
+                    'mapping_status' => $new_status,
+                    'updated_by' => $admin_id,
+                    'updated_at' => date('Y-m-d H:i:s')
+                ];
+                if ($this->db->field_exists('mapped_by', 'bank_transactions')) {
+                    $update['mapped_by'] = $admin_id;
+                }
+                if ($this->db->field_exists('mapped_at', 'bank_transactions')) {
+                    $update['mapped_at'] = date('Y-m-d H:i:s');
+                }
+                $this->db->where('id', $transaction_id)->update('bank_transactions', $update);
 
                 if ($this->db->trans_status() === FALSE) {
                     $this->db->trans_rollback();
@@ -405,12 +442,18 @@ class Bank extends Admin_Controller {
             'paid_for_member_id' => $paid_for_member_id ?: $paying_member_id,
             'transaction_category' => $transaction_type,
             'mapping_status' => 'mapped',
-            'mapping_remarks' => $remarks,
-            'mapped_by' => $admin_id,
-            'mapped_at' => date('Y-m-d H:i:s'),
             'updated_by' => $admin_id,
             'updated_at' => date('Y-m-d H:i:s')
         ];
+        if ($this->db->field_exists('mapped_by', 'bank_transactions')) {
+            $update_data['mapped_by'] = $admin_id;
+        }
+        if ($this->db->field_exists('mapped_at', 'bank_transactions')) {
+            $update_data['mapped_at'] = date('Y-m-d H:i:s');
+        }
+        if ($this->db->field_exists('mapping_remarks', 'bank_transactions')) {
+            $update_data['mapping_remarks'] = $remarks;
+        }
 
         // Handle related account
         if ($related_account) {
@@ -657,12 +700,18 @@ class Bank extends Admin_Controller {
         
         $results = [];
         foreach ($members as $member) {
+            $full_name = (property_exists($member, 'full_name') && !empty($member->full_name)) ? $member->full_name : '';
+            $phone = (property_exists($member, 'phone') && !empty($member->phone)) ? $member->phone : '';
+            $display = $member->member_code;
+            if ($full_name !== '') $display .= ' - ' . $full_name;
+            if ($phone !== '') $display .= ' (' . $phone . ')';
+
             $results[] = [
                 'id' => $member->id,
-                'text' => $member->member_code . ' - ' . $member->full_name . ' (' . $member->phone . ')',
+                'text' => $display,
                 'member_code' => $member->member_code,
-                'full_name' => $member->full_name,
-                'phone' => $member->phone
+                'full_name' => $full_name,
+                'phone' => $phone
             ];
         }
         
@@ -716,6 +765,92 @@ class Bank extends Admin_Controller {
         }
         
         $this->ajax_response(true, 'Accounts found', $accounts);
+    }
+
+    /**
+     * AJAX: Get Member Details (Loans with installments, Savings, Fines)
+     */
+    public function get_member_details() {
+        if (!$this->input->is_ajax_request()) {
+            show_404();
+        }
+        
+        $member_id = $this->input->get('member_id');
+        
+        if (empty($member_id)) {
+            $this->ajax_response(false, 'Member ID required');
+        }
+        
+        $this->load->model('Savings_model');
+        $this->load->model('Loan_model');
+        $this->load->model('Fine_model');
+        
+        // Get savings accounts
+        $savings_accounts = $this->Savings_model->get_member_accounts($member_id);
+        $savings = [];
+        foreach ($savings_accounts as $acc) {
+            $savings[] = [
+                'id' => $acc->id,
+                'account_number' => $acc->account_number,
+                'account_type' => $acc->account_type ?? 'savings',
+                'current_balance' => $acc->current_balance ?? 0
+            ];
+        }
+        
+        // Get active loans with pending installments
+        $member_loans = $this->Loan_model->get_member_loans($member_id);
+        $loans = [];
+        foreach ($member_loans as $loan) {
+            // Get pending installments for this loan
+            $installments = $this->db->select('id, installment_number, due_date, emi_amount, principal_amount, interest_amount, 
+                                               (emi_amount - COALESCE(total_paid, 0)) as pending_amount, status')
+                                     ->where('loan_id', $loan->id)
+                                     ->where('status !=', 'paid')
+                                     ->order_by('installment_number', 'ASC')
+                                     ->limit(6) // Show next 6 pending EMIs
+                                     ->get('loan_installments')
+                                     ->result();
+            
+            $installment_list = [];
+            foreach ($installments as $inst) {
+                $installment_list[] = [
+                    'id' => $inst->id,
+                    'installment_number' => $inst->installment_number,
+                    'due_date' => date('d M Y', strtotime($inst->due_date)),
+                    'emi_amount' => $inst->emi_amount,
+                    'pending_amount' => $inst->pending_amount
+                ];
+            }
+            
+            $loans[] = [
+                'id' => $loan->id,
+                'loan_number' => $loan->loan_number,
+                'loan_type' => $loan->loan_type ?? 'loan',
+                'principal_amount' => $loan->principal_amount ?? 0,
+                'pending_amount' => $loan->pending_amount ?? 0,
+                'installments' => $installment_list
+            ];
+        }
+        
+        // Get pending fines
+        $member_fines = $this->Fine_model->get_member_fines($member_id, true); // true = pending only
+        $fines = [];
+        foreach ($member_fines as $fine) {
+            $fines[] = [
+                'id' => $fine->id,
+                'fine_type' => $fine->fine_type ?? 'Fine',
+                'fine_amount' => $fine->fine_amount ?? 0,
+                'paid_amount' => $fine->paid_amount ?? 0,
+                'pending_amount' => ($fine->fine_amount ?? 0) - ($fine->paid_amount ?? 0),
+                'fine_date' => isset($fine->fine_date) ? date('d M Y', strtotime($fine->fine_date)) : ''
+            ];
+        }
+        
+        $this->ajax_response(true, 'Member details loaded', [
+            'savings' => $savings,
+            'loans' => $loans,
+            'fines' => $fines
+        ]);
     }
     
     /**

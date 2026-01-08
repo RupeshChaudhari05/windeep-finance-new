@@ -54,7 +54,7 @@ class Bank_model extends MY_Model {
     /**
      * Import Bank Statement
      */
-    public function import_statement($file_path, $bank_account_id, $imported_by) {
+    public function import_statement($file_path, $bank_account_id, $imported_by, $mapping_column = null) {
         $this->db->trans_begin();
         
         try {
@@ -73,8 +73,8 @@ class Bank_model extends MY_Model {
             $this->db->insert('bank_statement_imports', $import_data);
             $import_id = $this->db->insert_id();
             
-            // Parse the file
-            $transactions = $this->parse_statement($file_path, $bank_account_id);
+            // Parse the file (pass mapping column if provided)
+            $transactions = $this->parse_statement($file_path, $bank_account_id, $mapping_column);
             log_message('debug', 'Parsed ' . count($transactions) . ' transactions from file: ' . $file_path);
             
             $total = count($transactions);
@@ -172,14 +172,14 @@ class Bank_model extends MY_Model {
     /**
      * Parse Statement File
      */
-    private function parse_statement($file_path, $bank_account_id) {
+    private function parse_statement($file_path, $bank_account_id, $mapping_column = null) {
         $transactions = [];
         $extension = strtolower(pathinfo($file_path, PATHINFO_EXTENSION));
         
         if ($extension === 'csv') {
-            $transactions = $this->parse_csv($file_path, $bank_account_id);
+            $transactions = $this->parse_csv($file_path, $bank_account_id, $mapping_column);
         } elseif (in_array($extension, ['xls', 'xlsx'])) {
-            $transactions = $this->parse_excel($file_path, $bank_account_id);
+            $transactions = $this->parse_excel($file_path, $bank_account_id, $mapping_column);
         }
         
         return $transactions;
@@ -188,7 +188,7 @@ class Bank_model extends MY_Model {
     /**
      * Parse CSV File
      */
-    private function parse_csv($file_path, $bank_account_id) {
+    private function parse_csv($file_path, $bank_account_id, $mapping_column = null) {
         $transactions = [];
         
         // Get bank account for parsing rules
@@ -196,33 +196,94 @@ class Bank_model extends MY_Model {
         
         if (($handle = fopen($file_path, 'r')) !== FALSE) {
             $header = fgetcsv($handle);
-            
+
+            // Normalize mapping column to zero-based index if provided (1-based input from UI)
+            $map_idx = null;
+            if (!empty($mapping_column) && is_numeric($mapping_column) && intval($mapping_column) > 0) {
+                $map_idx = intval($mapping_column) - 1;
+            }
+
+            // Build header map (normalize header names)
+            $header_map = [];
+            if (!empty($header) && is_array($header)) {
+                foreach ($header as $i => $h) {
+                    $key = strtolower(trim(preg_replace('/[^a-z0-9_ ]/', '', $h)));
+                    $key = preg_replace('/\s+/', ' ', $key);
+                    $header_map[$key] = $i;
+                }
+            }
+
             while (($row = fgetcsv($handle)) !== FALSE) {
-                if (count($row) < 4) continue;
-                
-                // Parse credit and debit columns
-                $credit = $this->parse_amount($row[2] ?? 0);
-                $debit = $this->parse_amount($row[3] ?? 0);
-                
+                if (count($row) < 1) continue;
+
+                // Helper to get value by header name variants
+                $get_by_names = function($names, $default = null) use ($row, $header_map) {
+                    foreach ($names as $n) {
+                        $k = strtolower(trim(preg_replace('/[^a-z0-9_ ]/', '', $n)));
+                        $k = preg_replace('/\s+/', ' ', $k);
+                        if (isset($header_map[$k]) && isset($row[$header_map[$k]])) {
+                            return $row[$header_map[$k]];
+                        }
+                    }
+                    return $default;
+                };
+
+                // Determine date column (common header names)
+                $date_raw = $get_by_names(['transadate', 'transactiondate', 'date', 'transa date', 'trans date'], $row[0] ?? '');
+
+                // Determine description (try Description1 + Description2 or fallback to second column)
+                $desc1 = $get_by_names(['description1', 'description 1', 'description'], null);
+                $desc2 = $get_by_names(['description2', 'description 2'], null);
+                if ($desc1 !== null && $desc2 !== null) {
+                    $description = trim($desc1 . ' ' . $desc2);
+                } elseif ($desc1 !== null) {
+                    $description = trim($desc1);
+                } else {
+                    $description = trim($row[1] ?? '');
+                }
+
+                // Determine credit/debit columns by header names or fallback to index 2/3
+                $credit_raw = $get_by_names(['credit', 'cr', 'credit amount'], $row[6] ?? ($row[2] ?? 0));
+                $debit_raw = $get_by_names(['debit', 'dr', 'debit amount'], $row[5] ?? ($row[3] ?? 0));
+
+                // If mapping column provided and present in row, use it for reference
+                $reference = '';
+                if ($map_idx !== null && isset($row[$map_idx])) {
+                    $reference = trim($row[$map_idx]);
+                } else {
+                    $reference = trim($get_by_names(['transid', 'reference', 'utr', 'reference number', 'reference_number'], $row[4] ?? ''));
+                }
+
+                // Parse amounts
+                $credit = $this->parse_amount($credit_raw);
+                $debit = $this->parse_amount($debit_raw);
+
                 // Determine amount and type
-                if ($credit > 0) {
+                if ($credit > 0 && $debit == 0) {
                     $amount = $credit;
                     $type = 'credit';
-                } elseif ($debit > 0) {
+                } elseif ($debit > 0 && $credit == 0) {
                     $amount = -$debit; // Negative for debit
                     $type = 'debit';
+                } elseif ($credit > 0 && $debit > 0) {
+                    // Prefer whichever is larger
+                    if ($credit >= $debit) {
+                        $amount = $credit; $type = 'credit';
+                    } else {
+                        $amount = -$debit; $type = 'debit';
+                    }
                 } else {
                     continue; // Skip rows with no amount
                 }
-                
+
                 $txn = [
-                    'transaction_date' => $this->parse_date($row[0]),
-                    'description' => trim($row[1]),
-                    'reference_number' => trim($row[4] ?? ''), // Reference might be in column 4
+                    'transaction_date' => $this->parse_date($date_raw),
+                    'description' => $description,
+                    'reference_number' => $reference,
                     'amount' => $amount,
                     'transaction_type' => $type
                 ];
-                
+
                 if ($txn['amount'] != 0) {
                     $transactions[] = $txn;
                 }
@@ -237,7 +298,7 @@ class Bank_model extends MY_Model {
     /**
      * Parse Excel File
      */
-    private function parse_excel($file_path, $bank_account_id) {
+    private function parse_excel($file_path, $bank_account_id, $mapping_column = null) {
         $transactions = [];
         
         // Requires PHPSpreadsheet
@@ -251,36 +312,87 @@ class Bank_model extends MY_Model {
             $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($file_path);
             $worksheet = $spreadsheet->getActiveSheet();
             $rows = $worksheet->toArray();
-            
+
             log_message('debug', 'Excel file loaded, ' . count($rows) . ' rows found');
-            array_shift($rows); // Remove header
-            
+            $header = array_shift($rows); // Remove header
+
+            // normalize mapping column
+            $map_idx = null;
+            if (!empty($mapping_column) && is_numeric($mapping_column) && intval($mapping_column) > 0) {
+                $map_idx = intval($mapping_column) - 1;
+            }
+
+            // Build header map from $header
+            $header_map = [];
+            if (!empty($header) && is_array($header)) {
+                foreach ($header as $i => $h) {
+                    $key = strtolower(trim(preg_replace('/[^a-z0-9_ ]/', '', $h)));
+                    $key = preg_replace('/\s+/', ' ', $key);
+                    $header_map[$key] = $i;
+                }
+            }
+
             foreach ($rows as $row) {
-                if (count($row) < 4 || empty($row[0])) continue;
-                
-                // Parse credit and debit columns
-                $credit = $this->parse_amount($row[2] ?? 0);
-                $debit = $this->parse_amount($row[3] ?? 0);
-                
-                // Determine amount and type
-                if ($credit > 0) {
+                if (count($row) < 1 || empty($row[0])) continue;
+
+                // Helper to get value by header name variants
+                $get_by_names = function($names, $default = null) use ($row, $header_map) {
+                    foreach ($names as $n) {
+                        $k = strtolower(trim(preg_replace('/[^a-z0-9_ ]/', '', $n)));
+                        $k = preg_replace('/\s+/', ' ', $k);
+                        if (isset($header_map[$k]) && isset($row[$header_map[$k]])) {
+                            return $row[$header_map[$k]];
+                        }
+                    }
+                    return $default;
+                };
+
+                // Determine date, description, credit/debit similarly to CSV parser
+                $date_raw = $get_by_names(['transadate', 'transactiondate', 'date', 'transa date', 'trans date'], $row[0] ?? '');
+
+                $desc1 = $get_by_names(['description1', 'description 1', 'description'], null);
+                $desc2 = $get_by_names(['description2', 'description 2'], null);
+                if ($desc1 !== null && $desc2 !== null) {
+                    $description = trim($desc1 . ' ' . $desc2);
+                } elseif ($desc1 !== null) {
+                    $description = trim($desc1);
+                } else {
+                    $description = trim($row[1] ?? '');
+                }
+
+                $credit_raw = $get_by_names(['credit', 'cr', 'credit amount'], $row[6] ?? ($row[2] ?? 0));
+                $debit_raw = $get_by_names(['debit', 'dr', 'debit amount'], $row[5] ?? ($row[3] ?? 0));
+
+                $reference = '';
+                if ($map_idx !== null && isset($row[$map_idx])) {
+                    $reference = trim($row[$map_idx]);
+                } else {
+                    $reference = trim($get_by_names(['transid', 'reference', 'utr', 'reference number', 'reference_number'], $row[4] ?? ''));
+                }
+
+                $credit = $this->parse_amount($credit_raw);
+                $debit = $this->parse_amount($debit_raw);
+
+                if ($credit > 0 && $debit == 0) {
                     $amount = $credit;
                     $type = 'credit';
-                } elseif ($debit > 0) {
-                    $amount = -$debit; // Negative for debit
-                    $type = 'debit';
+                } elseif ($debit > 0 && $credit == 0) {
+                    $amount = -$debit; $type = 'debit';
+                } elseif ($credit > 0 && $debit > 0) {
+                    if ($credit >= $debit) { $amount = $credit; $type = 'credit'; }
+                    else { $amount = -$debit; $type = 'debit'; }
                 } else {
-                    continue; // Skip rows with no amount
+                    continue;
                 }
-                
+
                 $txn = [
-                    'transaction_date' => $this->parse_date($row[0]),
-                    'description' => trim($row[1]),
-                    'reference_number' => trim($row[4] ?? ''), // Reference might be in column 4
+                    'transaction_date' => $this->parse_date($date_raw),
+                    'description' => $description,
+                    'reference_number' => $reference,
                     'amount' => $amount,
                     'transaction_type' => $type
                 ];
-                
+
                 if ($txn['amount'] != 0) {
                     $transactions[] = $txn;
                 }
@@ -402,15 +514,55 @@ class Bank_model extends MY_Model {
     /**
      * Manual Match Transaction
      */
-    public function match_transaction($transaction_id, $match_type, $match_id, $member_id, $matched_by) {
-        // Update transaction status
+    public function match_transaction($transaction_id, $match_type, $match_id, $member_id = null, $matched_by = null) {
+        // If member_id not provided, attempt to derive it from match_type and match_id
+        if (empty($member_id)) {
+            if (in_array($match_type, ['savings', 'savings_account', 'savings_payment'])) {
+                $savings = $this->db->where('id', $match_id)->get('savings_accounts')->row();
+                $member_id = $savings->member_id ?? null;
+            } elseif (in_array($match_type, ['loan', 'loan_payment', 'emi'])) {
+                $loan = $this->db->where('id', $match_id)->get('loans')->row();
+                $member_id = $loan->member_id ?? null;
+            } elseif ($match_type === 'member') {
+                // match_id is actually member id in this case
+                $member_id = $match_id;
+            }
+        }
+
+        // Default matched_by to current admin user if available
+        if (empty($matched_by) && isset($this->session)) {
+            $matched_by = $this->session->userdata('admin_id') ?? $this->session->userdata('user_id') ?? null;
+        }
+
+        // Update transaction status (always mark as mapped for UI)
         $this->db->where('id', $transaction_id)
                  ->update('bank_transactions', [
                      'mapping_status' => 'mapped',
                      'detected_member_id' => $member_id,
                      'updated_at' => date('Y-m-d H:i:s')
                  ]);
-        
+
+        // If we don't have a member_id (internal expense or bank-level mapping),
+        // avoid inserting into `transaction_mappings` which requires a non-null member_id.
+        if (empty($member_id)) {
+            // Add mapping remarks to bank_transactions for audit and return success
+            $updateTxn = [];
+            if ($this->db->field_exists('mapped_by', 'bank_transactions')) {
+                $updateTxn['mapped_by'] = $matched_by;
+            }
+            if ($this->db->field_exists('mapped_at', 'bank_transactions')) {
+                $updateTxn['mapped_at'] = date('Y-m-d H:i:s');
+            }
+            if ($this->db->field_exists('mapping_remarks', 'bank_transactions')) {
+                $updateTxn['mapping_remarks'] = 'Mapped as internal/bank expense: ' . $match_type . ' ' . ($match_id ?? '');
+            }
+            if (!empty($updateTxn)) {
+                $updateTxn['updated_at'] = date('Y-m-d H:i:s');
+                $this->db->where('id', $transaction_id)->update('bank_transactions', $updateTxn);
+            }
+            return true;
+        }
+
         // Create transaction mapping record
         return $this->db->insert('transaction_mappings', [
             'bank_transaction_id' => $transaction_id,
@@ -637,7 +789,7 @@ class Bank_model extends MY_Model {
                             'savings_account_id' => $update['related_id'],
                             'amount' => $amount,
                             'transaction_type' => 'deposit',
-                            'reference' => $transaction_id,
+                            'reference_number' => $transaction_id,
                             'created_by' => $admin_id
                         ];
                         $transaction_id = $this->Savings_model->record_payment($payment_data);
@@ -722,11 +874,11 @@ class Bank_model extends MY_Model {
                     'bank_transaction_id' => $transaction_id,
                     'mapping_type' => $split['type'] ?? 'emi',
                     'related_id' => $split['related_id'] ?? null,
-                    'allocated_amount' => $split['amount'],
+                    'amount' => $split['amount'],
                     'member_id' => $split['member_id'] ?? $txn->paid_by_member_id ?? null,
-                    'remarks' => $split['remarks'] ?? null,
+                    'narration' => $split['remarks'] ?? null,
                     'mapped_by' => $admin_id,
-                    'created_at' => date('Y-m-d H:i:s')
+                    'mapped_at' => date('Y-m-d H:i:s')
                 ];
                 
                 $this->db->insert('transaction_mappings', $mapping_data);
@@ -763,7 +915,7 @@ class Bank_model extends MY_Model {
                             'savings_account_id' => $split['related_id'],
                             'amount' => $split['amount'],
                             'transaction_type' => 'deposit',
-                            'reference' => $transaction_id,
+                            'reference_number' => $transaction_id,
                             'created_by' => $admin_id
                         ];
                         $savings_id = $this->Savings_model->record_payment($savings_data);
@@ -797,13 +949,17 @@ class Bank_model extends MY_Model {
             
             // Update bank transaction status
             $status = ($total_split_amount >= $txn_amount) ? 'mapped' : 'split';
-            $this->db->where('id', $transaction_id)
-                     ->update('bank_transactions', [
-                         'mapping_status' => $status,
-                         'mapped_by' => $admin_id,
-                         'mapped_at' => date('Y-m-d H:i:s'),
-                         'updated_at' => date('Y-m-d H:i:s')
-                     ]);
+            $update = [
+                'mapping_status' => $status,
+                'updated_at' => date('Y-m-d H:i:s')
+            ];
+            if ($this->db->field_exists('mapped_by', 'bank_transactions')) {
+                $update['mapped_by'] = $admin_id;
+            }
+            if ($this->db->field_exists('mapped_at', 'bank_transactions')) {
+                $update['mapped_at'] = date('Y-m-d H:i:s');
+            }
+            $this->db->where('id', $transaction_id)->update('bank_transactions', $update);
             
             if ($this->db->trans_status() === FALSE) {
                 $this->db->trans_rollback();

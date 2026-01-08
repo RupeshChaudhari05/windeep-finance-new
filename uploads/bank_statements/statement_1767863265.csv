@@ -1,0 +1,7 @@
+TransID,Bank Name,TransaDate,Description1,Description2,Debit,Credit,Balance
+TRX0001,State Bank,5/1/2026,MEMB000001 Deposit,Salary Payment,,5000,15000
+TRX0002,State Bank,6/1/2026,UPI 9707502695,Mobile Payment,1500,,13500
+TRX0003,State Bank,7/1/2026,SAV2025000120 Credit,Savings Transfer,,2000,15500
+TRX0004,State Bank,8/1/2026,LNC440DA EMI,Loan EMI,1200,,14300
+TRX0005,State Bank,9/1/2026,Customer Payment,MEMB000002,,7500,21800
+TRX0006,State Bank,10/1/2026,Utility Bill,Electricity,900,,20900

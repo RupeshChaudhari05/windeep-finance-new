@@ -257,12 +257,12 @@
                                     <p>Import Statement</p>
                                 </a>
                             </li>
-                            <li class="nav-item">
+                            <!-- <li class="nav-item">
                                 <a href="<?= base_url('admin/bank/transactions') ?>" class="nav-link">
                                     <i class="far fa-circle nav-icon"></i>
                                     <p>Transactions</p>
                                 </a>
-                            </li>
+                            </li> -->
                             <li class="nav-item">
                                 <a href="<?= base_url('admin/bank/mapping') ?>" class="nav-link">
                                     <i class="far fa-circle nav-icon"></i>
@@ -374,7 +374,7 @@
 
                     <!-- Audit Logs -->
                     <li class="nav-item">
-                        <a href="<?= base_url('admin/audit-logs') ?>" class="nav-link <?= $this->uri->segment(2) == 'audit-logs' ? 'active' : '' ?>">
+                        <a href="<?= base_url('admin/settings/audit_logs') ?>" class="nav-link <?= ($this->uri->segment(2) == 'settings' && $this->uri->segment(3) == 'audit_logs') ? 'active' : '' ?>">
                             <i class="nav-icon fas fa-history"></i>
                             <p>Audit Logs</p>
                         </a>

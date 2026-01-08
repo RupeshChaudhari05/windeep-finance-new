@@ -154,14 +154,19 @@
                                                     <?= ucfirst($txn->transaction_type) ?>
                                                 </span>
                                             </td>
+                                            <?php
+                                            $credit = isset($txn->credit_amount) ? (float) $txn->credit_amount : (in_array($txn->transaction_type, ['deposit','interest','opening_balance','adjustment','fine']) ? (float) ($txn->amount ?? 0) : 0);
+                                            $debit = isset($txn->debit_amount) ? (float) $txn->debit_amount : (in_array($txn->transaction_type, ['withdrawal']) ? (float) ($txn->amount ?? 0) : 0);
+                                            $balance = $txn->running_balance ?? $txn->balance_after ?? 0;
+                                            ?>
                                             <td class="text-right text-success">
-                                                <?= $txn->credit_amount > 0 ? '₹' . number_format($txn->credit_amount) : '-' ?>
+                                                <?= $credit > 0 ? '₹' . number_format($credit, 2) : '-' ?>
                                             </td>
                                             <td class="text-right text-danger">
-                                                <?= $txn->debit_amount > 0 ? '₹' . number_format($txn->debit_amount) : '-' ?>
+                                                <?= $debit > 0 ? '₹' . number_format($debit, 2) : '-' ?>
                                             </td>
                                             <td class="text-right font-weight-bold">
-                                                ₹<?= number_format($txn->running_balance) ?>
+                                                ₹<?= number_format((float) $balance, 2) ?>
                                             </td>
                                             <td><small><?= ucfirst($txn->payment_mode) ?></small></td>
                                         </tr>

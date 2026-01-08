@@ -188,7 +188,8 @@
                                             data-description="<?= htmlspecialchars($txn->description) ?>"
                                             data-reference="<?= htmlspecialchars($txn->bank_reference ?? '') ?>"
                                             data-debit="<?= $txn->debit_amount ?>"
-                                            data-credit="<?= $txn->credit_amount ?>">
+                                            data-credit="<?= $txn->credit_amount ?>"
+                                            data-category="<?= htmlspecialchars($txn->transaction_category ?? $txn->transaction_type ?? '') ?>">
                                             <td class="text-center"><small><?= $txn->id ?></small></td>
                                             <td><small><?= format_date($txn->transaction_date) ?></small></td>
                                             <td>
@@ -229,8 +230,10 @@
                                             </td>
                                             <td>
                                                 <small class="category-display">
-                                                    <?php if ($txn->transaction_category): ?>
+                                                    <?php if (isset($txn->transaction_category) && $txn->transaction_category): ?>
                                                         <span class="badge badge-info badge-sm"><?= ucfirst($txn->transaction_category) ?></span>
+                                                    <?php elseif (!empty($txn->transaction_type)): ?>
+                                                        <span class="badge badge-secondary badge-sm"><?= ucfirst($txn->transaction_type) ?></span>
                                                     <?php else: ?>
                                                         <span class="text-muted">-</span>
                                                     <?php endif; ?>

@@ -541,7 +541,9 @@ class Settings extends Admin_Controller {
             'to_date' => $this->input->get('to_date')
         ];
         
-        $data['logs'] = $this->Audit_model->search_audit_logs($filters, 100);
+        $res = $this->Audit_model->search_audit_logs($filters, 1, 100);
+        $data['logs'] = $res['data'];
+        $data['pagination'] = isset($res['total']) ? $this->make_pagination($res['total'], $res['per_page'], $res['current_page']) : null;
         $data['filters'] = $filters;
         
         $this->load_view('admin/settings/audit_logs', $data);
@@ -653,4 +655,35 @@ class Settings extends Admin_Controller {
         $this->load->helper('download');
         force_download($filename, $backup);
     }
+
+    /**
+     * Simple pagination helper for settings pages
+     */
+    private function make_pagination($total, $per_page, $current_page = 1) {
+        $total_pages = max(1, (int) ceil($total / $per_page));
+        if ($total_pages <= 1) return '';
+
+        $params = $this->input->get() ?: [];
+        $base = site_url(uri_string());
+
+        $html = '<nav aria-label="Page navigation"><ul class="pagination justify-content-end mb-0">';
+        // previous
+        $prev = max(1, $current_page - 1);
+        $params['page'] = $prev;
+        $html .= '<li class="page-item ' . ($current_page == 1 ? 'disabled' : '') . '"><a class="page-link" href="' . $base . '?' . http_build_query($params) . '">&laquo;</a></li>';
+
+        for ($p = 1; $p <= $total_pages; $p++) {
+            $params['page'] = $p;
+            $html .= '<li class="page-item ' . ($p == $current_page ? 'active' : '') . '"><a class="page-link" href="' . $base . '?' . http_build_query($params) . '">' . $p . '</a></li>';
+        }
+
+        // next
+        $next = min($total_pages, $current_page + 1);
+        $params['page'] = $next;
+        $html .= '<li class="page-item ' . ($current_page == $total_pages ? 'disabled' : '') . '"><a class="page-link" href="' . $base . '?' . http_build_query($params) . '">&raquo;</a></li>';
+
+        $html .= '</ul></nav>';
+        return $html;
+    }
 }
+

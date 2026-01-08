@@ -52,6 +52,12 @@
                     </div>
                     
                     <div class="form-group">
+                        <label for="mapping_column">Mapping Column (optional)</label>
+                        <input type="number" class="form-control" id="mapping_column" name="mapping_column" min="1" placeholder="Column number that contains member/loan reference (e.g. 2 for Description)">
+                        <small class="form-text text-muted">If your file has a specific column with member code, loan number, or account number, enter the 1-based column index here to help auto-matching.</small>
+                    </div>
+                    
+                    <div class="form-group">
                         <label for="remarks">Remarks</label>
                         <textarea class="form-control" id="remarks" name="remarks" rows="2" 
                                   placeholder="Any notes about this import (optional)"></textarea>
