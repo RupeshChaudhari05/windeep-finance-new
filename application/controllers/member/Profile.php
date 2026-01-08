@@ -73,17 +73,32 @@ class Profile extends Member_Controller {
      * Process Profile Edit
      */
     private function _process_edit() {
+        // Debug: Check if method is called
+        log_message('debug', 'Profile _process_edit called for member ID: ' . ($this->member->id ?? 'NULL') . ' Method: ' . $this->input->method());
+        log_message('debug', 'POST data: ' . print_r($this->input->post(), true));
+        
+        if (!$this->member || !$this->member->id) {
+            $this->session->set_flashdata('error', 'Member data not found. Please login again.');
+            redirect('member/auth/login');
+            return;
+        }
+        
         $this->load->library('form_validation');
-        $this->form_validation->set_rules('phone', 'Phone', 'required|numeric|exact_length[10]');
-        $this->form_validation->set_rules('email', 'Email', 'valid_email');
-        $this->form_validation->set_rules('address_line1', 'Address', 'required');
-        $this->form_validation->set_rules('pincode', 'Pincode', 'numeric');
+        $this->form_validation->set_rules('first_name', 'First Name', 'required|trim');
+        $this->form_validation->set_rules('last_name', 'Last Name', 'required|trim');
+        $this->form_validation->set_rules('phone', 'Phone', 'required|trim');
+        $this->form_validation->set_rules('email', 'Email', 'valid_email|trim');
+        $this->form_validation->set_rules('address_line1', 'Address', 'required|trim');
+        $this->form_validation->set_rules('pincode', 'Pincode', 'trim|numeric');
 
         if ($this->form_validation->run() === FALSE) {
+            log_message('debug', 'Validation failed: ' . validation_errors());
             $this->session->set_flashdata('error', validation_errors());
             redirect('member/profile/edit');
             return;
         }
+        
+        log_message('debug', 'Validation passed, processing update');
 
         // Map form fields to DB columns (include commonly admin-updated fields)
         // Sanitize and validate Aadhaar/PAN
@@ -107,11 +122,14 @@ class Profile extends Member_Controller {
         }
 
         $update_data = [
-            'phone' => $this->input->post('phone'),
-            'email' => $this->input->post('email'),
+            'first_name' => $this->input->post('first_name'),
+            'last_name' => $this->input->post('last_name'),
             'father_name' => $this->input->post('father_name'),
             'date_of_birth' => $this->input->post('date_of_birth') ?: null,
             'gender' => $this->input->post('gender'),
+            'email' => $this->input->post('email'),
+            'phone' => $this->input->post('phone'),
+            'alternate_phone' => $this->input->post('alternate_phone'),
             'address_line1' => $this->input->post('address_line1'),
             'address_line2' => $this->input->post('address_line2'),
             'city' => $this->input->post('city'),
@@ -119,6 +137,7 @@ class Profile extends Member_Controller {
             'pincode' => $this->input->post('pincode'),
             'aadhaar_number' => $aadhaar,
             'pan_number' => $pan,
+            'voter_id' => $this->input->post('voter_id'),
             'bank_name' => $this->input->post('bank_name'),
             'bank_branch' => $this->input->post('bank_branch'),
             'account_number' => $this->input->post('account_number'),
@@ -127,14 +146,16 @@ class Profile extends Member_Controller {
             'nominee_name' => $this->input->post('nominee_name'),
             'nominee_relation' => $this->input->post('nominee_relation'),
             'nominee_phone' => $this->input->post('nominee_phone'),
+            'nominee_aadhaar' => $this->input->post('nominee_aadhaar'),
             'notes' => $this->input->post('notes')
         ];
 
         // Handle document uploads
-        $upload_base = './uploads/members_docs/' . $this->member->id . '/';
+        $upload_base = './members/uploads/' . $this->member->id . '/';
         if (!is_dir($upload_base)) mkdir($upload_base, 0755, TRUE);
 
         $doc_fields = [
+            'photo' => 'profile_photo',
             'aadhaar_doc' => 'aadhaar_doc',
             'pan_doc' => 'pan_doc',
             'address_proof_doc' => 'address_proof'
@@ -143,9 +164,15 @@ class Profile extends Member_Controller {
         foreach ($doc_fields as $field => $input_name) {
             if (!empty($_FILES[$input_name]['name'])) {
                 $config['upload_path'] = $upload_base;
-                $config['allowed_types'] = 'jpg|jpeg|png|pdf';
-                $config['max_size'] = 4096;
+                $config['allowed_types'] = 'jpg|jpeg|png';
+                $config['max_size'] = 2048; // 2MB for photos
                 $config['file_name'] = $field . '_' . $this->member->id . '_' . time();
+
+                // For documents, allow PDF too
+                if ($field !== 'photo') {
+                    $config['allowed_types'] = 'jpg|jpeg|png|pdf';
+                    $config['max_size'] = 4096; // 4MB for documents
+                }
 
                 $this->load->library('upload', $config);
                 if ($this->upload->do_upload($input_name)) {
@@ -164,10 +191,19 @@ class Profile extends Member_Controller {
         }
 
         if ($this->db->where('id', $this->member->id)->update('members', $update_data)) {
+            // Debug: Update successful
+            log_message('debug', 'Profile update successful for member ID: ' . $this->member->id);
+            
+            // Update the session member data
+            $this->member = $this->Member_model->get_by_id($this->member->id);
+            $this->session->set_userdata('member_data', $this->member);
+            
             $this->session->set_flashdata('success', 'Profile updated successfully.');
             redirect('member/profile');
         } else {
-            $this->session->set_flashdata('error', 'Failed to update profile.');
+            $error = $this->db->error();
+            log_message('error', 'Profile update failed for member ID: ' . $this->member->id . ' - Error: ' . $error['message']);
+            $this->session->set_flashdata('error', 'Failed to update profile: ' . $error['message']);
             redirect('member/profile/edit');
         }
     }

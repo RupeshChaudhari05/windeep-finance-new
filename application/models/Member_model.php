@@ -12,7 +12,7 @@ class Member_model extends MY_Model {
     protected $fillable = [
         'member_code', 'first_name', 'last_name', 'father_name', 'date_of_birth',
         'gender', 'email', 'phone', 'alternate_phone', 'address_line1', 'address_line2',
-        'city', 'state', 'pincode', 'profile_image', 'aadhaar_number', 'pan_number', 'voter_id',
+        'city', 'state', 'pincode', 'photo', 'aadhaar_number', 'pan_number', 'voter_id',
         'aadhaar_doc', 'pan_doc', 'address_proof_doc', 'kyc_verified', 'kyc_verified_at',
         'kyc_verified_by', 'bank_name', 'bank_branch', 'account_number', 'ifsc_code',
         'account_holder_name', 'join_date', 'membership_type', 'opening_balance',

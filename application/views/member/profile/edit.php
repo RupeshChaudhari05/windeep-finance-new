@@ -2,16 +2,43 @@
     <div class="card-header">
         <h3 class="card-title">Edit Profile</h3>
     </div>
-    <form method="post" action="<?= site_url('member/profile/edit') ?>">
+    <form method="post" action="<?= site_url('member/profile/edit') ?>" enctype="multipart/form-data">
         <div class="card-body">
+            <div class="form-row">
+                <div class="form-group col-md-6">
+                    <label>First Name</label>
+                    <input type="text" name="first_name" class="form-control" value="<?= set_value('first_name', $member->first_name) ?>" required>
+                </div>
+                <div class="form-group col-md-6">
+                    <label>Last Name</label>
+                    <input type="text" name="last_name" class="form-control" value="<?= set_value('last_name', $member->last_name) ?>" required>
+                </div>
+            </div>
+
             <div class="form-row">
                 <div class="form-group col-md-6">
                     <label>Phone</label>
                     <input type="text" name="phone" class="form-control" value="<?= set_value('phone', $member->phone) ?>" required>
                 </div>
                 <div class="form-group col-md-6">
+                    <label>Alternate Phone</label>
+                    <input type="text" name="alternate_phone" class="form-control" value="<?= set_value('alternate_phone', $member->alternate_phone) ?>">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group col-md-6">
                     <label>Email</label>
                     <input type="email" name="email" class="form-control" value="<?= set_value('email', $member->email) ?>">
+                </div>
+                <div class="form-group col-md-6">
+                    <label>Profile Photo</label>
+                    <input type="file" name="profile_photo" class="form-control-file" accept="image/*">
+                    <?php if (!empty($member->photo)): ?>
+                        <small class="form-text text-muted">
+                            Current: <a href="<?= base_url('members/uploads/' . $member->id . '/' . $member->photo) ?>" target="_blank">View Photo</a>
+                        </small>
+                    <?php endif; ?>
                 </div>
             </div>
 
@@ -66,14 +93,14 @@
                     <label>Aadhaar Number</label>
                     <input type="text" name="aadhaar_number" data-mask="aadhaar" class="form-control" value="<?= set_value('aadhaar_number', $member->aadhaar_number) ?>">
                     <?php if (!empty($member->aadhaar_doc)): ?>
-                        <small class="form-text text-muted">Document: <a href="<?= base_url('uploads/members_docs/' . $member->id . '/' . $member->aadhaar_doc) ?>" target="_blank">View</a></small>
+                        <small class="form-text text-muted">Document: <a href="<?= base_url('members/uploads/' . $member->id . '/' . $member->aadhaar_doc) ?>" target="_blank">View</a></small>
                     <?php endif; ?>
                 </div>
                 <div class="form-group col-md-4">
                     <label>PAN Number</label>
                     <input type="text" name="pan_number" data-mask="pan" class="form-control" value="<?= set_value('pan_number', $member->pan_number) ?>">
                     <?php if (!empty($member->pan_doc)): ?>
-                        <small class="form-text text-muted">Document: <a href="<?= base_url('uploads/members_docs/' . $member->id . '/' . $member->pan_doc) ?>" target="_blank">View</a></small>
+                        <small class="form-text text-muted">Document: <a href="<?= base_url('members/uploads/' . $member->id . '/' . $member->pan_doc) ?>" target="_blank">View</a></small>
                     <?php endif; ?>
                 </div>
                 <div class="form-group col-md-4">
@@ -94,6 +121,9 @@
                 <div class="form-group col-md-4">
                     <label>Address Proof (jpg/png/pdf)</label>
                     <input type="file" name="address_proof" class="form-control-file">
+                    <?php if (!empty($member->address_proof_doc)): ?>
+                        <small class="form-text text-muted">Document: <a href="<?= base_url('members/uploads/' . $member->id . '/' . $member->address_proof_doc) ?>" target="_blank">View</a></small>
+                    <?php endif; ?>
                 </div>
             </div>
 
@@ -138,6 +168,10 @@
                     <input type="text" name="nominee_phone" class="form-control" value="<?= set_value('nominee_phone', $member->nominee_phone) ?>">
                 </div>
             </div>
+            <div class="form-group">
+                <label>Nominee Aadhaar</label>
+                <input type="text" name="nominee_aadhaar" data-mask="aadhaar" class="form-control" value="<?= set_value('nominee_aadhaar', $member->nominee_aadhaar) ?>">
+            </div>
 
             <div class="form-group">
                 <label>Notes</label>
@@ -146,7 +180,7 @@
 
         </div>
         <div class="card-footer">
-            <button class="btn btn-success">Save</button>
+            <button type="submit" class="btn btn-success">Save</button>
             <a href="<?= site_url('member/profile') ?>" class="btn btn-default">Cancel</a>
         </div>
     </form>
