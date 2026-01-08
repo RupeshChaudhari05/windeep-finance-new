@@ -412,7 +412,8 @@ class Fines extends Admin_Controller {
         // Map incoming form fields to schema-compatible columns
         $rule_data = [
             'rule_name' => $this->input->post('rule_name'),
-            'applies_to' => $this->input->post('applies_to'),
+            'applies_to' => $this->input->post('applies_to') ?: 'both',
+            'fine_type' => $this->input->post('amount_type') == 'percentage' ? 'percentage' : 'fixed',
             // Map amount_type/amount_value -> fine_value
             'fine_value' => $this->input->post('amount_value') ?: 0,
             // Map frequency/amount_type -> per_day_amount when applicable
@@ -421,7 +422,8 @@ class Fines extends Admin_Controller {
             'grace_period_days' => $this->input->post('grace_days') ?: 0,
             'max_fine_amount' => $this->input->post('max_fine_amount') ?: null,
             'is_active' => $this->input->post('is_active') ? 1 : 0,
-            'description' => $this->input->post('description') ?: ''
+            'description' => $this->input->post('description') ?: '',
+            'effective_from' => date('Y-m-d')
         ];
 
         if (empty($rule_data['rule_name'])) {
@@ -437,6 +439,8 @@ class Fines extends Admin_Controller {
             // Log audit: action, module, table_name, record_id, old_values, new_values
             $this->log_audit('update', 'fine_rules', 'fine_rules', $id, $old, $rule_data);
         } else {
+            // Generate rule_code for new rules
+            $rule_data['rule_code'] = $this->generate_rule_code();
             $rule_data['created_at'] = date('Y-m-d H:i:s');
             $rule_data['created_by'] = $admin_id;
             $this->db->insert('fine_rules', $rule_data);
@@ -447,8 +451,31 @@ class Fines extends Admin_Controller {
         $this->json_response(['success' => true, 'message' => 'Rule saved successfully']);
     }
     
-    /**
-     * Toggle Rule Status (AJAX)
+    /**     * Generate unique rule code
+     */
+    private function generate_rule_code() {
+        $year = date('Y');
+        
+        // Get or create sequence
+        $seq = $this->db->where('year', $year)->get('rule_code_sequence')->row();
+        
+        if (!$seq) {
+            $this->db->insert('rule_code_sequence', [
+                'prefix' => 'FR',
+                'current_number' => 0,
+                'year' => $year
+            ]);
+            $seq = $this->db->where('year', $year)->get('rule_code_sequence')->row();
+        }
+        
+        // Increment
+        $next_number = $seq->current_number + 1;
+        $this->db->where('id', $seq->id)->update('rule_code_sequence', ['current_number' => $next_number]);
+        
+        return $seq->prefix . '-' . $year . '-' . str_pad($next_number, 4, '0', STR_PAD_LEFT);
+    }
+    
+    /**     * Toggle Rule Status (AJAX)
      */
     public function toggle_rule_status() {
         $id = $this->input->post('id');

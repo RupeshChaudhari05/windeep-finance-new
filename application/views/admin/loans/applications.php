@@ -93,7 +93,7 @@
                                     <a href="<?= site_url('admin/loans/approve/' . $app->id) ?>" class="btn btn-xs btn-success" title="Approve">
                                         <i class="fas fa-check"></i>
                                     </a>
-                                    <a href="<?= site_url('admin/loans/reject/' . $app->id) ?>" class="btn btn-xs btn-danger" title="Reject">
+                                    <a href="<?= site_url('admin/loans/view_application/' . $app->id) ?>" class="btn btn-xs btn-danger" title="Review & Reject">
                                         <i class="fas fa-times"></i>
                                     </a>
                                     <?php elseif ($app->status == 'approved'): ?>

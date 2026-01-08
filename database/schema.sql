@@ -173,6 +173,7 @@ CREATE TABLE IF NOT EXISTS `members` (
 `password` VARCHAR(255), `last_login` TIMESTAMP NULL,
 
 -- Metadata
+
 `notes` TEXT,
     `created_by` INT UNSIGNED,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -427,6 +428,7 @@ CREATE TABLE IF NOT EXISTS `loan_applications` (
 `eligibility_score` INT,
 
 -- Metadata
+
 `application_date` DATE NOT NULL,
     `expiry_date` DATE COMMENT 'Application expires if not processed',
     `documents` JSON COMMENT 'Uploaded documents',
@@ -465,6 +467,7 @@ CREATE TABLE IF NOT EXISTS `loan_guarantors` (
 `rejection_reason` VARCHAR(255),
 
 -- Release (after loan closure)
+
 `is_released` TINYINT(1) DEFAULT 0,
     `released_at` TIMESTAMP NULL,
     `released_by` INT UNSIGNED,
@@ -549,6 +552,7 @@ CREATE TABLE IF NOT EXISTS `loans` (
 `days_overdue` INT DEFAULT 0,
 
 -- Disbursement Details
+
 `disbursement_mode` ENUM('cash', 'bank_transfer', 'cheque') DEFAULT 'bank_transfer',
     `disbursement_reference` VARCHAR(50),
     `disbursement_bank_account` VARCHAR(50),
@@ -603,6 +607,7 @@ CREATE TABLE IF NOT EXISTS `loan_installments` (
 `days_late` INT DEFAULT 0,
 
 -- Skip/Adjustment
+
 `is_skipped` TINYINT(1) DEFAULT 0,
     `skip_reason` VARCHAR(255),
     `skipped_by` INT UNSIGNED,
@@ -621,6 +626,7 @@ CREATE TABLE IF NOT EXISTS `loan_installments` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Loan Payments/Transactions
+
 
 CREATE TABLE IF NOT EXISTS `loan_payments` (
     `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -661,6 +667,7 @@ CREATE TABLE IF NOT EXISTS `loan_payments` (
 `bank_transaction_id` INT UNSIGNED,
 
 -- Reversal
+
 `is_reversed` TINYINT(1) DEFAULT 0,
     `reversed_at` TIMESTAMP NULL,
     `reversed_by` INT UNSIGNED,
@@ -710,7 +717,20 @@ CREATE TABLE IF NOT EXISTS `fine_rules` (
     UNIQUE KEY `idx_rule_code` (`rule_code`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
 
+-- Rule Code Sequence (for auto-generating rule codes)
+CREATE TABLE IF NOT EXISTS `rule_code_sequence` (
+    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `prefix` VARCHAR(10) NOT NULL DEFAULT 'FR',
+    `current_number` INT UNSIGNED NOT NULL DEFAULT 0,
+    `year` YEAR NOT NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `idx_prefix_year` (`prefix`, `year`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
+
 -- Fines Ledger
+
 
 CREATE TABLE IF NOT EXISTS `fines` (
     `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -733,6 +753,7 @@ CREATE TABLE IF NOT EXISTS `fines` (
     `status` ENUM('pending', 'partial', 'paid', 'waived', 'cancelled') DEFAULT 'pending',
 
 -- Waiver Details
+
 `waived_by` INT UNSIGNED,
     `waived_at` TIMESTAMP NULL,
     `waiver_reason` VARCHAR(255),
@@ -836,6 +857,7 @@ CREATE TABLE IF NOT EXISTS `bank_transactions` (
 `unmapped_amount` DECIMAL(15, 2),
 
 -- Auto-Detection
+
 `detected_member_id` INT UNSIGNED COMMENT 'Auto-detected member',
     `detection_confidence` DECIMAL(5,2) COMMENT 'Confidence score 0-100',
     
@@ -866,6 +888,7 @@ CREATE TABLE IF NOT EXISTS `transaction_mappings` (
     `mapped_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
 -- Reversal
+
 `is_reversed` TINYINT(1) DEFAULT 0,
     `reversed_at` TIMESTAMP NULL,
     `reversed_by` INT UNSIGNED,
@@ -922,6 +945,7 @@ CREATE TABLE IF NOT EXISTS `general_ledger` (
     `narration` VARCHAR(255),
 
 -- Reference
+
 `reference_type` VARCHAR(50) COMMENT 'savings_transaction, loan_payment, etc.',
     `reference_id` INT UNSIGNED,
     `member_id` INT UNSIGNED,

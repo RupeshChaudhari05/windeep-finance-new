@@ -218,6 +218,9 @@ class Loans extends Admin_Controller {
         // Get member details
         $data['member'] = $this->Member_model->get_member_details($application->member_id);
         
+        // Flag for page-specific scripts
+        $data['load_reject_script'] = true;
+        
         $this->load_view('admin/loans/view_application', $data);
     }
     
@@ -380,14 +383,14 @@ class Loans extends Admin_Controller {
      */
     public function reject($id) {
         $reason = $this->input->post('reason');
-        
+
         if (!$reason) {
             $this->json_response(['success' => false, 'message' => 'Rejection reason is required.']);
             return;
         }
-        
+
         $result = $this->Loan_model->reject_application($id, $reason, $this->session->userdata('admin_id'));
-        
+
         if ($result) {
             $this->log_audit('rejected', 'loan_applications', 'loan_applications', $id, null, ['reason' => $reason]);
             $this->json_response(['success' => true, 'message' => 'Application rejected.']);

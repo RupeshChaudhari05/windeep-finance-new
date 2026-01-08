@@ -38,7 +38,7 @@
                             <td><?= $i++ ?></td>
                             <td>
                                 <strong><?= $rule->rule_name ?></strong>
-                                <?php if ($rule->description): ?>
+                                <?php if (!empty($rule->description)): ?>
                                 <br><small class="text-muted"><?= character_limiter($rule->description, 50) ?></small>
                                 <?php endif; ?>
                             </td>

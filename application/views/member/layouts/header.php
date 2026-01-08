@@ -12,6 +12,9 @@
     <!-- AdminLTE -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/css/adminlte.min.css">
     
+    <!-- jQuery (moved to header for immediate availability) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    
     <style>
         /* Content-wrapper margin for proper sidebar spacing */
         .content-wrapper {

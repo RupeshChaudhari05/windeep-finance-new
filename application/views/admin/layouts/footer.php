@@ -15,8 +15,6 @@
 </div>
 <!-- ./wrapper -->
 
-<!-- jQuery -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
 <!-- jQuery UI 1.11.4 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.js"></script>
 <!-- Resolve conflict in jQuery UI tooltip with Bootstrap tooltip -->
@@ -118,6 +116,69 @@ $(document).ready(function() {
             $('input[name="' + window.CSRF_NAME + '"]').val(csrf);
         }
     });
+    
+    <?php if (isset($load_reject_script) && $load_reject_script): ?>
+    // Loan Application Scripts
+    $('#confirmModify').click(function() {
+        var remarks = $('#mod_remarks').val().trim();
+        if (!remarks) {
+            toastr.error('Please enter remarks');
+            return;
+        }
+        var data = {
+            remarks: remarks,
+            approved_amount: $('#mod_amount').val(),
+            approved_tenure_months: $('#mod_tenure').val(),
+            approved_interest_rate: $('#mod_interest').val()
+        };
+        $.post('<?= site_url('admin/loans/request_modification/' . $application->id) ?>', data, function(resp) {
+            if (resp.success) {
+                toastr.success(resp.message);
+                $('#modifyModal').modal('hide');
+                location.reload();
+            } else {
+                toastr.error(resp.message || 'Failed to send modification request');
+            }
+        }, 'json');
+    });
+
+    $('#confirmReject').click(function(e) {
+        e.preventDefault();
+        console.log('Reject button clicked');
+
+        var reason = $('#reject_reason').val().trim();
+        console.log('Reason value:', reason);
+
+        if (!reason) {
+            toastr.error('Please enter rejection reason');
+            return;
+        }
+
+        // Show loading state
+        var $btn = $(this);
+        $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin mr-1"></i> Rejecting...');
+
+        var url = '<?= site_url('admin/loans/reject/' . $application->id) ?>';
+        console.log('Reject URL:', url);
+        console.log('Reason:', reason);
+
+        $.post(url, {reason: reason}, function(response) {
+            console.log('Response:', response);
+            if (response.success) {
+                toastr.success(response.message || 'Application rejected');
+                $('#rejectModal').modal('hide');
+                location.reload();
+            } else {
+                toastr.error(response.message || 'Failed to reject');
+                $btn.prop('disabled', false).html('<i class="fas fa-times mr-1"></i> Reject Application');
+            }
+        }, 'json').fail(function(xhr, status, error) {
+            console.log('AJAX Error:', xhr.responseText, status, error);
+            toastr.error('Network error occurred. Please try again.');
+            $btn.prop('disabled', false).html('<i class="fas fa-times mr-1"></i> Reject Application');
+        });
+    });
+    <?php endif; ?>
 });
 </script>
 

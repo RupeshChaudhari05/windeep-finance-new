@@ -125,7 +125,17 @@
                 </tr>
                 <tr>
                     <td class="label">Address:</td>
-                    <td class="value" colspan="3"><?= $member->address ?: '-' ?></td>
+                    <td class="value" colspan="3">
+                        <?php
+                        $address_parts = [];
+                        if (!empty($member->address_line1)) $address_parts[] = $member->address_line1;
+                        if (!empty($member->address_line2)) $address_parts[] = $member->address_line2;
+                        if (!empty($member->city)) $address_parts[] = $member->city;
+                        if (!empty($member->state)) $address_parts[] = $member->state;
+                        if (!empty($member->pincode)) $address_parts[] = $member->pincode;
+                        echo !empty($address_parts) ? implode(', ', $address_parts) : '-';
+                        ?>
+                    </td>
                 </tr>
             </table>
         </div>
@@ -141,7 +151,7 @@
                 <div class="label">Total Interest</div>
             </div>
             <div class="summary-item">
-                <div class="amount">₹<?= number_format($loan->total_paid ?? 0, 2) ?></div>
+                <div class="amount">₹<?= number_format($loan->total_amount_paid ?? 0, 2) ?></div>
                 <div class="label">Total Paid</div>
             </div>
             <div class="summary-item">
@@ -182,16 +192,16 @@
                     
                     foreach ($installments as $inst): 
                         $total_emi += $inst->emi_amount;
-                        $total_principal += $inst->principal_component;
-                        $total_interest += $inst->interest_component;
+                        $total_principal += $inst->principal_amount;
+                        $total_interest += $inst->interest_amount;
                         $total_paid += $inst->total_paid ?? 0;
                     ?>
                     <tr>
                         <td><?= $inst->installment_number ?></td>
                         <td><?= format_date($inst->due_date) ?></td>
                         <td class="text-right">₹<?= number_format($inst->emi_amount, 2) ?></td>
-                        <td class="text-right">₹<?= number_format($inst->principal_component, 2) ?></td>
-                        <td class="text-right">₹<?= number_format($inst->interest_component, 2) ?></td>
+                        <td class="text-right">₹<?= number_format($inst->principal_amount, 2) ?></td>
+                        <td class="text-right">₹<?= number_format($inst->interest_amount, 2) ?></td>
                         <td class="text-right">₹<?= number_format($inst->total_paid ?? 0, 2) ?></td>
                         <td>
                             <span class="badge badge-<?= 

@@ -38,6 +38,9 @@
     <!-- Custom Style -->
     <link rel="stylesheet" href="<?= base_url('assets/css/custom.css') ?>">
     
+    <!-- jQuery (moved to header for immediate availability) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    
     <style>
         /* Layout safety fixes to align with AdminLTE behavior */
         /* Do NOT force the sidebar to be fixed here; AdminLTE handles positioning.

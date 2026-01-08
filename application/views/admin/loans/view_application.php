@@ -318,27 +318,6 @@
     </div>
 </div>
 
-<script>
-$(document).ready(function() {
-    $('#confirmReject').click(function() {
-        var reason = $('#reject_reason').val().trim();
-        
-        if (!reason) {
-            toastr.error('Please enter rejection reason');
-            return;
-        }
-        
-        $.post('<?= site_url('admin/loans/reject/' . $application->id) ?>', {reason: reason}, function(response) {
-            if (response.success) {
-                toastr.success('Application rejected');
-                location.reload();
-            } else {
-                toastr.error(response.message || 'Failed to reject');
-            }
-        }, 'json');
-    });
-});
-</script>
 
 <!-- Modification Modal -->
 <div class="modal fade" id="modifyModal" tabindex="-1">
@@ -376,50 +355,6 @@ $(document).ready(function() {
     </div>
 </div>
 
-<script>
-$(document).ready(function() {
-    $('#confirmModify').click(function() {
-        var remarks = $('#mod_remarks').val().trim();
-        if (!remarks) {
-            toastr.error('Please enter remarks');
-            return;
-        }
-        var data = {
-            remarks: remarks,
-            approved_amount: $('#mod_amount').val(),
-            approved_tenure_months: $('#mod_tenure').val(),
-            approved_interest_rate: $('#mod_interest').val()
-        };
-        $.post('<?= site_url('admin/loans/request_modification/' . $application->id) ?>', data, function(resp) {
-            if (resp.success) {
-                toastr.success(resp.message);
-                location.reload();
-            } else {
-                toastr.error(resp.message || 'Failed to send modification request');
-            }
-        }, 'json');
-    });
-
-    // existing reject logic kept
-    $('#confirmReject').click(function() {
-        var reason = $('#reject_reason').val().trim();
-
-        if (!reason) {
-            toastr.error('Please enter rejection reason');
-            return;
-        }
-
-        $.post('<?= site_url('admin/loans/reject/' . $application->id) ?>', {reason: reason}, function(response) {
-            if (response.success) {
-                toastr.success('Application rejected');
-                location.reload();
-            } else {
-                toastr.error(response.message || 'Failed to reject');
-            }
-        }, 'json');
-    });
-});
-</script>
 
 <style>
 .timeline-sm { position: relative; padding-left: 25px; }

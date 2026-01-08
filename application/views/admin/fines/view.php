@@ -117,39 +117,46 @@
                 <table class="table table-hover mb-0">
                     <thead class="thead-light">
                         <tr>
-                            <th>Date</th>
-                            <th>Type</th>
+                            <th>Status</th>
                             <th class="text-right">Amount</th>
-                            <th>Mode</th>
-                            <th>Reference</th>
-                            <th>By</th>
+                            <th>Date</th>
+                            <th>Details</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <?php 
-                        $payments = $this->db->where('fine_id', $fine->id)
-                                             ->order_by('created_at', 'DESC')
-                                             ->get('fine_payments')
-                                             ->result();
-                        if (empty($payments)): 
-                        ?>
+                        <?php if ($fine->paid_amount > 0): ?>
                         <tr>
-                            <td colspan="6" class="text-center py-3 text-muted">No payments recorded</td>
-                        </tr>
-                        <?php else: foreach ($payments as $payment): ?>
-                        <tr>
-                            <td><?= format_date_time($payment->created_at, 'd M Y h:i A') ?></td>
                             <td>
-                                <span class="badge badge-<?= $payment->payment_type == 'waiver' ? 'info' : 'success' ?>">
-                                    <?= ucfirst($payment->payment_type ?? 'payment') ?>
-                                </span>
+                                <span class="badge badge-success">Paid</span>
                             </td>
-                            <td class="text-right">₹<?= number_format($payment->amount, 2) ?></td>
-                            <td><?= ucfirst($payment->payment_mode ?? '-') ?></td>
-                            <td><?= $payment->reference_number ?: '-' ?></td>
-                            <td><?= $payment->created_by_name ?? '-' ?></td>
+                            <td class="text-right">₹<?= number_format($fine->paid_amount, 2) ?></td>
+                            <td><?= format_date($fine->updated_at, 'd M Y') ?></td>
+                            <td>Payment received</td>
                         </tr>
-                        <?php endforeach; endif; ?>
+                        <?php endif; ?>
+                        <?php if ($fine->waived_amount > 0): ?>
+                        <tr>
+                            <td>
+                                <span class="badge badge-info">Waived</span>
+                            </td>
+                            <td class="text-right">₹<?= number_format($fine->waived_amount, 2) ?></td>
+                            <td><?= format_date($fine->waived_at, 'd M Y') ?></td>
+                            <td><?= $fine->waiver_reason ?: 'Waiver applied' ?></td>
+                        </tr>
+                        <?php endif; ?>
+                        <?php if ($fine->paid_amount == 0 && $fine->waived_amount == 0): ?>
+                        <tr>
+                            <td colspan="4" class="text-center py-3 text-muted">
+                                <?php if ($fine->status == 'pending'): ?>
+                                    Payment pending
+                                <?php elseif ($fine->status == 'cancelled'): ?>
+                                    Fine cancelled
+                                <?php else: ?>
+                                    No payment information available
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                        <?php endif; ?>
                     </tbody>
                 </table>
             </div>

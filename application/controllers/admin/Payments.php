@@ -391,7 +391,7 @@ class Payments extends Admin_Controller {
      * Get Savings Payments
      */
     private function _get_savings_payments($filters) {
-        $this->db->select('st.id, st.transaction_date as payment_date, st.amount, st.payment_mode, st.reference, st.reference as reference_number,
+        $this->db->select('st.id, st.transaction_date as payment_date, st.amount, st.payment_mode, st.reference_number, st.reference_number as reference_number,
                           m.member_code, m.first_name, m.last_name, sa.account_number, "savings" as type')
                  ->from('savings_transactions st')
                  ->join('savings_accounts sa', 'sa.id = st.savings_account_id')
@@ -418,25 +418,24 @@ class Payments extends Admin_Controller {
      * Get Fine Payments
      */
     private function _get_fine_payments($filters) {
-        $this->db->select('fp.id, fp.payment_date, fp.amount, fp.payment_mode, fp.reference_number,
+        // Since fines don't have a separate payments table, query paid fines from fines table
+        $this->db->select('f.id, f.fine_date as payment_date, f.paid_amount as amount, "cash" as payment_mode, f.fine_code as reference_number,
                           m.member_code, m.first_name, m.last_name, f.fine_code, "fine" as type')
-                 ->from('fine_payments fp')
-                 ->join('fines f', 'f.id = fp.fine_id')
-                 ->join('members m', 'm.id = f.member_id');
-        
+                 ->from('fines f')
+                 ->join('members m', 'm.id = f.member_id')
+                 ->where('f.status', 'paid')
+                 ->where('f.paid_amount >', 0);
+
         if ($filters['member_id']) {
             $this->db->where('m.id', $filters['member_id']);
         }
-        if ($filters['payment_mode']) {
-            $this->db->where('fp.payment_mode', $filters['payment_mode']);
-        }
         if ($filters['date_from']) {
-            $this->db->where('fp.payment_date >=', $filters['date_from']);
+            $this->db->where('f.fine_date >=', $filters['date_from']);
         }
         if ($filters['date_to']) {
-            $this->db->where('fp.payment_date <=', $filters['date_to']);
+            $this->db->where('f.fine_date <=', $filters['date_to']);
         }
-        
+
         return $this->db->get()->result();
     }
 }
