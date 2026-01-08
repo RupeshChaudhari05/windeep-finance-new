@@ -174,6 +174,7 @@ CREATE TABLE IF NOT EXISTS `members` (
 
 -- Metadata
 
+
 `notes` TEXT,
     `created_by` INT UNSIGNED,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -429,6 +430,7 @@ CREATE TABLE IF NOT EXISTS `loan_applications` (
 
 -- Metadata
 
+
 `application_date` DATE NOT NULL,
     `expiry_date` DATE COMMENT 'Application expires if not processed',
     `documents` JSON COMMENT 'Uploaded documents',
@@ -467,6 +469,7 @@ CREATE TABLE IF NOT EXISTS `loan_guarantors` (
 `rejection_reason` VARCHAR(255),
 
 -- Release (after loan closure)
+
 
 `is_released` TINYINT(1) DEFAULT 0,
     `released_at` TIMESTAMP NULL,
@@ -553,6 +556,7 @@ CREATE TABLE IF NOT EXISTS `loans` (
 
 -- Disbursement Details
 
+
 `disbursement_mode` ENUM('cash', 'bank_transfer', 'cheque') DEFAULT 'bank_transfer',
     `disbursement_reference` VARCHAR(50),
     `disbursement_bank_account` VARCHAR(50),
@@ -607,6 +611,7 @@ CREATE TABLE IF NOT EXISTS `loan_installments` (
 `days_late` INT DEFAULT 0,
 
 -- Skip/Adjustment
+
 
 `is_skipped` TINYINT(1) DEFAULT 0,
     `skip_reason` VARCHAR(255),
@@ -668,6 +673,7 @@ CREATE TABLE IF NOT EXISTS `loan_payments` (
 
 -- Reversal
 
+
 `is_reversed` TINYINT(1) DEFAULT 0,
     `reversed_at` TIMESTAMP NULL,
     `reversed_by` INT UNSIGNED,
@@ -698,11 +704,18 @@ CREATE TABLE IF NOT EXISTS `fine_rules` (
     `rule_name` VARCHAR(100) NOT NULL,
     `applies_to` ENUM('savings', 'loan', 'both') DEFAULT 'both',
     `fine_type` ENUM(
+        'loan_late',
+        'savings_late',
+        'meeting_absence',
+        'document_missing',
+        'other'
+    ) NOT NULL,
+    `calculation_type` ENUM(
         'fixed',
         'percentage',
         'per_day',
         'slab'
-    ) NOT NULL,
+    ) NOT NULL DEFAULT 'fixed',
     `fine_value` DECIMAL(10, 2) NOT NULL COMMENT 'Fixed amount or percentage',
     `per_day_amount` DECIMAL(10, 2) DEFAULT 0.00,
     `max_fine_amount` DECIMAL(15, 2) COMMENT 'Cap on fine',
@@ -753,6 +766,7 @@ CREATE TABLE IF NOT EXISTS `fines` (
     `status` ENUM('pending', 'partial', 'paid', 'waived', 'cancelled') DEFAULT 'pending',
 
 -- Waiver Details
+
 
 `waived_by` INT UNSIGNED,
     `waived_at` TIMESTAMP NULL,
@@ -859,7 +873,12 @@ CREATE TABLE IF NOT EXISTS `bank_transactions` (
 -- Auto-Detection
 
 `detected_member_id` INT UNSIGNED COMMENT 'Auto-detected member',
-    `detection_confidence` DECIMAL(5,2) COMMENT 'Confidence score 0-100',
+`detection_confidence` DECIMAL(5, 2) COMMENT 'Confidence score 0-100',
+
+-- Manual Transaction Recording
+`paid_by_member_id` INT UNSIGNED COMMENT 'Member who made the payment',
+    `paid_for_member_id` INT UNSIGNED COMMENT 'Member who received the payment',
+    `updated_by` INT UNSIGNED COMMENT 'Admin who recorded this transaction',
     
     `remarks` VARCHAR(255),
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -871,7 +890,10 @@ CREATE TABLE IF NOT EXISTS `bank_transactions` (
     KEY `idx_mapping_status` (`mapping_status`),
     KEY `idx_utr_number` (`utr_number`),
     FOREIGN KEY (`import_id`) REFERENCES `bank_statement_imports`(`id`),
-    FOREIGN KEY (`bank_account_id`) REFERENCES `bank_accounts`(`id`)
+    FOREIGN KEY (`bank_account_id`) REFERENCES `bank_accounts`(`id`),
+    FOREIGN KEY (`paid_by_member_id`) REFERENCES `members`(`id`),
+    FOREIGN KEY (`paid_for_member_id`) REFERENCES `members`(`id`),
+    FOREIGN KEY (`updated_by`) REFERENCES `admin_users`(`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Transaction Mappings
@@ -888,6 +910,7 @@ CREATE TABLE IF NOT EXISTS `transaction_mappings` (
     `mapped_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
 -- Reversal
+
 
 `is_reversed` TINYINT(1) DEFAULT 0,
     `reversed_at` TIMESTAMP NULL,
@@ -945,6 +968,7 @@ CREATE TABLE IF NOT EXISTS `general_ledger` (
     `narration` VARCHAR(255),
 
 -- Reference
+
 
 `reference_type` VARCHAR(50) COMMENT 'savings_transaction, loan_payment, etc.',
     `reference_id` INT UNSIGNED,

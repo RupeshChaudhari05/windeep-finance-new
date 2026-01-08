@@ -22,7 +22,15 @@ class Fines extends Admin_Controller {
             ['title' => 'Fines', 'url' => '']
         ];
         
-        $status = $this->input->get('status') ?: 'pending';
+        // Check if status is specified in URI (e.g., /admin/fines/pending)
+        $uri_status = $this->uri->segment(3); // Gets 'pending', 'paid', etc.
+        $valid_statuses = ['pending', 'paid', 'waived', 'cancelled', 'partial', 'all'];
+        
+        if ($uri_status && in_array($uri_status, $valid_statuses)) {
+            $status = $uri_status;
+        } else {
+            $status = $this->input->get('status') ?: 'pending';
+        }
         
         $this->db->select('f.*, m.member_code, m.first_name, m.last_name, m.phone');
         $this->db->from('fines f');
@@ -413,11 +421,12 @@ class Fines extends Admin_Controller {
         $rule_data = [
             'rule_name' => $this->input->post('rule_name'),
             'applies_to' => $this->input->post('applies_to') ?: 'both',
-            'fine_type' => $this->input->post('amount_type') == 'percentage' ? 'percentage' : 'fixed',
-            // Map amount_type/amount_value -> fine_value
+            'fine_type' => $this->input->post('fine_type') ?: 'loan_late',
+            'calculation_type' => $this->input->post('calculation_type') ?: 'fixed',
+            // Map amount_value -> fine_value
             'fine_value' => $this->input->post('amount_value') ?: 0,
-            // Map frequency/amount_type -> per_day_amount when applicable
-            'per_day_amount' => ($this->input->post('frequency') === 'daily' ? ($this->input->post('amount_value') ?: 0) : ($this->input->post('per_day_amount') ?: 0)),
+            // Per day amount for per_day calculation type
+            'per_day_amount' => $this->input->post('per_day_amount') ?: 0,
             // Grace / min days
             'grace_period_days' => $this->input->post('grace_days') ?: 0,
             'max_fine_amount' => $this->input->post('max_fine_amount') ?: null,
@@ -437,7 +446,7 @@ class Fines extends Admin_Controller {
             $rule_data['updated_by'] = $admin_id;
             $this->db->where('id', $id)->update('fine_rules', $rule_data);
             // Log audit: action, module, table_name, record_id, old_values, new_values
-            $this->log_audit('update', 'fine_rules', 'fine_rules', $id, $old, $rule_data);
+            $this->log_audit('update', 'fine_rules', 'fine_rules', $id, (array)$old, $rule_data);
         } else {
             // Generate rule_code for new rules
             $rule_data['rule_code'] = $this->generate_rule_code();

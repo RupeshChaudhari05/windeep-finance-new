@@ -43,6 +43,13 @@
                     </li>
 
                     <li class="nav-item">
+                        <a href="<?= site_url('member/fines') ?>" class="nav-link <?= strpos(uri_string(), 'member/fines') === 0 ? 'active' : '' ?>">
+                            <i class="nav-icon fas fa-exclamation-triangle"></i>
+                            <p>Fines</p>
+                        </a>
+                    </li>
+
+                    <li class="nav-item">
                         <a href="<?= site_url('member/savings') ?>" class="nav-link <?= strpos(uri_string(), 'member/savings') === 0 ? 'active' : '' ?>">
                             <i class="nav-icon fas fa-piggy-bank"></i>
                             <p>Savings</p>

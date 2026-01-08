@@ -88,13 +88,23 @@ class Fine_model extends MY_Model {
         
         // Calculate fine
         $fine_amount = 0;
-        if ($rule->calculation_type === 'fixed') {
-            $fine_amount = $rule->fixed_amount;
-        } elseif ($rule->calculation_type === 'percentage') {
+        $calc_type = isset($rule->calculation_type) ? $rule->calculation_type : 
+                    (isset($rule->fine_type) && in_array($rule->fine_type, ['fixed', 'percentage', 'per_day']) ? $rule->fine_type : 'fixed');
+        
+        if ($calc_type === 'fixed') {
+            $fine_amount = $rule->fine_value;
+        } elseif ($calc_type === 'percentage') {
             $base = $rule->calculation_base === 'principal' ? $installment->principal_amount : $installment->emi_amount;
-            $fine_amount = $base * ($rule->percentage_value / 100);
-        } elseif ($rule->calculation_type === 'per_day') {
-            $fine_amount = $rule->per_day_amount * $days_late;
+            $fine_amount = $base * ($rule->fine_value / 100);
+        } elseif ($calc_type === 'per_day') {
+            // For per_day: initial fixed amount + per day rate * (days_late - 1)
+            // Example: fine_value = 100, per_day_amount = 10
+            // 1 day late: 100
+            // 2 days late: 100 + 10 = 110
+            // 3 days late: 100 + 10 + 10 = 120
+            if ($days_late >= 1) {
+                $fine_amount = $rule->fine_value + ($rule->per_day_amount * ($days_late - 1));
+            }
         }
         
         // Apply max cap if set
@@ -161,14 +171,23 @@ class Fine_model extends MY_Model {
         
         // Calculate fine
         $fine_amount = 0;
-        if (isset($rule->fine_type) && $rule->fine_type === 'fixed') {
+        $calc_type = isset($rule->calculation_type) ? $rule->calculation_type : 
+                    (isset($rule->fine_type) && in_array($rule->fine_type, ['fixed', 'percentage', 'per_day']) ? $rule->fine_type : 'fixed');
+        
+        if ($calc_type === 'fixed') {
             $fine_amount = $rule->fine_value ?? ($rule->fine_amount ?? 0);
-        } elseif (isset($rule->fine_type) && $rule->fine_type === 'percentage') {
+        } elseif ($calc_type === 'percentage') {
             $rate = $rule->fine_value ?? ($rule->fine_rate ?? 0);
             $fine_amount = $schedule->due_amount * ($rate / 100);
-        } elseif (isset($rule->fine_type) && $rule->fine_type === 'per_day') {
-            $per_day = $rule->per_day_amount ?? 0;
-            $fine_amount = $per_day * $days_late;
+        } elseif ($calc_type === 'per_day') {
+            // For per_day: initial fixed amount + per day rate * (days_late - 1)
+            // Example: fine_value = 100, per_day_amount = 10
+            // 1 day late: 100
+            // 2 days late: 100 + 10 = 110
+            // 3 days late: 100 + 10 + 10 = 120
+            if ($days_late >= 1) {
+                $fine_amount = $rule->fine_value + ($rule->per_day_amount * ($days_late - 1));
+            }
         } else {
             // Fallback: try to use flexible calculate_fine_amount helper
             $fine_amount = $this->calculate_fine_amount($rule, $days_late, $schedule->due_amount);
@@ -441,6 +460,22 @@ class Fine_model extends MY_Model {
                         ->order_by('f.waiver_requested_at', 'DESC')
                         ->get()
                         ->result();
+    }
+
+    /**
+     * Get waiver request status for a specific fine and member
+     */
+    public function get_member_waiver_request($fine_id, $member_id) {
+        return $this->db->select('f.id, f.waiver_reason, f.waiver_requested_at, f.waiver_requested_amount, f.waiver_approved_at, f.waiver_denied_at, f.waiver_denied_reason, f.status as fine_status, f.admin_comments')
+                        ->select('au.full_name as reviewer_name, au2.full_name as denier_name')
+                        ->from('fines f')
+                        ->join('admin_users au', 'au.id = f.waiver_approved_by', 'left')
+                        ->join('admin_users au2', 'au2.id = f.waiver_denied_by', 'left')
+                        ->where('f.id', $fine_id)
+                        ->where('f.member_id', $member_id)
+                        ->where('f.waiver_requested_at IS NOT NULL')
+                        ->get()
+                        ->row();
     }
 
     /**

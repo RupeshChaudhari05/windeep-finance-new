@@ -993,4 +993,169 @@ class Loan_model extends MY_Model {
         
         return $stats;
     }
+
+    /**
+     * Calculate Foreclosure Amount
+     */
+    public function calculate_foreclosure_amount($loan_id) {
+        $loan = $this->db->where('id', $loan_id)->get('loans')->row();
+        if (!$loan) {
+            return false;
+        }
+
+        $outstanding_principal = $loan->outstanding_principal ?? 0;
+
+        // Get prepayment charge percentage from settings
+        $prepayment_percentage = $this->db->where('setting_key', 'prepayment_charge_percentage')
+                                         ->get('system_settings')
+                                         ->row()
+                                         ->setting_value ?? 2; // Default 2%
+
+        $prepayment_charge = ($outstanding_principal * $prepayment_percentage) / 100;
+
+        // Get pending fines for this loan (join through installments)
+        $pending_fines = $this->db->select_sum('f.fine_amount')
+                                  ->from('fines f')
+                                  ->join('loan_installments li', 'li.id = f.related_id AND f.related_type = "loan_installment"', 'inner')
+                                  ->where('li.loan_id', $loan_id)
+                                  ->where('f.status', 'pending')
+                                  ->get()
+                                  ->row()
+                                  ->fine_amount ?? 0;
+
+        $total_amount = $outstanding_principal + $prepayment_charge + $pending_fines;
+
+        return [
+            'outstanding_principal' => $outstanding_principal,
+            'prepayment_charge' => $prepayment_charge,
+            'prepayment_percentage' => $prepayment_percentage,
+            'pending_fines' => $pending_fines,
+            'total_amount' => $total_amount,
+            'pending_fines_list' => $this->db->select('f.*')
+                                           ->from('fines f')
+                                           ->join('loan_installments li', 'li.id = f.related_id AND f.related_type = "loan_installment"', 'inner')
+                                           ->where('li.loan_id', $loan_id)
+                                           ->where('f.status', 'pending')
+                                           ->get()
+                                           ->result()
+        ];
+    }
+
+    /**
+     * Request Loan Foreclosure
+     */
+    public function request_foreclosure($loan_id, $member_id, $reason, $settlement_date) {
+        $loan = $this->db->where('id', $loan_id)
+                        ->where('member_id', $member_id)
+                        ->where('status', 'active')
+                        ->get('loans')
+                        ->row();
+
+        if (!$loan) {
+            return ['success' => false, 'message' => 'Loan not found or not eligible for foreclosure'];
+        }
+
+        // Check if foreclosure already requested
+        if ($this->db->where('loan_id', $loan_id)->where('status', 'pending')->get('loan_foreclosure_requests')->num_rows() > 0) {
+            return ['success' => false, 'message' => 'Foreclosure already requested for this loan'];
+        }
+
+        $calculation = $this->calculate_foreclosure_amount($loan_id);
+
+        $data = [
+            'loan_id' => $loan_id,
+            'member_id' => $member_id,
+            'foreclosure_amount' => $calculation['total_amount'],
+            'reason' => $reason,
+            'settlement_date' => $settlement_date,
+            'status' => 'pending',
+            'requested_at' => date('Y-m-d H:i:s')
+        ];
+
+        $result = $this->db->insert('loan_foreclosure_requests', $data);
+
+        if ($result) {
+            // Log the foreclosure request
+            $this->load->model('Audit_model');
+            $this->Audit_model->log_activity(
+                'loan_foreclosure_requested',
+                'loans',
+                $loan_id,
+                "Member requested foreclosure for loan #{$loan->loan_number}: {$reason}",
+                $member_id
+            );
+
+            return ['success' => true, 'message' => 'Foreclosure request submitted successfully'];
+        }
+
+        return ['success' => false, 'message' => 'Failed to submit foreclosure request'];
+    }
+
+    /**
+     * Get Foreclosure Request Status
+     */
+    public function get_foreclosure_request($loan_id, $member_id) {
+        return $this->db->where('loan_id', $loan_id)
+                       ->where('member_id', $member_id)
+                       ->order_by('requested_at', 'DESC')
+                       ->get('loan_foreclosure_requests')
+                       ->row();
+    }
+
+    /**
+     * Process Foreclosure Request (Admin only)
+     */
+    public function process_foreclosure_request($request_id, $admin_id, $action, $comments = null) {
+        $request = $this->db->where('id', $request_id)->get('loan_foreclosure_requests')->row();
+        if (!$request) {
+            return ['success' => false, 'message' => 'Foreclosure request not found'];
+        }
+
+        $update_data = [
+            'processed_by' => $admin_id,
+            'processed_at' => date('Y-m-d H:i:s'),
+            'admin_comments' => $comments
+        ];
+
+        if ($action === 'approve') {
+            $update_data['status'] = 'approved';
+
+            // Update loan status to closed
+            $this->db->where('id', $request->loan_id)
+                    ->update('loans', [
+                        'status' => 'closed',
+                        'closed_at' => date('Y-m-d H:i:s'),
+                        'closure_reason' => 'foreclosure'
+                    ]);
+
+            // Mark associated fines as paid (since they're included in foreclosure)
+            $this->db->where('loan_id', $request->loan_id)
+                    ->where('status', 'pending')
+                    ->update('fines', [
+                        'status' => 'paid',
+                        'paid_at' => date('Y-m-d H:i:s')
+                    ]);
+
+        } elseif ($action === 'reject') {
+            $update_data['status'] = 'rejected';
+        }
+
+        $result = $this->db->where('id', $request_id)->update('loan_foreclosure_requests', $update_data);
+
+        if ($result) {
+            // Log the processing
+            $this->load->model('Audit_model');
+            $this->Audit_model->log_activity(
+                'loan_foreclosure_' . $action . 'd',
+                'loan_foreclosure_requests',
+                $request_id,
+                "Foreclosure request {$action}d for loan #{$request->loan_id}",
+                $admin_id
+            );
+
+            return ['success' => true, 'message' => "Foreclosure request {$action}d successfully"];
+        }
+
+        return ['success' => false, 'message' => 'Failed to process foreclosure request'];
+    }
 }

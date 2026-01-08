@@ -98,6 +98,10 @@ $route['admin/loans/statement/(:num)'] = 'admin/loans/statement/$1';
 
 // Fines routes
 $route['admin/fines'] = 'admin/fines/index';
+$route['admin/fines/pending'] = 'admin/fines/index';
+$route['admin/fines/paid'] = 'admin/fines/index';
+$route['admin/fines/waived'] = 'admin/fines/index';
+$route['admin/fines/cancelled'] = 'admin/fines/index';
 $route['admin/fines/create'] = 'admin/fines/create';
 $route['admin/fines/view/(:num)'] = 'admin/fines/view/$1';
 $route['admin/fines/collect/(:num)'] = 'admin/fines/collect/$1';
@@ -159,3 +163,9 @@ $route['member/loans/apply'] = 'member/loans/apply';
 $route['member/loans/view/(:num)'] = 'member/loans/view/$1';
 $route['member/savings'] = 'member/savings/index';
 $route['member/installments'] = 'member/installments/index';
+$route['member/fines'] = 'member/fines/index';
+$route['member/fines/view/(:num)'] = 'member/fines/view/$1';
+$route['member/fines/request-waiver/(:num)'] = 'member/fines/request_waiver/$1';
+$route['member/fines/waiver-status/(:num)'] = 'member/fines/waiver_status/$1';
+$route['member/loans/request-foreclosure/(:num)'] = 'member/loans/request_foreclosure/$1';
+$route['member/loans/foreclosure-calculator/(:num)'] = 'member/loans/foreclosure_calculator/$1';

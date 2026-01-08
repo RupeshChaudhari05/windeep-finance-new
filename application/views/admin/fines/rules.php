@@ -44,23 +44,34 @@
                             </td>
                             <td>
                                 <span class="badge badge-<?= 
-                                    $rule->fine_type == 'late_emi' ? 'danger' : 
-                                    ($rule->fine_type == 'late_savings' ? 'warning' : 
-                                    ($rule->fine_type == 'meeting_absence' ? 'info' : 'secondary'))
+                                    $rule->fine_type == 'loan_late' ? 'danger' : 
+                                    ($rule->fine_type == 'savings_late' ? 'warning' : 
+                                    ($rule->fine_type == 'per_day' ? 'info' : 'secondary'))
                                 ?>">
                                     <?= ucwords(str_replace('_', ' ', $rule->fine_type)) ?>
                                 </span>
                             </td>
                             <td>
-                                <?= $rule->amount_type == 'percentage' ? 'Percentage' : 'Fixed Amount' ?>
+                                <?php 
+                                $calc_type = isset($rule->calculation_type) ? $rule->calculation_type : 'fixed';
+                                if ($calc_type == 'percentage'): ?>
+                                    Percentage
+                                <?php elseif ($calc_type == 'per_day'): ?>
+                                    Fixed + Per Day
+                                <?php else: ?>
+                                    Fixed Amount
+                                <?php endif; ?>
                             </td>
                             <td class="text-right">
-                                <?php if ($rule->amount_type == 'percentage'): ?>
-                                    <?= $rule->amount_value ?>%
+                                <?php if ($calc_type == 'percentage'): ?>
+                                    <?= $rule->fine_value ?>%
                                     <br><small class="text-muted">of overdue amount</small>
+                                <?php elseif ($calc_type == 'per_day'): ?>
+                                    ₹<?= number_format($rule->fine_value, 2) ?> + ₹<?= number_format($rule->per_day_amount, 2) ?>/day
+                                    <br><small class="text-muted">initial + per day</small>
                                 <?php else: ?>
-                                    ₹<?= number_format($rule->amount_value, 2) ?>
-                                    <br><small class="text-muted"><?= $rule->frequency ?? 'one-time' ?></small>
+                                    ₹<?= number_format($rule->fine_value, 2) ?>
+                                    <br><small class="text-muted">fixed amount</small>
                                 <?php endif; ?>
                             </td>
                             <td>
@@ -172,8 +183,8 @@
                             <div class="form-group">
                                 <label>Fine Type <span class="text-danger">*</span></label>
                                 <select name="fine_type" id="fine_type" class="form-control" required>
-                                    <option value="late_emi">Late EMI Payment</option>
-                                    <option value="late_savings">Late Savings Deposit</option>
+                                    <option value="loan_late">Late EMI Payment</option>
+                                    <option value="savings_late">Late Savings Deposit</option>
                                     <option value="meeting_absence">Meeting Absence</option>
                                     <option value="document_missing">Missing Documents</option>
                                     <option value="other">Other</option>
@@ -181,6 +192,18 @@
                             </div>
                         </div>
                     </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Calculation Type <span class="text-danger">*</span></label>
+                                <select name="calculation_type" id="calculation_type" class="form-control" required>
+                                    <option value="fixed">Fixed Amount</option>
+                                    <option value="percentage">Percentage</option>
+                                    <option value="per_day">Fixed + Per Day</option>
+                                </select>
+                            </div>
+                        </div>
                     
                     <div class="form-group">
                         <label>Description</label>
@@ -199,15 +222,26 @@
                         </div>
                         <div class="col-md-4">
                             <div class="form-group">
-                                <label>Amount/Rate <span class="text-danger">*</span></label>
+                                <label id="amountLabel">Amount/Rate <span class="text-danger">*</span></label>
                                 <div class="input-group">
                                     <div class="input-group-prepend" id="amountPrefix"><span class="input-group-text">₹</span></div>
                                     <input type="number" name="amount_value" id="amount_value" class="form-control" required step="0.01" min="0">
                                     <div class="input-group-append" id="amountSuffix" style="display:none"><span class="input-group-text">%</span></div>
                                 </div>
+                                <small class="text-muted" id="amountHelp">Fixed amount or percentage value</small>
                             </div>
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-4" id="perDayAmountGroup" style="display:none">
+                            <div class="form-group">
+                                <label>Per Day Amount <span class="text-danger">*</span></label>
+                                <div class="input-group">
+                                    <div class="input-group-prepend"><span class="input-group-text">₹</span></div>
+                                    <input type="number" name="per_day_amount" id="per_day_amount" class="form-control" step="0.01" min="0">
+                                </div>
+                                <small class="text-muted">Additional amount per day overdue</small>
+                            </div>
+                        </div>
+                        <div class="col-md-4" id="frequencyGroup">
                             <div class="form-group">
                                 <label>Frequency</label>
                                 <select name="frequency" id="frequency" class="form-control">
@@ -273,14 +307,31 @@ $(document).ready(function() {
         "pageLength": 25
     });
     
-    // Amount type toggle
-    $('#amount_type').change(function() {
-        if ($(this).val() == 'percentage') {
+    // Calculation type toggle
+    $('#calculation_type').change(function() {
+        var calcType = $(this).val();
+        
+        if (calcType == 'percentage') {
+            $('#amountLabel').text('Percentage Rate');
+            $('#amountHelp').text('Percentage of the due amount');
             $('#amountPrefix').hide();
             $('#amountSuffix').show();
-        } else {
+            $('#perDayAmountGroup').hide();
+            $('#frequencyGroup').show();
+        } else if (calcType == 'per_day') {
+            $('#amountLabel').text('Initial Fixed Amount');
+            $('#amountHelp').text('Fixed amount for first day overdue');
             $('#amountPrefix').show();
             $('#amountSuffix').hide();
+            $('#perDayAmountGroup').show();
+            $('#frequencyGroup').hide();
+        } else {
+            $('#amountLabel').text('Fixed Amount');
+            $('#amountHelp').text('Fixed fine amount');
+            $('#amountPrefix').show();
+            $('#amountSuffix').hide();
+            $('#perDayAmountGroup').hide();
+            $('#frequencyGroup').show();
         }
     });
     
@@ -292,6 +343,10 @@ $(document).ready(function() {
         $('#is_active').prop('checked', true);
         $('#amountPrefix').show();
         $('#amountSuffix').hide();
+        $('#perDayAmountGroup').hide();
+        $('#frequencyGroup').show();
+        $('#amountLabel').text('Amount/Rate');
+        $('#amountHelp').text('Fixed amount or percentage value');
     });
     
     // Edit rule
@@ -301,15 +356,18 @@ $(document).ready(function() {
         $('#rule_id').val(rule.id);
         $('#rule_name').val(rule.rule_name);
         $('#fine_type').val(rule.fine_type);
+        $('#calculation_type').val(rule.calculation_type || 'fixed');
         $('#description').val(rule.description);
-        $('#amount_type').val(rule.amount_type).trigger('change');
-        $('#amount_value').val(rule.amount_value);
-        $('#frequency').val(rule.frequency);
+        $('#amount_value').val(rule.amount_value || rule.fine_value);
+        $('#per_day_amount').val(rule.per_day_amount);
         $('#grace_days').val(rule.grace_days);
         $('#max_fine_amount').val(rule.max_fine_amount);
         $('#applies_to').val(rule.applies_to);
         $('#is_active').prop('checked', rule.is_active == 1);
         $('#addRuleModal').modal('show');
+        
+        // Trigger calculation type change to update UI
+        $('#calculation_type').trigger('change');
     });
     
     // Toggle status

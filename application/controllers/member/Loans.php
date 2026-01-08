@@ -357,4 +357,152 @@ class Loans extends Member_Controller {
 
         redirect('member/loans/application/' . $application_id);
     }
+
+    /**
+     * Request Foreclosure for a Loan
+     */
+    public function request_foreclosure($loan_id) {
+        // Validate loan ownership and status
+        $loan = $this->db->select('l.*, lp.product_name')
+                        ->from('loans l')
+                        ->join('loan_products lp', 'lp.id = l.loan_product_id')
+                        ->where('l.id', $loan_id)
+                        ->where('l.member_id', $this->member->id)
+                        ->where_in('l.status', ['active', 'overdue'])
+                        ->get()
+                        ->row();
+
+        if (!$loan) {
+            $this->session->set_flashdata('error', 'Loan not found or not eligible for foreclosure.');
+            redirect('member/loans');
+            return;
+        }
+
+        $data['title'] = 'Request Foreclosure';
+        $data['page_title'] = 'Foreclosure Request - ' . $loan->loan_number;
+        $data['loan'] = $loan;
+
+        // Calculate settlement amount
+        $settlement = $this->_calculate_foreclosure_amount($loan_id);
+        $data['settlement'] = $settlement;
+
+        if ($this->input->method() === 'post') {
+            $this->_process_foreclosure_request($loan_id, $settlement);
+            return;
+        }
+
+        $this->load_member_view('member/loans/request_foreclosure', $data);
+    }
+
+    /**
+     * Calculate Foreclosure Settlement Amount
+     */
+    private function _calculate_foreclosure_amount($loan_id) {
+        // Get loan details
+        $loan = $this->db->select('principal_amount, outstanding_principal, disbursed_amount')
+                        ->where('id', $loan_id)
+                        ->get('loans')
+                        ->row();
+
+        if (!$loan) return null;
+
+        // Calculate outstanding amount (this is a simplified calculation)
+        // In a real system, this would include:
+        // - Remaining principal
+        // - Accrued interest up to foreclosure date
+        // - Any applicable foreclosure fees
+        // - Outstanding fines/penalties
+
+        $outstanding_principal = $loan->outstanding_principal ?? $loan->principal_amount;
+        $pending_fines = $this->_get_pending_fines_for_loan($loan_id);
+
+        return [
+            'outstanding_principal' => $outstanding_principal,
+            'pending_fines' => $pending_fines,
+            'total_settlement' => $outstanding_principal + $pending_fines,
+            'calculated_at' => date('Y-m-d H:i:s')
+        ];
+    }
+
+    /**
+     * Get pending fines for a specific loan
+     */
+    private function _get_pending_fines_for_loan($loan_id) {
+        $fines = $this->db->select('SUM(fine_amount - COALESCE(paid_amount, 0) - COALESCE(waived_amount, 0)) as pending_fines')
+                         ->from('fines')
+                         ->where('related_type', 'loan_installment')
+                         ->where('related_id', $loan_id)
+                         ->where_in('status', ['pending', 'partial'])
+                         ->get()
+                         ->row();
+
+        return $fines->pending_fines ?? 0;
+    }
+
+    /**
+     * Process Foreclosure Request
+     */
+    private function _process_foreclosure_request($loan_id, $settlement) {
+        $reason = $this->input->post('reason');
+        $confirmation = $this->input->post('confirm_foreclosure');
+
+        if (empty($reason)) {
+            $this->session->set_flashdata('error', 'Please provide a reason for foreclosure request.');
+            redirect('member/loans/request_foreclosure/' . $loan_id);
+            return;
+        }
+
+        if (empty($confirmation)) {
+            $this->session->set_flashdata('error', 'Please confirm that you understand the foreclosure terms.');
+            redirect('member/loans/request_foreclosure/' . $loan_id);
+            return;
+        }
+
+        // Create foreclosure request record (you might want to create a separate table for this)
+        // For now, we'll log it as an activity and notify admins
+        $request_data = [
+            'loan_id' => $loan_id,
+            'member_id' => $this->member->id,
+            'request_type' => 'foreclosure',
+            'reason' => $reason,
+            'settlement_amount' => $settlement['total_settlement'],
+            'requested_at' => date('Y-m-d H:i:s'),
+            'status' => 'pending'
+        ];
+
+        // You could create a loan_requests table or use loan_applications table
+        // For now, we'll just log the activity
+        $this->log_activity('Member requested loan foreclosure',
+                          "Loan ID: $loan_id, Settlement: ₹" . number_format($settlement['total_settlement'], 2) . ", Reason: $reason");
+
+        // Send notification to admins (this would need to be implemented)
+        // $this->_notify_admins_foreclosure_request($request_data);
+
+        $this->session->set_flashdata('success',
+            'Foreclosure request submitted successfully. Our team will review your request and contact you within 2-3 business days.');
+
+        redirect('member/loans/view/' . $loan_id);
+    }
+
+    /**
+     * Get Foreclosure Calculator (AJAX)
+     */
+    public function foreclosure_calculator($loan_id) {
+        // Validate loan ownership
+        $loan = $this->db->where('id', $loan_id)
+                        ->where('member_id', $this->member->id)
+                        ->where_in('status', ['active', 'overdue'])
+                        ->get('loans')
+                        ->row();
+
+        if (!$loan) {
+            echo '<div class="alert alert-danger">Loan not found or not eligible for foreclosure calculation.</div>';
+            return;
+        }
+
+        $calculation = $this->Loan_model->calculate_foreclosure_amount($loan_id);
+
+        $data['calculation'] = $calculation;
+        $this->load->view('member/loans/foreclosure_calculator', $data);
+    }
 }
