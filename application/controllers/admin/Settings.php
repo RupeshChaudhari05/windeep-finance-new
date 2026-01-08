@@ -51,6 +51,17 @@ class Settings extends Admin_Controller {
             'auto_apply_fines' => $raw_settings['auto_apply_fines'] ?? false,
             'kyc_required' => $raw_settings['kyc_required'] ?? true,
             
+            // Email configuration
+            'email_protocol' => $raw_settings['email_protocol'] ?? 'smtp',
+            'email_smtp_host' => $raw_settings['email_smtp_host'] ?? '',
+            'email_smtp_port' => $raw_settings['email_smtp_port'] ?? 587,
+            'email_smtp_crypto' => $raw_settings['email_smtp_crypto'] ?? 'tls',
+            'email_smtp_user' => $raw_settings['email_smtp_user'] ?? '',
+            'email_smtp_pass' => $raw_settings['email_smtp_pass'] ?? '',
+            'email_from_address' => $raw_settings['email_from_address'] ?? '',
+            'email_from_name' => $raw_settings['email_from_name'] ?? '',
+            'email_test_recipient' => $raw_settings['email_test_recipient'] ?? '',
+            
             // Include all other raw settings
         ] + $raw_settings;
         
@@ -684,6 +695,85 @@ class Settings extends Admin_Controller {
 
         $html .= '</ul></nav>';
         return $html;
+    }
+
+    /**
+     * Test Email Configuration
+     */
+    public function test_email() {
+        // Only allow AJAX requests
+        if (!$this->input->is_ajax_request()) {
+            show_404();
+        }
+
+        // Check if user is logged in
+        if (!$this->session->userdata('admin_logged_in')) {
+            $this->output->set_status_header(403);
+            echo json_encode(['success' => false, 'message' => 'Unauthorized']);
+            return;
+        }
+
+        // Get email settings from POST data
+        $email_settings = $this->input->post('email_settings');
+        if (!$email_settings || !is_array($email_settings)) {
+            echo json_encode(['success' => false, 'message' => 'Invalid email settings']);
+            return;
+        }
+
+        // Validate required fields
+        if (empty($email_settings['test_recipient']) || empty($email_settings['smtp_host']) || empty($email_settings['from_address'])) {
+            echo json_encode(['success' => false, 'message' => 'Missing required email configuration']);
+            return;
+        }
+
+        try {
+            // Load email library
+            $this->load->library('email');
+
+            // Configure email settings
+            $config = [
+                'protocol' => $email_settings['protocol'] ?? 'smtp',
+                'smtp_host' => $email_settings['smtp_host'],
+                'smtp_port' => $email_settings['smtp_port'] ?? 587,
+                'smtp_crypto' => $email_settings['smtp_crypto'] ?? 'tls',
+                'smtp_user' => $email_settings['smtp_user'] ?? '',
+                'smtp_pass' => $email_settings['smtp_pass'] ?? '',
+                'mailtype' => 'html',
+                'charset' => 'utf-8',
+                'newline' => "\r\n"
+            ];
+
+            $this->email->initialize($config);
+
+            // Set email parameters
+            $this->email->from($email_settings['from_address'], $email_settings['from_name'] ?? 'Windeep Finance');
+            $this->email->to($email_settings['test_recipient']);
+            $this->email->subject('Email Configuration Test - Windeep Finance');
+            $this->email->message('
+                <h2>Email Configuration Test</h2>
+                <p>This is a test email to verify your email configuration settings.</p>
+                <p><strong>Configuration Details:</strong></p>
+                <ul>
+                    <li>SMTP Host: ' . $email_settings['smtp_host'] . '</li>
+                    <li>SMTP Port: ' . $email_settings['smtp_port'] . '</li>
+                    <li>Encryption: ' . $email_settings['smtp_crypto'] . '</li>
+                    <li>From Address: ' . $email_settings['from_address'] . '</li>
+                </ul>
+                <p>If you received this email, your configuration is working correctly!</p>
+                <p><em>Sent at: ' . date('Y-m-d H:i:s') . '</em></p>
+            ');
+
+            // Send email
+            if ($this->email->send()) {
+                echo json_encode(['success' => true, 'message' => 'Test email sent successfully']);
+            } else {
+                $error = $this->email->print_debugger();
+                echo json_encode(['success' => false, 'message' => 'Failed to send email: ' . $error]);
+            }
+
+        } catch (Exception $e) {
+            echo json_encode(['success' => false, 'message' => 'Error: ' . $e->getMessage()]);
+        }
     }
 }
 

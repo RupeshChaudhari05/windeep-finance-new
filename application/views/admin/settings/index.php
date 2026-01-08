@@ -34,6 +34,11 @@
                         </a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link" href="#email" data-toggle="pill">
+                            <i class="fas fa-envelope mr-2"></i> Email Configuration
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link" href="#admin_users" data-toggle="pill">
                             <i class="fas fa-users-cog mr-2"></i> Admin Users
                         </a>
@@ -185,6 +190,117 @@
                         <div class="card-footer">
                             <button type="submit" class="btn btn-primary">
                                 <i class="fas fa-save mr-1"></i> Save Settings
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            
+            <!-- Email Configuration -->
+            <div class="tab-pane fade" id="email">
+                <div class="card card-primary">
+                    <div class="card-header">
+                        <h3 class="card-title"><i class="fas fa-envelope mr-1"></i> Email Configuration</h3>
+                    </div>
+                    <form action="<?= site_url('admin/settings/update') ?>" method="post">
+                        <?= form_hidden($this->security->get_csrf_token_name(), $this->security->get_csrf_hash()) ?>
+                        
+                        <div class="card-body">
+                            <h5 class="text-primary border-bottom pb-2 mb-3">SMTP Settings</h5>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label>Email Protocol</label>
+                                        <select class="form-control" name="email_protocol">
+                                            <option value="smtp" <?= ($settings['email_protocol'] ?? 'smtp') == 'smtp' ? 'selected' : '' ?>>SMTP</option>
+                                            <option value="mail" <?= ($settings['email_protocol'] ?? 'smtp') == 'mail' ? 'selected' : '' ?>>Mail</option>
+                                            <option value="sendmail" <?= ($settings['email_protocol'] ?? 'smtp') == 'sendmail' ? 'selected' : '' ?>>Sendmail</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label>SMTP Host</label>
+                                        <input type="text" class="form-control" name="email_smtp_host" value="<?= $settings['email_smtp_host'] ?? '' ?>" placeholder="smtp.gmail.com">
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-4">
+                                    <div class="form-group">
+                                        <label>SMTP Port</label>
+                                        <input type="number" class="form-control" name="email_smtp_port" value="<?= $settings['email_smtp_port'] ?? 587 ?>" min="1" max="65535">
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="form-group">
+                                        <label>Encryption</label>
+                                        <select class="form-control" name="email_smtp_crypto">
+                                            <option value="tls" <?= ($settings['email_smtp_crypto'] ?? 'tls') == 'tls' ? 'selected' : '' ?>>TLS</option>
+                                            <option value="ssl" <?= ($settings['email_smtp_crypto'] ?? 'tls') == 'ssl' ? 'selected' : '' ?>>SSL</option>
+                                            <option value="none" <?= ($settings['email_smtp_crypto'] ?? 'tls') == 'none' ? 'selected' : '' ?>>None</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="form-group">
+                                        <label>Test Recipient Email</label>
+                                        <input type="email" class="form-control" name="email_test_recipient" value="<?= $settings['email_test_recipient'] ?? '' ?>" placeholder="test@example.com">
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <h5 class="text-primary border-bottom pb-2 mb-3 mt-4">Authentication</h5>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label>SMTP Username</label>
+                                        <input type="text" class="form-control" name="email_smtp_user" value="<?= $settings['email_smtp_user'] ?? '' ?>" placeholder="your-email@gmail.com">
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label>SMTP Password</label>
+                                        <input type="password" class="form-control" name="email_smtp_pass" value="<?= $settings['email_smtp_pass'] ?? '' ?>" placeholder="Your password">
+                                        <small class="form-text text-muted">For Gmail, use App Password if 2FA is enabled</small>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <h5 class="text-primary border-bottom pb-2 mb-3 mt-4">Sender Information</h5>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label>From Email Address</label>
+                                        <input type="email" class="form-control" name="email_from_address" value="<?= $settings['email_from_address'] ?? '' ?>" placeholder="noreply@yourcompany.com">
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label>From Name</label>
+                                        <input type="text" class="form-control" name="email_from_name" value="<?= $settings['email_from_name'] ?? '' ?>" placeholder="Your Company Name">
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="alert alert-info">
+                                <h6><i class="fas fa-info-circle mr-1"></i> Email Configuration Help</h6>
+                                <ul class="mb-0">
+                                    <li><strong>Gmail:</strong> Host: smtp.gmail.com, Port: 587, Encryption: TLS</li>
+                                    <li><strong>Outlook:</strong> Host: smtp-mail.outlook.com, Port: 587, Encryption: TLS</li>
+                                    <li><strong>Yahoo:</strong> Host: smtp.mail.yahoo.com, Port: 587, Encryption: TLS</li>
+                                    <li>Use App Passwords for Gmail/Outlook if 2FA is enabled</li>
+                                </ul>
+                            </div>
+                        </div>
+                        
+                        <div class="card-footer">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-save mr-1"></i> Save Email Settings
+                            </button>
+                            <button type="button" class="btn btn-info ml-2" id="testEmailBtn">
+                                <i class="fas fa-paper-plane mr-1"></i> Test Email Configuration
                             </button>
                         </div>
                     </form>
@@ -491,6 +607,67 @@ $(document).ready(function() {
     $('.custom-file-input').on('change', function() {
         var fileName = $(this).val().split('\\').pop();
         $(this).siblings('.custom-file-label').html(fileName);
+    });
+    
+    // Test Email Configuration
+    $('#testEmailBtn').on('click', function() {
+        var $btn = $(this);
+        var originalText = $btn.html();
+        
+        // Get form data
+        var formData = new FormData();
+        formData.append('<?= $this->security->get_csrf_token_name() ?>', '<?= $this->security->get_csrf_hash() ?>');
+        
+        // Collect email settings
+        var emailSettings = {
+            protocol: $('[name=email_protocol]').val(),
+            smtp_host: $('[name=email_smtp_host]').val(),
+            smtp_port: $('[name=email_smtp_port]').val(),
+            smtp_crypto: $('[name=email_smtp_crypto]').val(),
+            smtp_user: $('[name=email_smtp_user]').val(),
+            smtp_pass: $('[name=email_smtp_pass]').val(),
+            from_address: $('[name=email_from_address]').val(),
+            from_name: $('[name=email_from_name]').val(),
+            test_recipient: $('[name=email_test_recipient]').val()
+        };
+        
+        // Validate required fields
+        if (!emailSettings.test_recipient) {
+            alert('Please enter a test recipient email address first.');
+            $('[name=email_test_recipient]').focus();
+            return;
+        }
+        
+        if (!emailSettings.smtp_host || !emailSettings.from_address) {
+            alert('Please configure SMTP host and from address before testing.');
+            return;
+        }
+        
+        // Show loading state
+        $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin mr-1"></i> Sending Test Email...');
+        
+        // Send test email
+        $.ajax({
+            url: '<?= site_url('admin/settings/test_email') ?>',
+            type: 'POST',
+            data: {
+                '<?= $this->security->get_csrf_token_name() ?>': '<?= $this->security->get_csrf_hash() ?>',
+                email_settings: emailSettings
+            },
+            success: function(response) {
+                if (response.success) {
+                    alert('Test email sent successfully! Check your inbox.');
+                } else {
+                    alert('Failed to send test email: ' + (response.message || 'Unknown error'));
+                }
+            },
+            error: function() {
+                alert('Failed to send test email. Please check your configuration.');
+            },
+            complete: function() {
+                $btn.prop('disabled', false).html(originalText);
+            }
+        });
     });
 });
 </script>
