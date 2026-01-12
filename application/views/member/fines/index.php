@@ -40,7 +40,7 @@
                                 echo $fine_types[$fine->fine_type] ?? $fine->fine_type;
                                 ?>
                             </td>
-                            <td class="text-right">₹<?= number_format($fine->amount, 2) ?></td>
+                            <td class="text-right">₹<?= number_format((float) (isset($fine->amount) ? $fine->amount : 0), 2) ?></td>
                             <td>
                                 <?php
                                 $status_classes = [

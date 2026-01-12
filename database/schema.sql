@@ -768,10 +768,18 @@ CREATE TABLE IF NOT EXISTS `fines` (
 -- Waiver Details
 
 
-`waived_by` INT UNSIGNED,
+`waiver_requested_by` INT UNSIGNED NULL,
+    `waiver_requested_at` TIMESTAMP NULL,
+    `waiver_requested_amount` DECIMAL(15,2) NULL,
+    `waiver_approved_by` INT UNSIGNED,
+    `waiver_approved_at` TIMESTAMP NULL,
+    `waiver_denied_by` INT UNSIGNED NULL,
+    `waiver_denied_at` TIMESTAMP NULL,
+    `waiver_denied_reason` VARCHAR(255) NULL,
+    `admin_comments` TEXT,
+    `waived_by` INT UNSIGNED,
     `waived_at` TIMESTAMP NULL,
     `waiver_reason` VARCHAR(255),
-    `waiver_approved_by` INT UNSIGNED,
     
     `remarks` VARCHAR(255),
     `created_by` INT UNSIGNED,
@@ -876,6 +884,7 @@ CREATE TABLE IF NOT EXISTS `bank_transactions` (
 `detection_confidence` DECIMAL(5, 2) COMMENT 'Confidence score 0-100',
 
 -- Manual Transaction Recording
+
 `paid_by_member_id` INT UNSIGNED COMMENT 'Member who made the payment',
     `paid_for_member_id` INT UNSIGNED COMMENT 'Member who received the payment',
     `updated_by` INT UNSIGNED COMMENT 'Admin who recorded this transaction',

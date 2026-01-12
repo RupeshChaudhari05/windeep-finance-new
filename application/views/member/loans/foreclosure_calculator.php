@@ -52,7 +52,7 @@
                 <?php foreach ($calculation['pending_fines_list'] as $fine): ?>
                 <div class="list-group-item px-0">
                     <small>
-                        <strong>Fine #<?= $fine->id ?>:</strong> ₹<?= number_format($fine->amount, 2) ?>
+                        <strong>Fine #<?= $fine->id ?>:</strong> ₹<?= number_format((float) (isset($fine->amount) ? $fine->amount : 0), 2) ?>
                         <br>
                         <span class="text-muted">
                             <?php

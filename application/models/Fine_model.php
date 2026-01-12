@@ -466,7 +466,16 @@ class Fine_model extends MY_Model {
      * Get waiver request status for a specific fine and member
      */
     public function get_member_waiver_request($fine_id, $member_id) {
-        return $this->db->select('f.id, f.waiver_reason, f.waiver_requested_at, f.waiver_requested_amount, f.waiver_approved_at, f.waiver_denied_at, f.waiver_denied_reason, f.status as fine_status, f.admin_comments')
+        // Build select list conditionally so code works even if `admin_comments` column isn't present in older schemas
+        $select = 'f.id, f.waiver_reason, f.waiver_requested_at, f.waiver_requested_amount, f.waiver_approved_at, f.waiver_denied_at, f.waiver_denied_reason, f.status as fine_status';
+        if ($this->db->field_exists('admin_comments', 'fines')) {
+            $select .= ', f.admin_comments';
+        } else {
+            // Provide a NULL alias so views can safely reference ->admin_comments without error
+            $select .= ', NULL as admin_comments';
+        }
+
+        return $this->db->select($select, false)
                         ->select('au.full_name as reviewer_name, au2.full_name as denier_name')
                         ->from('fines f')
                         ->join('admin_users au', 'au.id = f.waiver_approved_by', 'left')

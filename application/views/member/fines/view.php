@@ -31,7 +31,7 @@
                     </tr>
                     <tr>
                         <th>Amount:</th>
-                        <td class="text-success font-weight-bold">₹<?= number_format($fine->amount, 2) ?></td>
+                        <td class="text-success font-weight-bold">₹<?= number_format((float) (isset($fine->amount) ? $fine->amount : 0), 2) ?></td>
                     </tr>
                     <tr>
                         <th>Status:</th>
@@ -82,15 +82,15 @@
                             <p><strong>Description:</strong> <?= $fine->description ?></p>
                         <?php endif; ?>
 
-                        <?php if ($fine->loan_id): ?>
+                        <?php if (isset($fine->loan_id) && $fine->loan_id): ?>
                             <p><strong>Related Loan:</strong>
                                 <a href="<?= site_url('member/loans/view/' . $fine->loan_id) ?>" class="text-primary">
-                                    Loan #<?= $fine->loan_number ?? $fine->loan_id ?>
+                                    Loan #<?= isset($fine->loan_number) ? $fine->loan_number : $fine->loan_id ?>
                                 </a>
                             </p>
                         <?php endif; ?>
 
-                        <?php if ($fine->installment_id): ?>
+                        <?php if (isset($fine->installment_id) && $fine->installment_id): ?>
                             <p><strong>Related Installment:</strong> #<?= $fine->installment_id ?></p>
                         <?php endif; ?>
 
