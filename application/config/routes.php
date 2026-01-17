@@ -77,6 +77,9 @@ $route['admin/members/edit/(:num)'] = 'admin/members/edit/$1';
 $route['admin/savings'] = 'admin/savings/index';
 $route['admin/savings/create'] = 'admin/savings/create';
 $route['admin/savings/view/(:num)'] = 'admin/savings/view/$1';
+// Friendly collection route (collection -> collect)
+$route['admin/savings/collection'] = 'admin/savings/collect';
+$route['admin/savings/collection/(:num)'] = 'admin/savings/collect/$1';
 $route['admin/savings/collect/(:num)'] = 'admin/savings/collect/$1';
 
 // Loans routes
@@ -159,6 +162,8 @@ $route['admin/reports/member-statement'] = 'admin/reports/member_statement';
 $route['admin/settings'] = 'admin/settings/index';
 $route['admin/settings/financial_years'] = 'admin/settings/financial_years';
 $route['admin/settings/admin_users'] = 'admin/settings/admin_users';
+$route['admin/settings/save_savings_scheme'] = 'admin/settings/save_savings_scheme';
+$route['admin/settings/toggle_savings_scheme'] = 'admin/settings/toggle_savings_scheme';
 
 // Installments routes
 $route['admin/installments'] = 'admin/installments/index';

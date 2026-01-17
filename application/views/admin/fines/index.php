@@ -126,10 +126,10 @@
                                 </span>
                             </td>
                             <td>
-                                <?php if ($fine->loan_id): ?>
-                                    <a href="<?= site_url('admin/loans/view/' . $fine->loan_id) ?>"><?= $fine->loan_number ?></a>
-                                <?php elseif ($fine->savings_account_id): ?>
-                                    <a href="<?= site_url('admin/savings/view/' . $fine->savings_account_id) ?>"><?= $fine->account_number ?></a>
+                                <?php if (isset($fine->loan_id) && $fine->loan_id): ?>
+                                    <a href="<?= site_url('admin/loans/view/' . $fine->loan_id) ?>"><?= isset($fine->loan_number) ? $fine->loan_number : $fine->loan_id ?></a>
+                                <?php elseif (isset($fine->savings_account_id) && $fine->savings_account_id): ?>
+                                    <a href="<?= site_url('admin/savings/view/' . $fine->savings_account_id) ?>"><?= isset($fine->account_number) ? $fine->account_number : $fine->savings_account_id ?></a>
                                 <?php else: ?>
                                     -
                                 <?php endif; ?>

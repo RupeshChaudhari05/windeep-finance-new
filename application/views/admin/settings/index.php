@@ -57,6 +57,27 @@
         <div class="tab-content">
             <!-- General Settings -->
             <div class="tab-pane fade show active" id="general">
+                <?php if (!empty($schema_issues)): ?>
+                    <div class="alert alert-warning">
+                        <h5><i class="fas fa-exclamation-triangle"></i> Schema / Migration issues detected</h5>
+                        <p>The application detected missing database columns which may prevent some features from saving correctly. The following items need attention:</p>
+                        <ul>
+                            <?php foreach ($schema_issues as $issue): ?>
+                                <li><?= htmlspecialchars($issue) ?></li>
+                            <?php endforeach; ?>
+                        </ul>
+                        <p>
+                            <strong>Quick fix (recommended):</strong> Run the migration script from the project root:
+                            <code>php scripts/run_migrations.php</code>
+                        </p>
+                        <?php if ($migration_script_available): ?>
+                            <p class="mb-0"><em>The migration script <code>scripts/run_migrations.php</code> is available. Run it from the server/CLI.</em></p>
+                        <?php else: ?>
+                            <p class="mb-0 text-muted">Migration script not found. You can run the SQL files in <code>database/migrations</code> manually or add the CLI script to the <code>scripts/</code> folder.</p>
+                        <?php endif; ?>
+                    </div>
+                <?php endif; ?>
+
                 <div class="card card-primary">
                     <div class="card-header">
                         <h3 class="card-title"><i class="fas fa-sliders-h mr-1"></i> General Settings</h3>
@@ -182,6 +203,22 @@
                                         <input type="checkbox" class="custom-control-input" id="kycRequired" name="kyc_required" value="1"
                                                <?= ($settings['kyc_required'] ?? 0) ? 'checked' : '' ?>>
                                         <label class="custom-control-label" for="kycRequired">Require KYC for loan approval</label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="row mt-3">
+                                <div class="col-md-6">
+                                    <div class="custom-control custom-switch">
+                                        <input type="checkbox" class="custom-control-input" id="forceFixedDue" name="force_fixed_due_day" value="1" <?= ($settings['force_fixed_due_day'] ?? 0) ? 'checked' : '' ?>>
+                                        <label class="custom-control-label" for="forceFixedDue">Force fixed due day for monthly installments</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label>Fixed Due Day (1-28)</label>
+                                        <input type="number" class="form-control" name="fixed_due_day" min="1" max="28" value="<?= isset($settings['fixed_due_day']) ? $settings['fixed_due_day'] : 10 ?>">
+                                        <small class="form-text text-muted">If enabled, monthly installment due dates will be set to this day every month; shorter months will use the last day.</small>
                                     </div>
                                 </div>
                             </div>
@@ -669,5 +706,45 @@ $(document).ready(function() {
             }
         });
     });
+
+    // Lightweight fallback: make nav-pills work even if Bootstrap JS is not loaded
+    if (typeof $.fn.tab === 'undefined') {
+        $('.nav-link[data-toggle="pill"]').on('click', function(e) {
+            e.preventDefault();
+            var $link = $(this);
+            var href = $link.attr('href');
+
+            // Activate link
+            $('.nav-link[data-toggle="pill"]').removeClass('active');
+            $link.addClass('active');
+
+            // Show pane
+            $('.tab-pane').removeClass('show active');
+            $(href).addClass('show active');
+
+            // Update URL hash without scrolling
+            if (history.replaceState) {
+                history.replaceState(null, null, href);
+            } else {
+                location.hash = href;
+            }
+        });
+
+        // On page load, show pane from hash if present
+        $(function() {
+            var hash = location.hash || null;
+            if (hash && $(hash).length) {
+                $('.nav-link[data-toggle="pill"][href="' + hash + '"]').trigger('click');
+            } else {
+                // Ensure there is an active pane visible
+                var $active = $('.nav-link[data-toggle="pill"].active');
+                if ($active.length) {
+                    $active.trigger('click');
+                } else {
+                    $('.nav-link[data-toggle="pill"]').first().trigger('click');
+                }
+            }
+        });
+    }
 });
 </script>

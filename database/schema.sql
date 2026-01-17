@@ -210,6 +210,18 @@ CREATE TABLE IF NOT EXISTS `savings_schemes` (
     `scheme_code` VARCHAR(20) NOT NULL,
     `scheme_name` VARCHAR(100) NOT NULL,
     `description` TEXT,
+    `min_deposit` DECIMAL(15, 2) DEFAULT 0.00,
+    `deposit_frequency` ENUM(
+        'daily',
+        'weekly',
+        'monthly',
+        'quarterly',
+        'yearly',
+        'onetime'
+    ) DEFAULT 'monthly',
+    `lock_in_period` INT UNSIGNED DEFAULT 0,
+    `penalty_rate` DECIMAL(5, 2) DEFAULT 0.00,
+    `maturity_bonus` DECIMAL(5, 2) DEFAULT 0.00,
     `monthly_amount` DECIMAL(15, 2) NOT NULL,
     `duration_months` INT UNSIGNED COMMENT 'NULL for indefinite',
     `interest_rate` DECIMAL(5, 2) DEFAULT 0.00 COMMENT 'Annual interest rate',
@@ -683,6 +695,7 @@ CREATE TABLE IF NOT EXISTS `loan_payments` (
     `narration` VARCHAR(255),
     `created_by` INT UNSIGNED,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
     PRIMARY KEY (`id`),
     UNIQUE KEY `idx_payment_code` (`payment_code`),
@@ -884,6 +897,7 @@ CREATE TABLE IF NOT EXISTS `bank_transactions` (
 `detection_confidence` DECIMAL(5, 2) COMMENT 'Confidence score 0-100',
 
 -- Manual Transaction Recording
+
 
 `paid_by_member_id` INT UNSIGNED COMMENT 'Member who made the payment',
     `paid_for_member_id` INT UNSIGNED COMMENT 'Member who received the payment',

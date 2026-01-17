@@ -263,12 +263,12 @@
                                     <p>Transactions</p>
                                 </a>
                             </li> -->
-                            <li class="nav-item">
+                            <!-- <li class="nav-item">
                                 <a href="<?= base_url('admin/bank/mapping') ?>" class="nav-link">
                                     <i class="far fa-circle nav-icon"></i>
                                     <p>Map Transactions</p>
                                 </a>
-                            </li>
+                            </li> -->
                             <li class="nav-item">
                                 <a href="<?= base_url('admin/bank/accounts') ?>" class="nav-link">
                                     <i class="far fa-circle nav-icon"></i>

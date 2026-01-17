@@ -125,7 +125,9 @@ class Payments extends Admin_Controller {
         
         switch ($type) {
             case 'loan':
-                $payment = $this->db->select('lp.*, l.loan_number, m.member_code, m.first_name, m.last_name, m.phone, m.address')
+                $addressExpr = "CONCAT(IFNULL(m.address_line1,''), ' ', IFNULL(m.address_line2,''), ', ', IFNULL(m.city,'')) as address";
+                $payment = $this->db->select('lp.*, l.loan_number, m.member_code, m.first_name, m.last_name, m.phone')
+                                    ->select($addressExpr, false)
                                     ->from('loan_payments lp')
                                     ->join('loans l', 'l.id = lp.loan_id')
                                     ->join('members m', 'm.id = l.member_id')
@@ -134,7 +136,9 @@ class Payments extends Admin_Controller {
                                     ->row();
                 break;
             case 'savings':
-                $payment = $this->db->select('st.*, sa.account_number, m.member_code, m.first_name, m.last_name, m.phone, m.address')
+                $addressExpr = "CONCAT(IFNULL(m.address_line1,''), ' ', IFNULL(m.address_line2,''), ', ', IFNULL(m.city,'')) as address";
+                $payment = $this->db->select('st.*, sa.account_number, m.member_code, m.first_name, m.last_name, m.phone')
+                                    ->select($addressExpr, false)
                                     ->from('savings_transactions st')
                                     ->join('savings_accounts sa', 'sa.id = st.savings_account_id')
                                     ->join('members m', 'm.id = sa.member_id')
@@ -143,7 +147,9 @@ class Payments extends Admin_Controller {
                                     ->row();
                 break;
             case 'fine':
-                $payment = $this->db->select('fp.*, f.fine_code, m.member_code, m.first_name, m.last_name, m.phone, m.address')
+                $addressExpr = "CONCAT(IFNULL(m.address_line1,''), ' ', IFNULL(m.address_line2,''), ', ', IFNULL(m.city,'')) as address";
+                $payment = $this->db->select('fp.*, f.fine_code, m.member_code, m.first_name, m.last_name, m.phone')
+                                    ->select($addressExpr, false)
                                     ->from('fine_payments fp')
                                     ->join('fines f', 'f.id = fp.fine_id')
                                     ->join('members m', 'm.id = f.member_id')

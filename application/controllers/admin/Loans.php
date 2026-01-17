@@ -1022,7 +1022,9 @@ class Loans extends Admin_Controller {
      * View Single Payment Receipt
      */
     public function payment_receipt($payment_id) {
-        $payment = $this->db->select('lp.*, l.loan_number, l.member_id, l.principal_amount, l.interest_rate, m.member_code, m.first_name, m.last_name, m.phone, m.address')
+        $addressExpr = "CONCAT(IFNULL(m.address_line1,''), ' ', IFNULL(m.address_line2,''), ', ', IFNULL(m.city,'')) as address";
+        $payment = $this->db->select('lp.*, l.loan_number, l.member_id, l.principal_amount, l.interest_rate, m.member_code, m.first_name, m.last_name, m.phone')
+                           ->select($addressExpr, false)
                            ->from('loan_payments lp')
                            ->join('loans l', 'l.id = lp.loan_id')
                            ->join('members m', 'm.id = l.member_id')

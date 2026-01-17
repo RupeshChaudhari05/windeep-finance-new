@@ -107,7 +107,7 @@
 <div class="modal fade" id="addSchemeModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
-            <form id="schemeForm" method="post" action="<?= site_url('admin/savings/save_scheme') ?>">
+            <form id="schemeForm" method="post" action="<?= site_url('admin/settings/save_savings_scheme') ?>">
                 <input type="hidden" name="id" id="scheme_id">
                 <div class="modal-header bg-primary text-white">
                     <h5 class="modal-title"><i class="fas fa-piggy-bank mr-1"></i> <span id="modalTitle">Add</span> Savings Scheme</h5>
@@ -213,7 +213,7 @@ $(document).ready(function() {
     $('.btn-toggle').click(function() {
         var id = $(this).data('id');
         var status = $(this).data('status') == 1 ? 0 : 1;
-        $.post('<?= site_url('admin/savings/toggle_scheme') ?>', {id: id, is_active: status}, function(response) {
+        $.post('<?= site_url('admin/settings/toggle_savings_scheme') ?>', {id: id, is_active: status}, function(response) {
             if (response.success) {
                 toastr.success('Scheme status updated');
                 location.reload();

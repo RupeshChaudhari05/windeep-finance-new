@@ -385,7 +385,38 @@ class Loan_model extends MY_Model {
     public function generate_installment_schedule($loan_id, $principal, $rate, $tenure, $type, $emi, $first_emi_date) {
         $monthly_rate = ($rate / 12) / 100;
         $balance = $principal;
-        $due_date = new DateTime($first_emi_date);
+
+        // Respect global "fixed due day" setting if enabled: compute first due date as the next occurrence
+        // of the configured day-of-month. For example, if fixed_due_day=10 and first_emi_date is 20-Jan,
+        // the first installment will be 10-Feb.
+        $this->load->model('Setting_model');
+        $force_fixed = $this->Setting_model->get_setting('force_fixed_due_day', false);
+        $fixed_day = (int) $this->Setting_model->get_setting('fixed_due_day', 0);
+
+        if ($force_fixed && $fixed_day >= 1 && $fixed_day <= 31) {
+            $d = new DateTime($first_emi_date);
+            // Candidate in same month
+            $year = (int) $d->format('Y');
+            $month = (int) $d->format('n');
+            $last_day = (int) $d->format('t');
+            $day = min($fixed_day, $last_day);
+            $candidate = DateTime::createFromFormat('Y-n-j', "$year-$month-$day");
+
+            // If candidate is on or before the supplied date, move to next month
+            if ($candidate <= $d) {
+                $candidate->modify('+1 month');
+                $year = (int) $candidate->format('Y');
+                $month = (int) $candidate->format('n');
+                $last_day = (int) date('t', strtotime("$year-$month-01"));
+                $day = min($fixed_day, $last_day);
+                $candidate = DateTime::createFromFormat('Y-n-j', "$year-$month-$day");
+            }
+
+            $due_date = $candidate;
+        } else {
+            $due_date = new DateTime($first_emi_date);
+        }
+
         $total_principal_allocated = 0;
         
         for ($i = 1; $i <= $tenure; $i++) {

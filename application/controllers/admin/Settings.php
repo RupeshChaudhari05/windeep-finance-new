@@ -135,6 +135,24 @@ class Settings extends Admin_Controller {
                                        ->get('admin_users')
                                        ->result();
         
+        // Schema mismatch detection: check for critical columns added by migrations
+        $schema_issues = [];
+        $required = [
+            'savings_schemes' => ['min_deposit','deposit_frequency','lock_in_period','penalty_rate','maturity_bonus'],
+            'fines' => ['admin_comments'],
+            'loan_installments' => ['due_date']
+        ];
+        foreach ($required as $table => $cols) {
+            foreach ($cols as $col) {
+                if (!$this->db->field_exists($col, $table)) {
+                    $schema_issues[] = "Missing column {$table}.{$col}";
+                }
+            }
+        }
+
+        $data['schema_issues'] = $schema_issues;
+        $data['migration_script_available'] = file_exists(APPPATH . '../scripts/run_migrations.php');
+
         $this->load_view('admin/settings/index', $data);
     }
     
@@ -180,7 +198,7 @@ class Settings extends Admin_Controller {
             $direct_fields = [
                 'currency_symbol', 'date_format',
                 'member_code_prefix', 'loan_prefix', 'savings_prefix', 'receipt_prefix',
-                'max_active_loans', 'max_guarantor', 'npa_days'
+                'max_active_loans', 'max_guarantor', 'npa_days', 'fixed_due_day'
             ];
             
             foreach ($direct_fields as $field) {
@@ -190,7 +208,7 @@ class Settings extends Admin_Controller {
             }
             
             // Handle checkboxes (set to 0 if not present)
-            $checkbox_fields = ['auto_apply_fines', 'kyc_required'];
+            $checkbox_fields = ['auto_apply_fines', 'kyc_required', 'force_fixed_due_day'];
             foreach ($checkbox_fields as $field) {
                 $settings[$field] = isset($post_data[$field]) ? 1 : 0;
             }
@@ -320,8 +338,23 @@ class Settings extends Admin_Controller {
             ['title' => 'Savings Schemes', 'url' => '']
         ];
         
-        $data['schemes'] = $this->db->get('savings_schemes')->result();
-        
+        $this->load->model('Savings_scheme_model');
+        $schemes = $this->db->order_by('scheme_name','ASC')->get('savings_schemes')->result();
+
+        // Compute per-scheme statistics and normalize fields
+        $total_deposits = 0;
+        foreach ($schemes as $sidx => $scheme) {
+            $scheme->member_count = (int) $this->db->where('scheme_id', $scheme->id)->count_all_results('savings_accounts');
+            $scheme->total_deposits = (float) $this->db->select_sum('total_deposited')->where('scheme_id', $scheme->id)->get('savings_accounts')->row()->total_deposited ?? 0.0;
+            $total_deposits += $scheme->total_deposits;
+            $scheme->min_deposit = $scheme->min_deposit ?? 0.0;
+            $scheme->interest_rate = $scheme->interest_rate ?? 0.0;
+            $schemes[$sidx] = $scheme;
+        }
+
+        $data['schemes'] = $schemes;
+        $data['total_deposits'] = $total_deposits;
+
         $this->load_view('admin/settings/savings_schemes', $data);
     }
     
@@ -359,6 +392,66 @@ class Settings extends Admin_Controller {
         $data['users'] = $this->db->get('admin_users')->result();
         
         $this->load_view('admin/settings/admin_users', $data);
+    }
+
+    /**
+     * Save Savings Scheme (create/update)
+     */
+    public function save_savings_scheme() {
+        if ($this->input->method() !== 'post') {
+            redirect('admin/settings/savings_schemes');
+        }
+
+        $this->load->model('Savings_scheme_model');
+        $id = $this->input->post('id');
+        $admin_id = $this->session->userdata('admin_id');
+
+        $scheme_data = [
+            'scheme_name' => $this->input->post('scheme_name'),
+            'description' => $this->input->post('description'),
+            'min_deposit' => $this->input->post('min_deposit') ?: 0,
+            'monthly_amount' => $this->input->post('monthly_amount') ?: $this->input->post('min_deposit') ?: 0,
+            'interest_rate' => $this->input->post('interest_rate') ?: 0,
+            'deposit_frequency' => $this->input->post('deposit_frequency') ?: 'monthly',
+            'lock_in_period' => $this->input->post('lock_in_period') ?: 0,
+            'penalty_rate' => $this->input->post('penalty_rate') ?: 0,
+            'maturity_bonus' => $this->input->post('maturity_bonus') ?: 0,
+            'created_by' => $admin_id
+        ];
+
+        if ($id) $scheme_data['id'] = $id;
+
+        $res = $this->Savings_scheme_model->save_scheme($scheme_data);
+
+        if ($res) {
+            $this->log_audit($id ? 'update' : 'create', 'savings_schemes', 'savings_schemes', $res, null, $scheme_data);
+            $this->session->set_flashdata('success', 'Savings scheme saved successfully.');
+        } else {
+            $this->session->set_flashdata('error', 'Failed to save scheme.');
+        }
+
+        redirect('admin/settings/savings_schemes');
+    }
+
+    /**
+     * Toggle savings scheme active status (AJAX)
+     */
+    public function toggle_savings_scheme() {
+        if ($this->input->method() !== 'post') {
+            echo json_encode(['success' => false, 'message' => 'Invalid request']);
+            return;
+        }
+
+        $this->load->model('Savings_scheme_model');
+        $id = $this->input->post('id');
+        $is_active = $this->input->post('is_active') ? 1 : 0;
+
+        $ok = $this->Savings_scheme_model->toggle_scheme($id, $is_active);
+        if ($ok) {
+            echo json_encode(['success' => true]);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Failed to update']);
+        }
     }
     
     /**

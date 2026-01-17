@@ -95,7 +95,7 @@
             <span class="info-box-icon"><i class="fas fa-percentage"></i></span>
             <div class="info-box-content">
                 <span class="info-box-text">Avg Interest</span>
-                <span class="info-box-number"><?= $schemes ? number_format(array_sum(array_column($schemes, 'interest_rate')) / count($schemes), 2) : 0 ?>%</span>
+                <span class="info-box-number"><?= $schemes ? number_format(array_sum(array_column($schemes, 'interest_rate')) / max(1,count($schemes)), 2) : 0 ?>%</span>
             </div>
         </div>
     </div>
