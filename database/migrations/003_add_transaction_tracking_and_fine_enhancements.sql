@@ -90,12 +90,12 @@ ADD COLUMN IF NOT EXISTS `created_by` INT NULL AFTER `created_at`,
 ADD COLUMN IF NOT EXISTS `updated_by` INT NULL AFTER `updated_at`;
 
 -- =====================================================
--- Savings Payments - Add tracking
+-- Savings Transactions - Add tracking (compatibility with current schema)
 -- =====================================================
-ALTER TABLE `savings_payments`
+ALTER TABLE `savings_transactions`
 ADD COLUMN IF NOT EXISTS `bank_transaction_id` INT NULL AFTER `reference_number`,
 ADD COLUMN IF NOT EXISTS `created_by` INT NULL AFTER `created_at`,
-ADD COLUMN IF NOT EXISTS `updated_by` INT NULL AFTER `updated_at`;
+ADD COLUMN IF NOT EXISTS `updated_by` INT NULL;
 
 -- =====================================================
 -- Bank Statement Imports - Add import code
@@ -109,7 +109,7 @@ UPDATE `bank_statement_imports`
 SET
     `import_code` = CONCAT(
         'IMP-',
-        DATE_FORMAT(created_at, '%Y%m%d'),
+        DATE_FORMAT(imported_at, '%Y%m%d'),
         '-',
         UPPER(SUBSTRING(MD5(id), 1, 6))
     )
@@ -121,20 +121,19 @@ WHERE
 -- =====================================================
 INSERT INTO
     `fine_rules` (
+        `rule_code`,
         `rule_name`,
         `applies_to`,
-        `fine_type`,
-        `fine_amount`,
+        `calculation_type`,
+        `fine_value`,
         `per_day_amount`,
-        `grace_period`,
-        `max_fine`,
-        `min_days`,
-        `max_days`,
-        `description`,
+        `grace_period_days`,
+        `max_fine_amount`,
         `is_active`,
+        `effective_from`,
         `created_at`
     )
-SELECT 'Loan EMI Late Fine', 'loan', 'fixed_plus_daily', 100.00, 10.00, 5, 1000.00, 1, 9999, '₹100 initial fine after 5 days grace, then ₹10 per day (max ₹1000)', 1, NOW()
+SELECT 'FR_LOAN_EMI_LATE', 'Loan EMI Late Fine', 'loan', 'fixed', 100.00, 10.00, 5, 1000.00, 1, NOW(), NOW()
 WHERE
     NOT EXISTS (
         SELECT 1
@@ -145,20 +144,19 @@ WHERE
 
 INSERT INTO
     `fine_rules` (
+        `rule_code`,
         `rule_name`,
         `applies_to`,
-        `fine_type`,
-        `fine_amount`,
+        `calculation_type`,
+        `fine_value`,
         `per_day_amount`,
-        `grace_period`,
-        `max_fine`,
-        `min_days`,
-        `max_days`,
-        `description`,
+        `grace_period_days`,
+        `max_fine_amount`,
         `is_active`,
+        `effective_from`,
         `created_at`
     )
-SELECT 'Savings Late Fine', 'savings', 'fixed_plus_daily', 50.00, 5.00, 3, 500.00, 1, 9999, '₹50 initial fine after 3 days grace, then ₹5 per day (max ₹500)', 1, NOW()
+SELECT 'FR_SAVINGS_LATE', 'Savings Late Fine', 'savings', 'fixed', 50.00, 5.00, 3, 500.00, 1, NOW(), NOW()
 WHERE
     NOT EXISTS (
         SELECT 1
@@ -171,65 +169,65 @@ WHERE
 -- Guarantor related settings
 -- =====================================================
 INSERT INTO
-    `settings` (
+    `system_settings` (
         `setting_key`,
         `setting_value`,
-        `setting_group`,
+        `setting_type`,
         `created_at`
     )
-SELECT 'min_guarantors', '1', 'guarantor', NOW()
+SELECT 'min_guarantors', '1', 'number', NOW()
 WHERE
     NOT EXISTS (
         SELECT 1
-        FROM `settings`
+        FROM `system_settings`
         WHERE
             `setting_key` = 'min_guarantors'
     );
 
 INSERT INTO
-    `settings` (
+    `system_settings` (
         `setting_key`,
         `setting_value`,
-        `setting_group`,
+        `setting_type`,
         `created_at`
     )
-SELECT 'max_guarantors', '5', 'guarantor', NOW()
+SELECT 'max_guarantors', '5', 'number', NOW()
 WHERE
     NOT EXISTS (
         SELECT 1
-        FROM `settings`
+        FROM `system_settings`
         WHERE
             `setting_key` = 'max_guarantors'
     );
 
 INSERT INTO
-    `settings` (
+    `system_settings` (
         `setting_key`,
         `setting_value`,
-        `setting_group`,
+        `setting_type`,
         `created_at`
     )
-SELECT 'guarantor_coverage_percent', '100', 'guarantor', NOW()
+SELECT 'guarantor_coverage_percent', '100', 'number', NOW()
 WHERE
     NOT EXISTS (
         SELECT 1
-        FROM `settings`
+        FROM `system_settings`
         WHERE
             `setting_key` = 'guarantor_coverage_percent'
     );
 
 INSERT INTO
-    `settings` (
+    `system_settings` (
         `setting_key`,
         `setting_value`,
-        `setting_group`,
+        `setting_type`,
         `created_at`
     )
-SELECT 'max_loans_as_guarantor', '3', 'guarantor', NOW()
+SELECT 'max_loans_as_guarantor', '3', 'number', NOW()
 WHERE
     NOT EXISTS (
         SELECT 1
-        FROM `settings`
+        FROM `system_settings`
         WHERE
             `setting_key` = 'max_loans_as_guarantor'
     );
@@ -238,65 +236,65 @@ WHERE
 -- Accounting settings
 -- =====================================================
 INSERT INTO
-    `settings` (
+    `system_settings` (
         `setting_key`,
         `setting_value`,
-        `setting_group`,
+        `setting_type`,
         `created_at`
     )
-SELECT 'fy_start_month', '4', 'accounting', NOW()
+SELECT 'fy_start_month', '4', 'number', NOW()
 WHERE
     NOT EXISTS (
         SELECT 1
-        FROM `settings`
+        FROM `system_settings`
         WHERE
             `setting_key` = 'fy_start_month'
     );
 
 INSERT INTO
-    `settings` (
+    `system_settings` (
         `setting_key`,
         `setting_value`,
-        `setting_group`,
+        `setting_type`,
         `created_at`
     )
-SELECT 'accounting_method', 'accrual', 'accounting', NOW()
+SELECT 'accounting_method', 'accrual', 'string', NOW()
 WHERE
     NOT EXISTS (
         SELECT 1
-        FROM `settings`
+        FROM `system_settings`
         WHERE
             `setting_key` = 'accounting_method'
     );
 
 INSERT INTO
-    `settings` (
+    `system_settings` (
         `setting_key`,
         `setting_value`,
-        `setting_group`,
+        `setting_type`,
         `created_at`
     )
-SELECT 'receipt_prefix', 'RCT', 'accounting', NOW()
+SELECT 'receipt_prefix', 'RCT', 'string', NOW()
 WHERE
     NOT EXISTS (
         SELECT 1
-        FROM `settings`
+        FROM `system_settings`
         WHERE
             `setting_key` = 'receipt_prefix'
     );
 
 INSERT INTO
-    `settings` (
+    `system_settings` (
         `setting_key`,
         `setting_value`,
-        `setting_group`,
+        `setting_type`,
         `created_at`
     )
-SELECT 'payment_prefix', 'PAY', 'accounting', NOW()
+SELECT 'payment_prefix', 'PAY', 'string', NOW()
 WHERE
     NOT EXISTS (
         SELECT 1
-        FROM `settings`
+        FROM `system_settings`
         WHERE
             `setting_key` = 'payment_prefix'
     );

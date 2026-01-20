@@ -100,7 +100,7 @@ foreach ($files as $file) {
     } catch (Exception $e) {
         $msg = $e->getMessage();
         // If the migration failed due to 'already exists' type errors, assume it's a previously-applied change and mark as applied
-        if (stripos($msg, 'duplicate column') !== false || stripos($msg, 'already exists') !== false || stripos($msg, 'duplicate key') !== false) {
+        if (stripos($msg, 'duplicate column') !== false || stripos($msg, 'already exists') !== false || stripos($msg, 'duplicate key') !== false || stripos($msg, 'Duplicate CHECK constraint') !== false || $e->getCode() === 1826) {
             echo "Non-fatal issue detected in $filename: {$msg} — marking migration as applied.\n";
             $ins = $mysqli->prepare('INSERT INTO schema_migrations (filename) VALUES (?)');
             $ins->bind_param('s', $filename);

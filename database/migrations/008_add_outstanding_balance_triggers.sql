@@ -2,13 +2,9 @@
 -- Bug #14 Fix: Remove redundancy, make outstanding balances auto-calculated
 -- Date: January 6, 2026
 
-USE windeep_finance;
-
 -- ============================================
 -- PART 1: Create triggers for loan outstanding
 -- ============================================
-
-DELIMITER $$
 
 -- Trigger: Update loan outstanding when installment is paid
 CREATE TRIGGER trg_loan_installment_after_update
@@ -32,7 +28,7 @@ BEGIN
         outstanding_interest = total_interest_outstanding,
         updated_at = NOW()
     WHERE id = NEW.loan_id;
-END$$
+END;
 
 -- Trigger: Update loan outstanding when installment is created
 CREATE TRIGGER trg_loan_installment_after_insert
@@ -56,15 +52,11 @@ BEGIN
         outstanding_interest = total_interest_outstanding,
         updated_at = NOW()
     WHERE id = NEW.loan_id;
-END$$
-
-DELIMITER;
+END;
 
 -- ============================================
 -- PART 2: Add stored procedure to recalculate outstanding for all loans
 -- ============================================
-
-DELIMITER $$
 
 CREATE PROCEDURE sp_recalculate_loan_outstanding()
 BEGIN
@@ -101,9 +93,7 @@ BEGIN
     END LOOP;
     
     CLOSE loan_cursor;
-END$$
-
-DELIMITER;
+END;
 
 -- ============================================
 -- PART 3: Run one-time fix for existing data
@@ -146,8 +136,6 @@ LIMIT 10;
 -- PART 4: Add function to get loan outstanding (for queries)
 -- ============================================
 
-DELIMITER $$
-
 CREATE FUNCTION fn_get_loan_outstanding(p_loan_id INT)
 RETURNS DECIMAL(15,2)
 DETERMINISTIC
@@ -161,7 +149,7 @@ BEGIN
     WHERE loan_id = p_loan_id;
     
     RETURN v_outstanding;
-END$$
+END;
 
 CREATE FUNCTION fn_get_loan_interest_outstanding(p_loan_id INT)
 RETURNS DECIMAL(15,2)
@@ -176,9 +164,7 @@ BEGIN
     WHERE loan_id = p_loan_id;
     
     RETURN v_outstanding;
-END$$
-
-DELIMITER;
+END;
 
 -- ============================================
 -- USAGE NOTES

@@ -174,6 +174,21 @@
                         </div>
                         <small class="text-muted">Default product rate: <?= $product->interest_rate ?>%</small>
                     </div>
+
+                    <?php if (!empty($guarantor_counts) && $guarantor_counts['total'] > 0): ?>
+                    <div class="alert alert-info">
+                        <strong>Guarantors:</strong>
+                        <?= $guarantor_counts['accepted'] ?> accepted, <?= $guarantor_counts['pending'] ?> pending, <?= $guarantor_counts['rejected'] ?> rejected.
+                        <br>
+                        <small class="text-muted">Minimum required: <?= $min_guarantors_required ?></small>
+                    </div>
+                    <div class="form-group mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="force_approve" id="force_approve" value="1">
+                            <label class="form-check-label" for="force_approve">Force Approve (mark pending guarantors as accepted)</label>
+                        </div>
+                    </div>
+                    <?php endif; ?>
                     
                     <div class="form-group">
                         <label>Approval Remarks</label>
@@ -262,6 +277,15 @@ $(document).ready(function() {
                     toastr.error(response.message || 'Failed to reject');
                 }
             }, 'json');
+        }
+    });
+
+    // Confirm Force Approve
+    $('#approveForm').submit(function(e) {
+        if ($('#force_approve').is(':checked')) {
+            if (!confirm('Force Approve will mark all pending guarantors as accepted by admin. Proceed?')) {
+                e.preventDefault();
+            }
         }
     });
 });

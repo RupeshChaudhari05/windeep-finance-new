@@ -2,8 +2,6 @@
 -- Bug #10 Fix: Prevent duplicate UTR numbers
 -- Date: January 6, 2026
 
-USE windeep_finance;
-
 -- Step 1: Check for existing duplicate UTR numbers
 SELECT
     utr_number,

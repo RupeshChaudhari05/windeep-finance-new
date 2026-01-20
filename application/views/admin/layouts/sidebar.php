@@ -53,12 +53,12 @@
                                     <p>Add New Member</p>
                                 </a>
                             </li>
-                            <li class="nav-item">
+                            <!-- <li class="nav-item">
                                 <a href="<?= base_url('admin/members/kyc-pending') ?>" class="nav-link">
                                     <i class="far fa-circle nav-icon"></i>
                                     <p>KYC Pending</p>
                                 </a>
-                            </li>
+                            </li> -->
                         </ul>
                     </li>
 

@@ -2,8 +2,6 @@
 -- Purpose: Track security events and secure session storage
 -- Date: January 6, 2026
 
-USE windeep_finance;
-
 -- ============================================
 -- Security Logs Table
 -- ============================================
@@ -65,7 +63,7 @@ CREATE TABLE IF NOT EXISTS `password_history` (
     `password_hash` VARCHAR(255) NOT NULL,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_user_id (user_id, created_at),
-    FOREIGN KEY (user_id) REFERENCES admin (id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES admin_users (id) ON DELETE CASCADE
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'Track password history to prevent reuse';
 
 -- ============================================
@@ -83,7 +81,7 @@ CREATE TABLE IF NOT EXISTS `active_sessions` (
     INDEX idx_user_id (user_id),
     INDEX idx_session_id (session_id),
     INDEX idx_last_activity (last_activity),
-    FOREIGN KEY (user_id) REFERENCES admin (id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES admin_users (id) ON DELETE CASCADE
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'Track active user sessions for security monitoring';
 
 -- ============================================
@@ -100,7 +98,7 @@ CREATE TABLE IF NOT EXISTS `two_factor_auth` (
     `last_used_at` DATETIME NULL,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES admin (id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES admin_users (id) ON DELETE CASCADE
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'Two-factor authentication configuration';
 
 -- ============================================
@@ -120,14 +118,12 @@ CREATE TABLE IF NOT EXISTS `api_tokens` (
     INDEX idx_token (token),
     INDEX idx_user_id (user_id),
     INDEX idx_expires_at (expires_at),
-    FOREIGN KEY (user_id) REFERENCES admin (id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES admin_users (id) ON DELETE CASCADE
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'API authentication tokens';
 
 -- ============================================
 -- Stored Procedures for Security Operations
 -- ============================================
-
-DELIMITER $$
 
 -- Cleanup old security logs (older than 7 years)
 CREATE PROCEDURE sp_cleanup_old_security_logs()
@@ -136,7 +132,7 @@ BEGIN
     WHERE created_at < DATE_SUB(NOW(), INTERVAL 7 YEAR);
     
     SELECT ROW_COUNT() AS deleted_records;
-END$$
+END;
 
 -- Cleanup expired sessions
 CREATE PROCEDURE sp_cleanup_expired_sessions()
@@ -150,7 +146,7 @@ BEGIN
     WHERE last_activity < DATE_SUB(NOW(), INTERVAL 2 HOUR);
     
     SELECT ROW_COUNT() AS deleted_sessions;
-END$$
+END;
 
 -- Get security summary for user
 CREATE PROCEDURE sp_get_user_security_summary(IN p_user_id INT)
@@ -187,9 +183,7 @@ BEGIN
         CASE WHEN is_enabled = 1 THEN 'Yes' ELSE 'No' END
     FROM two_factor_auth
     WHERE user_id = p_user_id;
-END$$
-
-DELIMITER;
+END;
 
 -- ============================================
 -- Insert Sample Security Events

@@ -53,6 +53,23 @@
 
         <!-- Right navbar links -->
         <ul class="navbar-nav ml-auto">
+            <!-- Notifications Dropdown for Member -->
+            <li class="nav-item dropdown">
+                <a class="nav-link" data-toggle="dropdown" href="#" title="Notifications">
+                    <i class="far fa-bell"></i>
+                    <span class="badge badge-warning navbar-badge member-notification-count">0</span>
+                </a>
+                <div class="dropdown-menu dropdown-menu-lg dropdown-menu-right">
+                    <span class="dropdown-header">Notifications</span>
+                    <div class="dropdown-divider"></div>
+                    <div class="member-notification-list">
+                        <a href="#" class="dropdown-item text-center text-muted"><small>No new notifications</small></a>
+                    </div>
+                    <div class="dropdown-divider"></div>
+                    <a href="<?= site_url('member/notifications') ?>" class="dropdown-item dropdown-footer">See All Notifications</a>
+                </div>
+            </li>
+
             <!-- User Dropdown -->
             <li class="nav-item dropdown">
                 <a class="nav-link" data-toggle="dropdown" href="#">
@@ -74,6 +91,90 @@
                 </div>
             </li>
         </ul>
+
+<style>
+    /* Compact notification styles */
+    .notification-item .notification-message { 
+        display: -webkit-box; 
+        -webkit-line-clamp: 2; 
+        -webkit-box-orient: vertical; 
+        overflow: hidden; 
+        word-break: break-word;
+    }
+    .notification-item { min-width: 320px; max-width: 520px; }
+    .notification-actions { min-width: 110px; }
+</style>
+<script>
+$(function(){
+    // expose globally
+    window.loadMemberNotifications = function(){
+        $.getJSON('<?= site_url('member/dashboard/notifications') ?>', function(data){
+            var list = $('.member-notification-list');
+            var count = 0;
+            list.empty();
+            if (data && data.length) {
+                data.forEach(function(n){
+                    var item = $('<div class="dropdown-item notification-item d-flex align-items-start"></div>');
+                    var content = $('<div class="mr-2 flex-grow-1 pr-1"></div>');
+                    var title = $('<div class="font-weight-bold text-truncate"></div>').text(n.title);
+                    var msg = $('<div class="small text-muted notification-message"></div>').html(n.message);
+                    var time = $('<div class="small text-muted mt-1"></div>').text(n.created_at || '');
+                    content.append(title).append(msg).append(time);
+
+                    var actions = $('<div class="notification-actions d-flex flex-column align-items-end"></div>');
+                    try {
+                        if (n.notification_type === 'guarantor_request' && n.data && n.data.guarantor_id) {
+                            var btnGroup = $('<div class="btn-group btn-group-sm" role="group"></div>');
+                            var accept = $('<button class="btn btn-success btn-accept-guarantor" title="Accept">Accept</button>');
+                            var reject = $('<button class="btn btn-danger btn-reject-guarantor" title="Reject">Reject</button>');
+                            accept.data('notif', n); reject.data('notif', n);
+                            btnGroup.append(accept).append(reject);
+                            actions.append(btnGroup);
+                        } else {
+                            actions.append('<small class="text-muted">&nbsp;</small>');
+                        }
+                    } catch (e) {
+                        actions.append('<small class="text-muted">&nbsp;</small>');
+                    }
+
+                    item.append(content).append(actions);
+                    list.append(item);
+
+                    if (!n.is_read) count++;
+                });
+            } else {
+                list.append('<a href="#" class="dropdown-item text-center text-muted"><small>No new notifications</small></a>');
+            }
+            $('.member-notification-count').text(count);
+        });
+    };
+
+    // Delegated handlers for accept/reject (use modal)
+    $('.member-notification-list').on('click', '.btn-accept-guarantor', function(e){
+        e.preventDefault();
+        var n = $(this).data('notif');
+        var gid = n.data ? n.data.guarantor_id : null;
+        var nid = n.id;
+        if (!gid) return;
+        // Open modal in accept mode
+        window.openGuarantorModal && window.openGuarantorModal('accept', gid, nid);
+    });
+
+    $('.member-notification-list').on('click', '.btn-reject-guarantor', function(e){
+        e.preventDefault();
+        var n = $(this).data('notif');
+        var gid = n.data ? n.data.guarantor_id : null;
+        var nid = n.id;
+        if (!gid) return;
+        // Open modal in reject mode
+        window.openGuarantorModal && window.openGuarantorModal('reject', gid, nid);
+    });
+
+    window.loadMemberNotifications();
+    // Optionally poll every 60s
+    setInterval(window.loadMemberNotifications, 60000);
+});
+</script>
     </nav>
     <!-- /.navbar -->
 

@@ -159,11 +159,48 @@ class Loans extends Member_Controller {
             // Save guarantors if provided
             $g_ids = $this->input->post('guarantor_member_id') ?: [];
             $g_amounts = $this->input->post('guarantee_amount') ?: [];
+            $any_guarantors = false;
             foreach ($g_ids as $idx => $gmember_id) {
                 $gmember_id = (int) $gmember_id;
                 $gamount = isset($g_amounts[$idx]) ? (float) $g_amounts[$idx] : 0;
                 if ($gmember_id > 0) {
-                    $this->Loan_model->add_guarantor($application_id, $gmember_id, $gamount);
+                    $any_guarantors = true;
+                    $res = $this->Loan_model->add_guarantor($application_id, $gmember_id, $gamount);
+                    if ($res && isset($res['id'])) {
+                        // Create notification and send email to guarantor
+                        $this->load->model('Notification_model');
+                        $app = $this->Loan_model->get_application($application_id);
+                        $url = site_url('public/guarantor_consent/' . $res['id'] . '/' . $res['token']);
+                        $title = 'Guarantor Request: ' . $app->application_number;
+                        $message = "You have been requested to act as a guarantor for loan application " . $app->application_number . " by " . ($this->member->first_name ?? '') . " " . ($this->member->last_name ?? '') . ". Please review and accept or reject: " . $url;
+                        $this->Notification_model->create('member', $gmember_id, 'guarantor_request', $title, $message, ['application_id' => $application_id, 'guarantor_id' => $res['id'], 'url' => $url]);
+
+                        // Send email (best-effort)
+                        $this->load->model('Member_model');
+                        $gmember = $this->Member_model->get_by_id($gmember_id);
+                        if ($gmember && !empty($gmember->email)) {
+                            $subject = 'You have been requested as guarantor';
+                            $html = '<p>Dear ' . htmlspecialchars($gmember->first_name . ' ' . $gmember->last_name) . ',</p>';
+                            $html .= '<p>You have been requested to act as a guarantor for loan application <strong>' . $app->application_number . '</strong> by <strong>' . htmlspecialchars($this->member->first_name . ' ' . $this->member->last_name) . '</strong>.</p>';
+                            $html .= '<p>Please <a href="' . $url . '">click here to review and respond</a>.</p>';
+                            send_email($gmember->email, $subject, $html);
+                        }
+                    }
+                }
+            }
+
+            // Notify admins that guarantors were assigned
+            if ($any_guarantors) {
+                $this->load->model('Notification_model');
+                $app = $this->Loan_model->get_application($application_id);
+                $title = 'Guarantors Assigned: ' . $app->application_number;
+                $message = 'A loan application has been submitted with guarantor(s) assigned. Application: ' . $app->application_number;
+                $admins = $this->db->where('is_active', 1)->get('admin_users')->result();
+                foreach ($admins as $a) {
+                    $this->Notification_model->create('admin', $a->id, 'guarantors_assigned', $title, $message, ['application_id' => $application_id]);
+                    if (!empty($a->email)) {
+                        send_email($a->email, $title, '<p>' . htmlspecialchars($message) . '</p>');
+                    }
                 }
             }
 
@@ -192,6 +229,116 @@ class Loans extends Member_Controller {
         $data['title'] = 'Application ' . $app->application_number;
         $data['page_title'] = 'Loan Application';
         $this->load_member_view('member/loans/application', $data);
+    }
+
+    /**
+     * Guarantor consent view/endpoint (handles token or logged-in guarantor)
+     */
+    public function guarantor_consent($guarantor_id, $token = null) {
+        $this->load->model('Loan_model');
+        $this->load->model('Notification_model');
+        $this->load->model('Member_model');
+
+        $guarantor = $this->db->where('id', $guarantor_id)->get('loan_guarantors')->row();
+        if (!$guarantor) {
+            $this->session->set_flashdata('error', 'Request not found.');
+            redirect('member/loans/applications');
+            return;
+        }
+
+        // Token or logged in check
+        $is_authorized = false;
+        if ($token && isset($guarantor->consent_token) && $token === $guarantor->consent_token) {
+            $is_authorized = true;
+        }
+
+        if ($this->member->id && $this->member->id == $guarantor->guarantor_member_id) {
+            $is_authorized = true;
+        }
+
+        if (!$is_authorized) {
+            $this->session->set_flashdata('error', 'You are not authorized to perform this action.');
+            redirect('member/loans/applications');
+            return;
+        }
+
+        $application = $this->Loan_model->get_application($guarantor->loan_application_id);
+
+        if ($this->input->method() === 'post') {
+            $action = $this->input->post('action');
+            $remarks = $this->input->post('remarks');
+            if ($action === 'accept') {
+                $this->Loan_model->update_guarantor_consent($guarantor_id, 'accepted', $remarks);
+                // Notify admin(s) and applicant
+                $title = 'Guarantor Accepted: ' . $application->application_number;
+                $message = 'Guarantor has accepted for application ' . $application->application_number . '.';
+                // notify admins
+                $admins = $this->db->where('is_active', 1)->get('admin_users')->result();
+                foreach ($admins as $a) {
+                    $this->Notification_model->create('admin', $a->id, 'guarantor_accepted', $title, $message, ['application_id' => $application->id]);
+                    if (!empty($a->email)) {
+                        send_email($a->email, $title, '<p>' . htmlspecialchars($message) . '</p>');
+                    }
+                }
+                // notify applicant
+                $applicant = $this->Member_model->get_by_id($application->member_id);
+                if ($applicant && !empty($applicant->email)) {
+                    $this->Notification_model->create('member', $applicant->id, 'guarantor_accepted', $title, $message, ['application_id' => $application->id]);
+                    send_email($applicant->email, $title, '<p>' . htmlspecialchars($message) . '</p>');
+                }
+
+                if ($this->input->is_ajax_request()) {
+                    $this->json_response(['success' => true, 'message' => 'You have accepted the guarantor request.']);
+                    return; // stop further execution so we don't redirect for AJAX
+                }
+
+                $this->session->set_flashdata('success', 'You have accepted the guarantor request. Thank you.');
+                redirect('member/loans/application/' . $application->id);
+                return;
+            } elseif ($action === 'reject') {
+                $this->Loan_model->update_guarantor_consent($guarantor_id, 'rejected', $remarks);
+
+                // Build messages and notify
+                $title = 'Guarantor Rejected: ' . $application->application_number;
+                $message = 'Guarantor has rejected the request for application ' . $application->application_number . '.';
+
+                // Mark application as needing revision and add a revision remark for the member
+                $guarantor_member = $this->Member_model->get_by_id($guarantor->guarantor_member_id);
+                $rev_note = 'Rejected by guarantor: ' . ($guarantor_member ? ($guarantor_member->first_name . ' ' . $guarantor_member->last_name) : 'Guarantor');
+                $this->Loan_model->request_modification($application->id, $rev_note, null, []);
+
+                // notify admins
+                $admins = $this->db->where('is_active', 1)->get('admin_users')->result();
+                foreach ($admins as $a) {
+                    $this->Notification_model->create('admin', $a->id, 'guarantor_rejected', $title, $message, ['application_id' => $application->id]);
+                    if (!empty($a->email)) {
+                        send_email($a->email, $title, '<p>' . htmlspecialchars($message) . '</p>');
+                    }
+                }
+                // notify applicant (ask to revise application)
+                $applicant = $this->Member_model->get_by_id($application->member_id);
+                if ($applicant && !empty($applicant->email)) {
+                    $member_msg = '<p>Your loan application <strong>' . htmlspecialchars($application->application_number) . '</strong> requires modification: ' . htmlspecialchars($rev_note) . '</p>';
+                    $this->Notification_model->create('member', $applicant->id, 'guarantor_rejected', 'Application requires modification', $member_msg, ['application_id' => $application->id]);
+                    send_email($applicant->email, 'Application requires modification', $member_msg);
+                }
+
+                if ($this->input->is_ajax_request()) {
+                    $this->json_response(['success' => true, 'message' => 'You have rejected the guarantor request.']);
+                    return; // stop further execution so we don't redirect for AJAX
+                }
+
+                $this->session->set_flashdata('success', 'You have rejected the guarantor request. The applicant has been notified to revise the application.');
+                redirect('member/loans/application/' . $application->id);
+                return;
+            }
+        }
+
+        $data['guarantor'] = $guarantor;
+        $data['application'] = $application;
+        $data['token'] = $token;
+        $data['title'] = 'Guarantor Consent';
+        $this->load_member_view('member/loans/guarantor_consent', $data);
     }
 
     /**
@@ -281,7 +428,26 @@ class Loans extends Member_Controller {
             $gmember_id = (int) $gmember_id;
             $gamount = isset($g_amounts[$idx]) ? (float) $g_amounts[$idx] : 0;
             if ($gmember_id > 0) {
-                $this->Loan_model->add_guarantor($application_id, $gmember_id, $gamount);
+                $res = $this->Loan_model->add_guarantor($application_id, $gmember_id, $gamount);
+                if ($res && isset($res['id'])) {
+                    // Create notification and send email to guarantor for updated assignment
+                    $this->load->model('Notification_model');
+                    $app = $this->Loan_model->get_application($application_id);
+                    $url = site_url('public/guarantor_consent/' . $res['id'] . '/' . $res['token']);
+                    $title = 'Guarantor Request: ' . $app->application_number;
+                    $message = "You have been requested to act as a guarantor for loan application " . $app->application_number . " by " . ($this->member->first_name ?? '') . " " . ($this->member->last_name ?? '') . ". Please review and accept or reject: " . $url;
+                    $this->Notification_model->create('member', $gmember_id, 'guarantor_request', $title, $message, ['application_id' => $application_id, 'guarantor_id' => $res['id'], 'url' => $url]);
+
+                    $this->load->model('Member_model');
+                    $gmember = $this->Member_model->get_by_id($gmember_id);
+                    if ($gmember && !empty($gmember->email)) {
+                        $subject = 'You have been requested as guarantor';
+                        $html = '<p>Dear ' . htmlspecialchars($gmember->first_name . ' ' . $gmember->last_name) . ',</p>';
+                        $html .= '<p>You have been requested to act as a guarantor for loan application <strong>' . $app->application_number . '</strong> by <strong>' . htmlspecialchars($this->member->first_name . ' ' . $this->member->last_name) . '</strong>.</p>';
+                        $html .= '<p>Please <a href="' . $url . '">click here to review and respond</a>.</p>';
+                        send_email($gmember->email, $subject, $html);
+                    }
+                }
             }
         }
 

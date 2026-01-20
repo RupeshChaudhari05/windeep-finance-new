@@ -2,8 +2,6 @@
 -- Purpose: Add CHECK constraints, foreign key cascades, and data integrity rules
 -- Date: January 6, 2026
 
-USE windeep_finance;
-
 -- ============================================
 -- PART 1: Add CHECK constraints (MySQL 8.0.16+)
 -- ============================================
@@ -51,6 +49,9 @@ ADD CONSTRAINT chk_fines_positive CHECK (
 );
 
 -- Savings accounts: Balance constraints
+ALTER TABLE savings_accounts
+ADD COLUMN IF NOT EXISTS `minimum_balance` DECIMAL(15, 2) DEFAULT 0 AFTER `current_balance`;
+
 ALTER TABLE savings_accounts
 ADD CONSTRAINT chk_savings_balance CHECK (
     current_balance >= 0

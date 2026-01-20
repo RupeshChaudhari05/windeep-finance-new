@@ -100,12 +100,8 @@ class Dashboard extends Admin_Controller {
     public function notifications() {
         $admin_id = $this->session->userdata('admin_id');
         
-        $notifications = $this->db->where('user_type', 'admin')
-                                  ->where('user_id', $admin_id)
-                                  ->order_by('created_at', 'DESC')
-                                  ->limit(50)
-                                  ->get('notifications')
-                                  ->result();
+        $this->load->model('Notification_model');
+        $notifications = $this->Notification_model->get_for('admin', $admin_id, 50);
         
         $this->json_response($notifications);
     }

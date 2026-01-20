@@ -80,14 +80,25 @@ class Loan_model extends MY_Model {
      * Add Guarantor to Application
      */
     public function add_guarantor($application_id, $guarantor_member_id, $guarantee_amount, $relationship = null) {
-        return $this->db->insert('loan_guarantors', [
+        // Generate a consent token for secure email links
+        $token = bin2hex(random_bytes(16));
+
+        $insert = [
             'loan_application_id' => $application_id,
             'guarantor_member_id' => $guarantor_member_id,
             'guarantee_amount' => $guarantee_amount,
             'relationship' => $relationship,
             'consent_status' => 'pending',
+            'consent_token' => $token,
             'created_at' => date('Y-m-d H:i:s')
-        ]);
+        ];
+
+        $this->db->insert('loan_guarantors', $insert);
+        if ($this->db->affected_rows() > 0) {
+            return ['id' => $this->db->insert_id(), 'token' => $token];
+        }
+
+        return false;
     }
     
     /**
@@ -107,8 +118,19 @@ class Loan_model extends MY_Model {
             $data['consent_remarks'] = $remarks;
         }
         
-        return $this->db->where('id', $guarantor_id)
+        $res = $this->db->where('id', $guarantor_id)
                         ->update('loan_guarantors', $data);
+
+        return $res;
+    }
+
+    /**
+     * Count accepted guarantors for an application
+     */
+    public function get_accepted_guarantor_count($application_id) {
+        return (int) $this->db->where('loan_application_id', $application_id)
+                              ->where('consent_status', 'accepted')
+                              ->count_all_results('loan_guarantors');
     }
     
     /**

@@ -214,7 +214,15 @@ class Loans extends Admin_Controller {
         
         $data['application'] = $application;
         $data['guarantors'] = $this->Loan_model->get_application_guarantors($id);
-        
+        // Guarantor counts and min required
+        $data['guarantor_counts'] = [
+            'total' => (int) $this->db->where('loan_application_id', $id)->count_all_results('loan_guarantors'),
+            'accepted' => (int) $this->db->where('loan_application_id', $id)->where('consent_status', 'accepted')->count_all_results('loan_guarantors'),
+            'pending' => (int) $this->db->where('loan_application_id', $id)->where('consent_status', 'pending')->count_all_results('loan_guarantors'),
+            'rejected' => (int) $this->db->where('loan_application_id', $id)->where('consent_status', 'rejected')->count_all_results('loan_guarantors')
+        ];
+        $data['min_guarantors_required'] = (int) $this->get_setting('min_guarantors', 1);
+
         // Get member details
         $data['member'] = $this->Member_model->get_member_details($application->member_id);
         
@@ -283,13 +291,33 @@ class Loans extends Admin_Controller {
             $guarantee_amounts = $this->input->post('guarantee_amounts');
             
             if ($guarantor_ids && is_array($guarantor_ids)) {
+                $this->load->model('Notification_model');
+                $this->load->model('Member_model');
                 foreach ($guarantor_ids as $key => $guarantor_id) {
                     if ($guarantor_id) {
-                        $this->Loan_model->add_guarantor(
+                        $res = $this->Loan_model->add_guarantor(
                             $application_id, 
                             $guarantor_id, 
                             $guarantee_amounts[$key] ?? 0
                         );
+
+                        if ($res && isset($res['id'])) {
+                            $app = $this->Loan_model->get_application($application_id);
+                            $url = site_url('public/guarantor_consent/' . $res['id'] . '/' . $res['token']);
+                            $title = 'Guarantor Request: ' . $app->application_number;
+                            $message = "You have been requested to act as a guarantor for loan application " . $app->application_number . ". Please review and accept or reject: " . $url;
+
+                            $this->Notification_model->create('member', $guarantor_id, 'guarantor_request', $title, $message, ['application_id' => $application_id, 'guarantor_id' => $res['id'], 'url' => $url]);
+
+                            $gmember = $this->Member_model->get_by_id($guarantor_id);
+                            if ($gmember && !empty($gmember->email)) {
+                                $subject = 'You have been requested as guarantor';
+                                $html = '<p>Dear ' . htmlspecialchars($gmember->first_name . ' ' . $gmember->last_name) . ',</p>';
+                                $html .= '<p>You have been requested to act as a guarantor for loan application <strong>' . $app->application_number . '</strong>.</p>';
+                                $html .= '<p>Please <a href="' . $url . '">click here to review and respond</a>.</p>';
+                                send_email($gmember->email, $subject, $html);
+                            }
+                        }
                     }
                 }
             }
@@ -321,16 +349,53 @@ class Loans extends Admin_Controller {
                 'approved_interest_rate' => $this->input->post('approved_interest_rate'),
                 'remarks' => $this->input->post('remarks')
             ];
-            
-            $result = $this->Loan_model->admin_approve($id, $approval_data, $this->session->userdata('admin_id'));
-            
-            if ($result) {
-                $this->log_audit('approved', 'loan_applications', 'loan_applications', $id, null, $approval_data);
-                $this->session->set_flashdata('success', 'Application approved. Awaiting member confirmation.');
-                redirect('admin/loans/view_application/' . $id);
-            } else {
-                $this->session->set_flashdata('error', 'Failed to approve application.');
+
+            // Guarantor acceptance requirement
+            $guarantor_count = $this->db->where('loan_application_id', $id)->count_all_results('loan_guarantors');
+            $min_required = (int) $this->get_setting('min_guarantors', 1);
+            $accepted = $this->Loan_model->get_accepted_guarantor_count($id);
+
+            // Force approve option (admin override)
+            $force = (bool) $this->input->post('force_approve');
+            if ($guarantor_count > 0 && !$force && $accepted < $min_required) {
+                $this->session->set_flashdata('error', 'At least ' . $min_required . ' guarantor(s) must accept before approval, or use Force Approve to override.');
                 redirect('admin/loans/approve/' . $id);
+                return;
+            }
+
+            // If force approve requested, mark pending guarantors as accepted by admin
+            if ($force) {
+                $this->db->where('loan_application_id', $id)
+                         ->where('consent_status', 'pending')
+                         ->update('loan_guarantors', [
+                             'consent_status' => 'accepted',
+                             'consent_date' => date('Y-m-d H:i:s'),
+                             'consent_remarks' => 'Accepted by admin via Force Approve',
+                             'updated_at' => date('Y-m-d H:i:s')
+                         ]);
+
+                // Audit log for admin override
+                $this->log_audit('force_approve', 'loan_applications', 'loan_applications', $id, null, ['admin_id' => $this->session->userdata('admin_id')]);
+            }
+
+            // Proceed with admin approval
+            try {
+                $res = $this->Loan_model->admin_approve($id, $approval_data, $this->session->userdata('admin_id'));
+
+                if ($res) {
+                    $this->log_audit('admin_approved', 'loan_applications', 'loan_applications', $id, null, $approval_data);
+                    $this->session->set_flashdata('success', 'Application approved. Waiting for member confirmation.');
+                    redirect('admin/loans/view_application/' . $id);
+                    return;
+                } else {
+                    $this->session->set_flashdata('error', 'Failed to approve application.');
+                    redirect('admin/loans/approve/' . $id);
+                    return;
+                }
+            } catch (Exception $e) {
+                $this->session->set_flashdata('error', 'Approval failed: ' . $e->getMessage());
+                redirect('admin/loans/approve/' . $id);
+                return;
             }
         }
         
@@ -349,6 +414,14 @@ class Loans extends Admin_Controller {
         $data['product'] = $this->db->where('id', $application->loan_product_id)
                                     ->get('loan_products')
                                     ->row();
+        // Guarantor summary for view
+        $data['guarantor_counts'] = [
+            'total' => (int) $this->db->where('loan_application_id', $id)->count_all_results('loan_guarantors'),
+            'accepted' => (int) $this->db->where('loan_application_id', $id)->where('consent_status', 'accepted')->count_all_results('loan_guarantors'),
+            'pending' => (int) $this->db->where('loan_application_id', $id)->where('consent_status', 'pending')->count_all_results('loan_guarantors'),
+            'rejected' => (int) $this->db->where('loan_application_id', $id)->where('consent_status', 'rejected')->count_all_results('loan_guarantors')
+        ];
+        $data['min_guarantors_required'] = (int) $this->get_setting('min_guarantors', 1);
         
         $this->load_view('admin/loans/approve', $data);
     }

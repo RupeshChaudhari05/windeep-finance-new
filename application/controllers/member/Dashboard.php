@@ -75,4 +75,23 @@ class Dashboard extends Member_Controller {
         
         $this->load_member_view('member/dashboard/index', $data);
     }
+
+    /**
+     * Member Notifications (AJAX)
+     */
+    public function notifications() {
+        $member_id = $this->member->id;
+        $this->load->model('Notification_model');
+        $notifications = $this->Notification_model->get_for('member', $member_id, 50);
+        $this->json_response($notifications);
+    }
+
+    /**
+     * Mark notification read
+     */
+    public function mark_notification_read($id) {
+        $this->db->where('id', $id)
+                 ->update('notifications', ['is_read' => 1, 'read_at' => date('Y-m-d H:i:s')]);
+        $this->json_response(['success' => true]);
+    }
 }

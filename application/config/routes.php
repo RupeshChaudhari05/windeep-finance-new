@@ -53,6 +53,10 @@ $route['default_controller'] = 'welcome';
 $route['404_override'] = 'errors/page_missing';
 $route['translate_uri_dashes'] = FALSE;
 
+// Public token routes for guarantor consent (maps to PublicController)
+$route['public/guarantor_consent/(:num)/(:any)'] = 'publiccontroller/guarantor_consent/$1/$2';
+$route['public/guarantor_consent/(:num)'] = 'publiccontroller/guarantor_consent/$1';
+
 // Root redirect
 $route['^$'] = 'admin/auth/index';
 
