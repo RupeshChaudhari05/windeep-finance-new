@@ -31,6 +31,14 @@ class Member_Controller extends MY_Controller {
     }
     
     /**
+     * Public wrapper for audit logging so member controllers can call it directly
+     * This forwards to the protected implementation in MY_Controller
+     */
+    public function log_audit($action, $module, $table_name, $record_id, $old_values = null, $new_values = null, $remarks = null) {
+        return parent::log_audit($action, $module, $table_name, $record_id, $old_values, $new_values, $remarks);
+    }
+
+    /**
      * Load View with Member Layout
      */
     protected function load_member_view($view, $data = []) {
