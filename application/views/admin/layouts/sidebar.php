@@ -336,7 +336,7 @@
                     </li>
 
                     <!-- Ledger & Accounting -->
-                    <li class="nav-item <?= in_array($this->uri->segment(2), ['ledger', 'accounting']) ? 'menu-open' : '' ?>">
+                    <!-- <li class="nav-item <?= in_array($this->uri->segment(2), ['ledger', 'accounting']) ? 'menu-open' : '' ?>">
                         <a href="#" class="nav-link <?= in_array($this->uri->segment(2), ['ledger', 'accounting']) ? 'active' : '' ?>">
                             <i class="nav-icon fas fa-book"></i>
                             <p>
@@ -370,7 +370,7 @@
                                 </a>
                             </li>
                         </ul>
-                    </li>
+                    </li> -->
 
                     <!-- Audit Logs -->
                     <li class="nav-item">

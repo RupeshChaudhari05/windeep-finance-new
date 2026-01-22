@@ -218,13 +218,18 @@ class Admin_Controller extends MY_Controller {
             return;
         }
         
+        // Ensure record_id is not null (use 0 for non-record actions)
+        if ($record_id === null || $record_id === '') {
+            $record_id = 0;
+        }
+        
         $data = [
             'user_type' => $user_type,
             'user_id' => $user_id,
             'action' => $action,
             'module' => $module,
             'table_name' => $table_name,
-            'record_id' => $record_id,
+            'record_id' => (int) $record_id, // Ensure integer
             'old_values' => $old_values ? json_encode($old_values) : null,
             'new_values' => $new_values ? json_encode($new_values) : null,
             'ip_address' => $this->input->ip_address(),
@@ -232,29 +237,6 @@ class Admin_Controller extends MY_Controller {
             'session_id' => session_id(),
             'remarks' => $remarks
         ];
-        
-        // Backwards-compatibility: many controllers passed parameters in old order
-        // Normalize arguments when a numeric module was passed as second parameter and third is action
-        $known_actions = ['create','update','delete','approved','status_change','payment','waived','cancelled','reminder_sent','update_settings'];
-        if (is_numeric($module) && is_string($table_name) && in_array($table_name, $known_actions)) {
-            // Original call was likely: log_audit(module_name, record_id, action, old_values, new_values)
-            $tmp_module_name = $action;
-            $tmp_record_id = $module;
-            $tmp_old_values = $table_name === null ? null : $record_id;
-            $tmp_new_values = $old_values;
-
-            $action = $table_name;
-            $module = $tmp_module_name;
-            $table_name = $tmp_module_name;
-            $record_id = $tmp_record_id;
-            $old_values = $tmp_old_values;
-            $new_values = $tmp_new_values;
-        }
-
-        // Ensure record_id is not null (use 0 for non-record actions)
-        if ($record_id === null) {
-            $record_id = 0;
-        }
 
         // Determine changed fields
         if ($old_values && $new_values) {

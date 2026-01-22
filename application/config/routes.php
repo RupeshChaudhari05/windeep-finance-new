@@ -169,6 +169,31 @@ $route['admin/settings/admin_users'] = 'admin/settings/admin_users';
 $route['admin/settings/save_savings_scheme'] = 'admin/settings/save_savings_scheme';
 $route['admin/settings/toggle_savings_scheme'] = 'admin/settings/toggle_savings_scheme';
 
+// System Management routes
+$route['admin/system'] = 'admin/system/index';
+$route['admin/system/logs'] = 'admin/system/logs';
+$route['admin/system/view_log/(:any)'] = 'admin/system/view_log/$1';
+$route['admin/system/delete_log/(:any)'] = 'admin/system/delete_log/$1';
+$route['admin/system/clear_logs'] = 'admin/system/clear_logs';
+$route['admin/system/audit_logs'] = 'admin/system/audit_logs';
+$route['admin/system/cron_logs'] = 'admin/system/cron_logs';
+$route['admin/system/backups'] = 'admin/system/backups';
+$route['admin/system/create_backup'] = 'admin/system/create_backup';
+$route['admin/system/download_backup/(:num)'] = 'admin/system/download_backup/$1';
+$route['admin/system/delete_backup/(:num)'] = 'admin/system/delete_backup/$1';
+$route['admin/system/restore_backup/(:num)'] = 'admin/system/restore_backup/$1';
+$route['admin/system/process_restore/(:num)'] = 'admin/system/process_restore/$1';
+$route['admin/system/clear_cache'] = 'admin/system/clear_cache';
+$route['admin/system/health_check'] = 'admin/system/health_check';
+
+// Email Verification routes
+$route['verify/email/(:any)'] = 'verify/email/$1';
+$route['verify/resend/(:any)/(:num)'] = 'verify/resend/$1/$2';
+$route['verify/forgot_password'] = 'verify/forgot_password';
+$route['verify/process_forgot_password'] = 'verify/process_forgot_password';
+$route['verify/reset_password/(:any)'] = 'verify/reset_password/$1';
+$route['verify/process_reset_password'] = 'verify/process_reset_password';
+
 // Installments routes
 $route['admin/installments'] = 'admin/installments/index';
 $route['admin/installments/due-today'] = 'admin/installments/due_today';

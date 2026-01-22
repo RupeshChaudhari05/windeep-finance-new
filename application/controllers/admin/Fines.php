@@ -422,14 +422,16 @@ class Fines extends Admin_Controller {
             'rule_name' => $this->input->post('rule_name'),
             'applies_to' => $this->input->post('applies_to') ?: 'both',
             'fine_type' => $this->input->post('fine_type') ?: 'loan_late',
-            'calculation_type' => $this->input->post('calculation_type') ?: 'fixed',
-            // Map amount_value -> fine_value
-            'fine_value' => $this->input->post('amount_value') ?: 0,
+            'calculation_type' => $this->input->post('fine_type') ?: 'fixed', // Use same as fine_type for calculation
+            // Accept both fine_amount and amount_value for backward compatibility
+            // For percentage type, fine_value stores the percentage (e.g., 2.5 for 2.5%)
+            'fine_value' => $this->input->post('fine_amount') ?: ($this->input->post('fine_rate') ?: ($this->input->post('amount_value') ?: 0)),
             // Per day amount for per_day calculation type
             'per_day_amount' => $this->input->post('per_day_amount') ?: 0,
-            // Grace / min days
-            'grace_period_days' => $this->input->post('grace_days') ?: 0,
-            'max_fine_amount' => $this->input->post('max_fine_amount') ?: null,
+            // Grace period days - accept both field names
+            'grace_period_days' => $this->input->post('grace_period') ?: ($this->input->post('grace_days') ?: 0),
+            // Max fine amount - accept both field names
+            'max_fine_amount' => $this->input->post('max_fine') ?: ($this->input->post('max_fine_amount') ?: null),
             'is_active' => $this->input->post('is_active') ? 1 : 0,
             'description' => $this->input->post('description') ?: '',
             'effective_from' => date('Y-m-d')
@@ -524,7 +526,7 @@ class Fines extends Admin_Controller {
         }
         
         $this->db->where('id', $id)->delete('fine_rules');
-        $this->log_audit('fine_rules', $id, 'delete', null, null);
+        $this->log_audit('delete', 'fine_rules', 'fine_rules', $id, null, null);
         
         $this->json_response(['success' => true, 'message' => 'Rule deleted successfully']);
     }

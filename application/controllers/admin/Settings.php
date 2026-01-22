@@ -869,5 +869,180 @@ class Settings extends Admin_Controller {
             echo json_encode(['success' => false, 'message' => 'Error: ' . $e->getMessage()]);
         }
     }
-}
 
+    /**
+     * Save WhatsApp Settings
+     */
+    public function save_whatsapp()
+    {
+        if ($this->input->method() !== 'post') {
+            redirect('admin/settings');
+        }
+
+        $settings = [
+            'whatsapp_enabled' => $this->input->post('whatsapp_enabled') ? '1' : '0',
+            'whatsapp_provider' => $this->input->post('whatsapp_provider'),
+            'whatsapp_api_url' => $this->input->post('whatsapp_api_url'),
+            'whatsapp_api_key' => $this->input->post('whatsapp_api_key'),
+            'whatsapp_phone_number_id' => $this->input->post('whatsapp_phone_number_id'),
+            'whatsapp_business_account_id' => $this->input->post('whatsapp_business_account_id'),
+            'twilio_account_sid' => $this->input->post('twilio_account_sid'),
+            'twilio_auth_token' => $this->input->post('twilio_auth_token'),
+            'twilio_whatsapp_number' => $this->input->post('twilio_whatsapp_number'),
+            'whatsapp_custom_url' => $this->input->post('whatsapp_custom_url'),
+            'whatsapp_custom_key' => $this->input->post('whatsapp_custom_key'),
+            'notify_whatsapp_payment_reminder' => $this->input->post('notify_whatsapp_payment_reminder') ? '1' : '0',
+            'notify_whatsapp_loan_approval' => $this->input->post('notify_whatsapp_loan_approval') ? '1' : '0',
+            'notify_whatsapp_payment_receipt' => $this->input->post('notify_whatsapp_payment_receipt') ? '1' : '0',
+        ];
+
+        $this->Setting_model->update_settings($settings);
+        $this->session->set_flashdata('success', 'WhatsApp settings saved successfully.');
+        redirect('admin/settings#whatsapp');
+    }
+
+    /**
+     * Test WhatsApp Configuration
+     */
+    public function test_whatsapp()
+    {
+        $this->output->set_content_type('application/json');
+
+        if (!$this->input->is_ajax_request()) {
+            echo json_encode(['success' => false, 'message' => 'Invalid request']);
+            return;
+        }
+
+        $phone = $this->input->post('phone');
+        if (empty($phone)) {
+            echo json_encode(['success' => false, 'message' => 'Phone number is required']);
+            return;
+        }
+
+        try {
+            $this->load->library('whatsapp');
+            $result = $this->whatsapp->send_message($phone, 'This is a test message from Windeep Finance. Your WhatsApp configuration is working correctly!');
+            
+            if ($result['success']) {
+                echo json_encode(['success' => true, 'message' => 'Test message sent successfully']);
+            } else {
+                echo json_encode(['success' => false, 'message' => $result['message'] ?? 'Failed to send message']);
+            }
+        } catch (Exception $e) {
+            echo json_encode(['success' => false, 'message' => 'Error: ' . $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Save Email Settings
+     */
+    public function save_email()
+    {
+        if ($this->input->method() !== 'post') {
+            redirect('admin/settings');
+        }
+
+        $settings = [
+            'email_protocol' => $this->input->post('email_protocol'),
+            'email_smtp_host' => $this->input->post('email_smtp_host'),
+            'email_smtp_port' => $this->input->post('email_smtp_port'),
+            'email_smtp_crypto' => $this->input->post('email_smtp_crypto'),
+            'email_smtp_user' => $this->input->post('email_smtp_user'),
+            'email_smtp_pass' => $this->input->post('email_smtp_pass'),
+            'email_from_address' => $this->input->post('email_from_address'),
+            'email_from_name' => $this->input->post('email_from_name'),
+            'email_test_recipient' => $this->input->post('email_test_recipient'),
+            'notify_email_payment_reminder' => $this->input->post('notify_email_payment_reminder') ? '1' : '0',
+            'notify_email_loan_approval' => $this->input->post('notify_email_loan_approval') ? '1' : '0',
+            'notify_email_payment_receipt' => $this->input->post('notify_email_payment_receipt') ? '1' : '0',
+        ];
+
+        $this->Setting_model->update_settings($settings);
+        $this->session->set_flashdata('success', 'Email settings saved successfully.');
+        redirect('admin/settings#email');
+    }
+
+    /**
+     * Update existing schedules to use Fixed Due Day
+     */
+    public function update_existing_schedules()
+    {
+        if ($this->input->method() !== 'post') {
+            redirect('admin/settings');
+        }
+
+        $force_fixed = $this->Setting_model->get_setting('force_fixed_due_day', false);
+        $fixed_day = (int) $this->Setting_model->get_setting('fixed_due_day', 0);
+
+        if (!$force_fixed || $fixed_day < 1 || $fixed_day > 28) {
+            $this->session->set_flashdata('error', 'Fixed Due Day is not enabled or invalid.');
+            redirect('admin/settings');
+        }
+
+        $this->db->trans_begin();
+
+        try {
+            // Update future savings schedules (not yet paid)
+            $savings_schedules = $this->db->select('id, due_month')
+                ->where('status', 'pending')
+                ->where('due_date >', date('Y-m-d'))
+                ->get('savings_schedule')
+                ->result();
+
+            $savings_updated = 0;
+            foreach ($savings_schedules as $schedule) {
+                // Calculate new due date
+                $due_month_obj = new DateTime($schedule->due_month);
+                $year = (int) $due_month_obj->format('Y');
+                $month = (int) $due_month_obj->format('m');
+                $last_day = (int) date('t', strtotime("$year-$month-01"));
+                $day = min($fixed_day, $last_day);
+                
+                $new_due_date = sprintf('%04d-%02d-%02d', $year, $month, $day);
+
+                // Only update if due date changes
+                $this->db->where('id', $schedule->id)
+                    ->update('savings_schedule', ['due_date' => $new_due_date]);
+                $savings_updated++;
+            }
+
+            // Update future loan installments (not yet paid)
+            $loan_installments = $this->db->select('id, due_date')
+                ->where('status', 'pending')
+                ->where('due_date >', date('Y-m-d'))
+                ->get('loan_installments')
+                ->result();
+
+            $loans_updated = 0;
+            foreach ($loan_installments as $installment) {
+                // Calculate new due date
+                $due_date_obj = new DateTime($installment->due_date);
+                $year = (int) $due_date_obj->format('Y');
+                $month = (int) $due_date_obj->format('m');
+                $last_day = (int) date('t', strtotime("$year-$month-01"));
+                $day = min($fixed_day, $last_day);
+                
+                $new_due_date = sprintf('%04d-%02d-%02d', $year, $month, $day);
+
+                // Only update if due date changes
+                if ($new_due_date !== $installment->due_date) {
+                    $this->db->where('id', $installment->id)
+                        ->update('loan_installments', ['due_date' => $new_due_date]);
+                    $loans_updated++;
+                }
+            }
+
+            $this->db->trans_commit();
+
+            $this->session->set_flashdata('success', 
+                "Successfully updated {$savings_updated} savings schedules and {$loans_updated} loan installments to use Fixed Due Day {$fixed_day}.");
+
+        } catch (Exception $e) {
+            $this->db->trans_rollback();
+            $this->session->set_flashdata('error', 'Error updating schedules: ' . $e->getMessage());
+        }
+
+        redirect('admin/settings');
+    }
+
+}

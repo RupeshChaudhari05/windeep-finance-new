@@ -582,6 +582,41 @@ class Fine_model extends MY_Model {
     }
     
     /**
+     * Calculate fine for a specific fine type and overdue details
+     * Used by cron job to automatically apply fines
+     * 
+     * @param string $fine_type 'loan_late' or 'savings_late'
+     * @param float $outstanding_amount Outstanding amount
+     * @param int $days_overdue Days overdue
+     * @return float Fine amount
+     */
+    public function calculate_fine($fine_type, $outstanding_amount, $days_overdue) {
+        // Get applicable rule
+        $rule = $this->db->where('fine_type', $fine_type)
+                        ->where('is_active', 1)
+                        ->order_by('grace_period_days', 'DESC')
+                        ->limit(1)
+                        ->get('fine_rules')
+                        ->row();
+        
+        if (!$rule) {
+            return 0; // No rule configured
+        }
+        
+        // Normalize rule object for calculate_fine_amount
+        $normalized_rule = (object)[
+            'grace_period' => $rule->grace_period_days ?? 0,
+            'fine_type' => $rule->calculation_type ?? 'fixed',
+            'fine_amount' => $rule->fine_value ?? 0,
+            'fine_rate' => $rule->fine_rate ?? 0,
+            'per_day_amount' => $rule->per_day_amount ?? 0,
+            'max_fine' => $rule->max_fine_amount ?? 0
+        ];
+        
+        return $this->calculate_fine_amount($normalized_rule, $days_overdue, $outstanding_amount);
+    }
+    
+    /**
      * Update Daily Fines
      * Called daily to update fine amounts for per_day and fixed_plus_daily rules
      */

@@ -68,13 +68,23 @@ class Savings_model extends MY_Model {
         $start = new DateTime($start_date);
         $start->modify('first day of this month');
 
-        // Determine due_day from scheme if available
-        $account = $this->db->where('id', $account_id)->get($this->table)->row();
+        // Determine due_day from global settings or scheme
+        $this->load->model('Setting_model');
+        $force_fixed = $this->Setting_model->get_setting('force_fixed_due_day', false);
+        $fixed_day = (int) $this->Setting_model->get_setting('fixed_due_day', 0);
+        
         $due_day = 1;
-        if ($account && !empty($account->scheme_id)) {
-            $scheme = $this->db->where('id', $account->scheme_id)->get('savings_schemes')->row();
-            if ($scheme && isset($scheme->due_day) && is_numeric($scheme->due_day)) {
-                $due_day = (int) $scheme->due_day;
+        
+        // Priority: Global fixed due day > Scheme due day > Default (1)
+        if ($force_fixed && $fixed_day >= 1 && $fixed_day <= 28) {
+            $due_day = $fixed_day;
+        } else {
+            $account = $this->db->where('id', $account_id)->get($this->table)->row();
+            if ($account && !empty($account->scheme_id)) {
+                $scheme = $this->db->where('id', $account->scheme_id)->get('savings_schemes')->row();
+                if ($scheme && isset($scheme->due_day) && is_numeric($scheme->due_day)) {
+                    $due_day = (int) $scheme->due_day;
+                }
             }
         }
 

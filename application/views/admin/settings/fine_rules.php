@@ -57,26 +57,26 @@
                                     'per_day' => '<span class="badge badge-warning">Per Day</span>',
                                     'fixed_plus_daily' => '<span class="badge badge-danger">Fixed + Daily</span>'
                                 ];
-                                echo $type_labels[$rule->fine_type ?? 'fixed'] ?? '<span class="badge badge-secondary">Fixed</span>';
+                                echo $type_labels[$rule->calculation_type ?? 'fixed'] ?? '<span class="badge badge-secondary">Fixed</span>';
                                 ?>
                             </td>
                             <td class="text-right">
-                                <?php if (($rule->fine_type ?? '') == 'percentage'): ?>
-                                    <strong><?= number_format($rule->fine_rate ?? 0, 2) ?>%</strong>
+                                <?php if (($rule->calculation_type ?? '') == 'percentage'): ?>
+                                    <strong><?= number_format($rule->fine_value ?? 0, 2) ?>%</strong>
                                 <?php else: ?>
-                                    <strong>₹<?= number_format($rule->fine_amount ?? 0, 2) ?></strong>
+                                    <strong>₹<?= number_format($rule->fine_value ?? 0, 2) ?></strong>
                                 <?php endif; ?>
                             </td>
                             <td class="text-right">
-                                <?php if (in_array($rule->fine_type ?? '', ['per_day', 'fixed_plus_daily'])): ?>
+                                <?php if (in_array($rule->calculation_type ?? '', ['per_day', 'fixed_plus_daily'])): ?>
                                     <strong>₹<?= number_format($rule->per_day_amount ?? 0, 2) ?></strong>/day
                                 <?php else: ?>
                                     <span class="text-muted">-</span>
                                 <?php endif; ?>
                             </td>
-                            <td class="text-center"><?= $rule->grace_period ?? 0 ?> days</td>
+                            <td class="text-center"><?= $rule->grace_period_days ?? 0 ?> days</td>
                             <td class="text-right">
-                                <?= ($rule->max_fine ?? 0) > 0 ? '₹' . number_format($rule->max_fine, 2) : '<span class="text-muted">No limit</span>' ?>
+                                <?= ($rule->max_fine_amount ?? 0) > 0 ? '₹' . number_format($rule->max_fine_amount, 2) : '<span class="text-muted">No limit</span>' ?>
                             </td>
                             <td>
                                 <?php if ($rule->is_active ?? 1): ?>
@@ -396,16 +396,26 @@ $(document).ready(function() {
         $('#rule_id').val(rule.id);
         $('#rule_name').val(rule.rule_name);
         $('#applies_to').val(rule.applies_to || 'loan');
-        $('#fine_type').val(rule.fine_type || 'fixed').trigger('change');
-        $('#fine_amount').val(rule.fine_amount || 0);
-        $('#fine_rate').val(rule.fine_rate || 0);
-        $('#per_day_amount').val(rule.per_day_amount || 0);
-        $('#grace_period').val(rule.grace_period || 0);
-        $('#max_fine').val(rule.max_fine || '');
-        $('#min_days').val(rule.min_days || 1);
-        $('#max_days').val(rule.max_days || 9999);
-        $('#description').val(rule.description || '');
-        updatePreview();
+        
+        // Set fine type first and trigger change to show correct fields
+        $('#fine_type').val(rule.calculation_type || 'fixed');
+        
+        // Set values AFTER triggering change
+        setTimeout(function() {
+            // For percentage type, fine_value contains the percentage rate
+            $('#fine_amount').val(rule.fine_value || 0);
+            $('#fine_rate').val(rule.fine_value || 0); // Use fine_value for both
+            $('#per_day_amount').val(rule.per_day_amount || 0);
+            $('#grace_period').val(rule.grace_period_days || 0);
+            $('#max_fine').val(rule.max_fine_amount || '');
+            $('#min_days').val(rule.min_days || 1);
+            $('#max_days').val(rule.max_days || 9999);
+            $('#description').val(rule.description || '');
+            updatePreview();
+        }, 50);
+        
+        // Trigger the change to show/hide fields
+        $('#fine_type').trigger('change');
         $('#addRuleModal').modal('show');
     });
     

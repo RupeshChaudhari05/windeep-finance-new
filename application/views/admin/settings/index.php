@@ -44,6 +44,11 @@
                         </a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link" href="#whatsapp" data-toggle="pill">
+                            <i class="fab fa-whatsapp mr-2"></i> WhatsApp
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link" href="#backup" data-toggle="pill">
                             <i class="fas fa-database mr-2"></i> Backup & Restore
                         </a>
@@ -209,18 +214,47 @@
 
                             <div class="row mt-3">
                                 <div class="col-md-6">
-                                    <div class="custom-control custom-switch">
-                                        <input type="checkbox" class="custom-control-input" id="forceFixedDue" name="force_fixed_due_day" value="1" <?= ($settings['force_fixed_due_day'] ?? 0) ? 'checked' : '' ?>>
-                                        <label class="custom-control-label" for="forceFixedDue">Force fixed due day for monthly installments</label>
+                                    <div class="form-group">
+                                        <label>Fixed Due Day (1-28) 
+                                            <i class="fas fa-info-circle text-info" data-toggle="tooltip" title="All monthly loan EMIs and savings deposits will be due on this day each month. System sends email alerts on due date."></i>
+                                        </label>
+                                        <input type="number" class="form-control" name="fixed_due_day" min="1" max="28" value="<?= isset($settings['fixed_due_day']) ? $settings['fixed_due_day'] : 10 ?>">
+                                        <small class="form-text text-muted">Recommended: 1-10 for better cash flow management</small>
                                     </div>
                                 </div>
                                 <div class="col-md-6">
-                                    <div class="form-group">
-                                        <label>Fixed Due Day (1-28)</label>
-                                        <input type="number" class="form-control" name="fixed_due_day" min="1" max="28" value="<?= isset($settings['fixed_due_day']) ? $settings['fixed_due_day'] : 10 ?>">
-                                        <small class="form-text text-muted">If enabled, monthly installment due dates will be set to this day every month; shorter months will use the last day.</small>
+                                    <div class="custom-control custom-switch mt-4">
+                                        <input type="checkbox" class="custom-control-input" id="forceFixedDue" name="force_fixed_due_day" value="1" <?= ($settings['force_fixed_due_day'] ?? 0) ? 'checked' : '' ?>>
+                                        <label class="custom-control-label" for="forceFixedDue">
+                                            <strong>Enable Fixed Due Day</strong><br>
+                                            <small class="text-muted">When enabled, all new loans & savings will use the fixed due day above. Members receive email alerts on due date.</small>
+                                        </label>
                                     </div>
                                 </div>
+                            </div>
+                            
+                            <div class="alert alert-info mt-3">
+                                <i class="fas fa-robot mr-2"></i><strong>Automatic Features:</strong>
+                                <ul class="mb-0 mt-2">
+                                    <li><strong>Email Alerts:</strong> Members receive email on due date if email is present</li>
+                                    <li><strong>Fine Application:</strong> Late fees are automatically applied after due date based on Fine Rules</li>
+                                    <li><strong>Status Updates:</strong> Installments marked as overdue automatically</li>
+                                </ul>
+                            </div>
+                            
+                            <div class="alert alert-warning mt-3">
+                                <i class="fas fa-exclamation-triangle mr-2"></i><strong>Update Existing Schedules:</strong>
+                                <p class="mb-2">The Fixed Due Day setting only applies to <strong>NEW</strong> loans and savings created after enabling it. Existing schedules keep their original due dates.</p>
+                                <p class="mb-2">If you want to update <strong>all existing future schedules</strong> to use the new Fixed Due Day, click the button below:</p>
+                                <form method="post" action="<?= base_url('admin/settings/update_existing_schedules') ?>" onsubmit="return confirm('This will update ALL future loan installments and savings schedules to use Fixed Due Day <?= $settings['fixed_due_day'] ?? 10 ?>. Are you sure?');">
+                                    <?= form_hidden($this->security->get_csrf_token_name(), $this->security->get_csrf_hash()) ?>
+                                    <button type="submit" class="btn btn-warning" <?= !($settings['force_fixed_due_day'] ?? 0) ? 'disabled' : '' ?>>
+                                        <i class="fas fa-sync-alt mr-1"></i> Update All Existing Schedules
+                                    </button>
+                                    <?php if (!($settings['force_fixed_due_day'] ?? 0)): ?>
+                                        <small class="text-muted ml-2">Enable Fixed Due Day first</small>
+                                    <?php endif; ?>
+                                </form>
                             </div>
                         </div>
                         
@@ -587,6 +621,11 @@
                         </table>
                     </div>
                 </div>
+            </div>
+            
+            <!-- WhatsApp Settings -->
+            <div class="tab-pane fade" id="whatsapp">
+                <?php $this->load->view('admin/settings/whatsapp'); ?>
             </div>
             
             <!-- Backup -->

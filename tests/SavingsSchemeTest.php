@@ -29,14 +29,15 @@ class SavingsSchemeTest extends TestCase {
     public function test_toggle_scheme_calls_update_and_returns_true() {
         $model = new Savings_scheme_model();
         $called = false;
-        $model->db = new class(&$called) {
-            private $called;
-            public function __construct(&$called) { $this->called = &$called; }
+        $testRef = (object)['called' => false];
+        $model->db = new class($testRef) {
+            private $ref;
+            public function __construct($ref) { $this->ref = $ref; }
             public function where() { return $this; }
-            public function update($table, $data) { $this->called = true; return true; }
+            public function update($table, $data) { $this->ref->called = true; return true; }
         };
 
         $this->assertTrue($model->toggle_scheme(5, 0));
-        $this->assertTrue($called, 'update should be called');
+        $this->assertTrue($testRef->called, 'update should be called');
     }
 }
