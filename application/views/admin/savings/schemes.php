@@ -63,6 +63,12 @@
                             <button class="btn btn-info btn-edit" data-scheme='<?= json_encode($scheme) ?>'>
                                 <i class="fas fa-edit"></i> Edit
                             </button>
+                            <button class="btn btn-success btn-enroll" data-scheme='<?= json_encode($scheme) ?>'>
+                                <i class="fas fa-user-plus"></i> Enroll
+                            </button>
+                            <button class="btn btn-outline-success btn-enroll-all" data-scheme='<?= json_encode($scheme) ?>'>
+                                <i class="fas fa-user-friends"></i> Enroll All
+                            </button>
                             <a href="<?= site_url('admin/savings?scheme_id=' . $scheme->id) ?>" class="btn btn-primary">
                                 <i class="fas fa-users"></i> Members
                             </a>
@@ -70,7 +76,7 @@
                                     data-id="<?= $scheme->id ?>" data-status="<?= $scheme->is_active ?>">
                                 <i class="fas fa-<?= $scheme->is_active ? 'ban' : 'check' ?>"></i>
                             </button>
-                        </div>
+                        </div> 
                     </div>
                 </div>
             </div>
@@ -79,7 +85,86 @@
     </div>
 </div>
 
-<!-- Scheme Statistics -->
+<!-- Enroll Members Modal -->
+<div class="modal fade" id="enrollMembersModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <form id="enrollForm" method="post" action="<?= site_url('admin/savings/enroll_members') ?>">
+                <input type="hidden" name="<?= $this->security->get_csrf_token_name() ?>" value="<?= $this->security->get_csrf_hash() ?>">
+                <input type="hidden" name="scheme_id" id="enroll_scheme_id">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title"><i class="fas fa-user-plus mr-1"></i> Enroll Members</h5>
+                    <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>Members <span class="text-danger">*</span></label>
+                        <select name="member_ids[]" id="enroll_members" class="form-control" multiple size="8" required>
+                            <?php foreach($members as $m): ?>
+                                <option value="<?= $m->id ?>"><?= htmlspecialchars(trim($m->first_name . ' ' . $m->last_name) . ' (' . $m->member_code . ')') ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <small class="text-muted">Use Ctrl/Cmd + Click to select multiple</small>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group col-md-6">
+                            <label>Monthly Amount <span class="text-danger">*</span></label>
+                            <input type="number" step="0.01" name="monthly_amount" id="enroll_monthly_amount" class="form-control" required>
+                        </div>
+                        <div class="form-group col-md-6">
+                            <label>Start Date <span class="text-danger">*</span></label>
+                            <input type="date" name="start_date" id="enroll_start_date" class="form-control" required value="<?= date('Y-m-d') ?>">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Enroll Members</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Enroll All Modal -->
+<div class="modal fade" id="enrollAllModal" tabindex="-1">
+    <div class="modal-dialog modal-md">
+        <div class="modal-content">
+            <form id="enrollAllForm" method="post" action="<?= site_url('admin/savings/enroll_all_members') ?>">
+                <input type="hidden" name="<?= $this->security->get_csrf_token_name() ?>" value="<?= $this->security->get_csrf_hash() ?>">
+                <input type="hidden" name="scheme_id" id="enroll_all_scheme_id">
+                <div class="modal-header bg-info text-white">
+                    <h5 class="modal-title"><i class="fas fa-user-friends mr-1"></i> Enroll All Members</h5>
+                    <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>Monthly Amount</label>
+                        <input type="number" step="0.01" name="monthly_amount" id="enroll_all_monthly_amount" class="form-control" required>
+                        <small class="text-muted">Defaults to scheme's monthly amount or min deposit</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Start Date</label>
+                        <input type="date" name="start_date" id="enroll_all_start_date" class="form-control" value="<?= date('Y-m-d') ?>" required>
+                    </div>
+                    <div class="form-group form-check">
+                        <input type="checkbox" class="form-check-input" name="force" id="enroll_all_force">
+                        <label class="form-check-label" for="enroll_all_force">Allow multiple accounts per member (force)</label>
+                    </div>
+                    <div class="alert alert-warning small">
+                        This will attempt to create an account for every active member. Existing active accounts will be skipped unless <strong>Allow multiple</strong> is checked.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-info">Enroll All</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Scheme Statistics --> 
 <div class="row mt-4">
     <div class="col-md-6">
         <div class="card">
@@ -198,6 +283,7 @@ $(document).ready(function() {
         $('#lock_in_period').val(scheme.lock_in_period);
         $('#penalty_rate').val(scheme.penalty_rate);
         $('#maturity_bonus').val(scheme.maturity_bonus);
+        $('#due_day').val(scheme.due_day || 1);
         $('#description').val(scheme.description);
         $('#addSchemeModal').modal('show');
     });
@@ -221,6 +307,25 @@ $(document).ready(function() {
                 toastr.error(response.message || 'Failed to update');
             }
         }, 'json');
+    });
+
+    // Enroll members to scheme modal
+    $('.btn-enroll').click(function() {
+        var scheme = $(this).data('scheme');
+        $('#enroll_scheme_id').val(scheme.id);
+        $('#enroll_monthly_amount').val(scheme.monthly_amount || scheme.min_deposit || 0);
+        $('#enroll_start_date').val(new Date().toISOString().slice(0,10));
+        $('#enrollMembersModal').modal('show');
+    });
+
+    // Enroll all members modal
+    $('.btn-enroll-all').click(function() {
+        var scheme = $(this).data('scheme');
+        $('#enroll_all_scheme_id').val(scheme.id);
+        $('#enroll_all_monthly_amount').val(scheme.monthly_amount || scheme.min_deposit || 0);
+        $('#enroll_all_start_date').val(new Date().toISOString().slice(0,10));
+        $('#enroll_all_force').prop('checked', false);
+        $('#enrollAllModal').modal('show');
     });
     
     // Charts

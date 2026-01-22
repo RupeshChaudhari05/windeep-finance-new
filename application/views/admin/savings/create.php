@@ -72,7 +72,7 @@
                                 <label for="due_date">Due Date <span class="text-danger">*</span></label>
                                 <select class="form-control" id="due_date" name="due_date" required title="Day of month when payment is due">
                                     <?php for ($i = 1; $i <= 28; $i++): ?>
-                                        <option value="<?= $i ?>" <?= $i == 5 ? 'selected' : '' ?>><?= $i ?>th of every month</option>
+                                        <option value="<?= $i ?>" <?= $i == 5 ? 'selected' : '' ?>><?= ordinal_suffix($i) ?> of every month</option>
                                     <?php endfor; ?>
                                 </select>
                                 <span class="text-danger"><?= form_error('due_date') ?></span>

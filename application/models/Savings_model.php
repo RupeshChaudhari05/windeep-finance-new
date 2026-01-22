@@ -67,16 +67,35 @@ class Savings_model extends MY_Model {
     public function generate_schedule($account_id, $start_date, $monthly_amount, $months = 12) {
         $start = new DateTime($start_date);
         $start->modify('first day of this month');
-        
+
+        // Determine due_day from scheme if available
+        $account = $this->db->where('id', $account_id)->get($this->table)->row();
+        $due_day = 1;
+        if ($account && !empty($account->scheme_id)) {
+            $scheme = $this->db->where('id', $account->scheme_id)->get('savings_schemes')->row();
+            if ($scheme && isset($scheme->due_day) && is_numeric($scheme->due_day)) {
+                $due_day = (int) $scheme->due_day;
+            }
+        }
+
         for ($i = 0; $i < $months; $i++) {
-            $due_month = $start->format('Y-m-01');
-            $due_date = $start->format('Y-m-d');
-            
+            // move to first day of the current month in loop
+            $cur = clone $start;
+            $cur->modify("+$i month");
+            $cur->modify('first day of this month');
+
+            // clamp due day to last day of month
+            $last_day = (int) $cur->format('t');
+            $day = min(max(1, $due_day), $last_day);
+
+            $due_month = $cur->format('Y-m-01');
+            $due_date = $cur->format('Y-m-') . str_pad($day, 2, '0', STR_PAD_LEFT);
+
             // Check if schedule already exists
             $exists = $this->db->where('savings_account_id', $account_id)
                                ->where('due_month', $due_month)
                                ->count_all_results('savings_schedule');
-            
+
             if (!$exists) {
                 $this->db->insert('savings_schedule', [
                     'savings_account_id' => $account_id,
@@ -87,10 +106,8 @@ class Savings_model extends MY_Model {
                     'created_at' => date('Y-m-d H:i:s')
                 ]);
             }
-            
-            $start->modify('+1 month');
         }
-        
+
         return true;
     }
     

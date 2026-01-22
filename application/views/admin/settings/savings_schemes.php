@@ -163,6 +163,28 @@
                         </div>
                     </div>
                     <div class="row">
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label>Penalty Rate (%)</label>
+                                <input type="number" name="penalty_rate" id="penalty_rate" class="form-control" step="0.01" value="0">
+                                <small class="text-muted">For early withdrawal</small>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label>Maturity Bonus (%)</label>
+                                <input type="number" name="maturity_bonus" id="maturity_bonus" class="form-control" step="0.01" value="0">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label>Due Day (1-28/31)</label>
+                                <input type="number" name="due_day" id="due_day" class="form-control" min="1" max="31" value="1">
+                                <small class="text-muted">Preferred day of month for dues (defaults to 1)</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
                         <div class="col-md-6">
                             <div class="form-group">
                                 <label>Penalty Rate (%)</label>

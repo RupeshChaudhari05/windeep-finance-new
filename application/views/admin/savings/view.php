@@ -37,7 +37,7 @@
                     </tr>
                     <tr>
                         <th>Due Date:</th>
-                        <td><?= $account->due_date ?>th of every month</td>
+                        <td><?= ordinal_suffix($account->due_date) ?> of every month</td>
                     </tr>
                     <tr>
                         <th>Opened On:</th>

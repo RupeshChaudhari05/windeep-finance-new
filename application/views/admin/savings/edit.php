@@ -49,7 +49,7 @@
                                 <label for="due_date">Due Date <span class="text-danger">*</span></label>
                                 <select class="form-control" id="due_date" name="due_date" required>
                                     <?php for ($i = 1; $i <= 28; $i++): ?>
-                                        <option value="<?= $i ?>" <?= ($i == ($account->due_date ?? (int)date('j', strtotime($account->start_date ?? 'now')))) ? 'selected' : '' ?>><?= $i ?>th of every month</option>
+                                        <option value="<?= $i ?>" <?= ($i == ($account->due_date ?? (int)date('j', strtotime($account->start_date ?? 'now')))) ? 'selected' : '' ?>><?= ordinal_suffix($i) ?> of every month</option>
                                     <?php endfor; ?>
                                 </select>
                             </div>

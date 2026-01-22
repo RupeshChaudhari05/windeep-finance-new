@@ -41,6 +41,19 @@ class Savings extends Admin_Controller {
         if ($data['filters']['status']) {
             $this->db->where('sa.status', $data['filters']['status']);
         }
+        if (!empty($data['filters']['scheme'])) {
+            $this->db->where('sa.scheme_id', $data['filters']['scheme']);
+        }
+        if (!empty($data['filters']['search'])) {
+            $search = $data['filters']['search'];
+            $this->db->group_start();
+            $this->db->like('sa.account_number', $search);
+            $this->db->or_like('m.member_code', $search);
+            $this->db->or_like('m.first_name', $search);
+            $this->db->or_like('m.last_name', $search);
+            $this->db->or_like('ss.scheme_name', $search);
+            $this->db->group_end();
+        }
         $total = (int) $this->db->count_all_results();
 
         // Pagination metadata for view
@@ -57,6 +70,19 @@ class Savings extends Admin_Controller {
         $this->db->join('members m', 'm.id = sa.member_id');
         if ($data['filters']['status']) {
             $this->db->where('sa.status', $data['filters']['status']);
+        }
+        if (!empty($data['filters']['scheme'])) {
+            $this->db->where('sa.scheme_id', $data['filters']['scheme']);
+        }
+        if (!empty($data['filters']['search'])) {
+            $search = $data['filters']['search'];
+            $this->db->group_start();
+            $this->db->like('sa.account_number', $search);
+            $this->db->or_like('m.member_code', $search);
+            $this->db->or_like('m.first_name', $search);
+            $this->db->or_like('m.last_name', $search);
+            $this->db->or_like('ss.scheme_name', $search);
+            $this->db->group_end();
         }
         $this->db->order_by('sa.created_at', 'DESC');
         $this->db->limit($per_page, ($page - 1) * $per_page);
@@ -111,18 +137,23 @@ class Savings extends Admin_Controller {
         $data['pending_dues'] = (int) $this->db->where('savings_account_id', $id)
                                                ->where_in('status', ['pending', 'partial', 'overdue'])
                                                ->count_all_results('savings_schedule');
-        // Ensure account due_date/day is available (use next pending schedule or fallback to 1st)
+        // Ensure account due_date/day is available (prefer scheme due_day, else next pending schedule or fallback to start day)
         if (!isset($account->due_date) || empty($account->due_date)) {
-            $next_due = $this->db->where('savings_account_id', $id)
-                                 ->where_in('status', ['pending', 'partial', 'overdue'])
-                                 ->order_by('due_date', 'ASC')
-                                 ->get('savings_schedule')
-                                 ->row();
-            if ($next_due && isset($next_due->due_date)) {
-                $account->due_date = (int) date('j', safe_timestamp($next_due->due_date));
+            // Prefer scheme configured due_day
+            if (isset($data['scheme']) && isset($data['scheme']->due_day) && $data['scheme']->due_day) {
+                $account->due_date = (int) $data['scheme']->due_day;
             } else {
-                // Fallback: use account start_date day or 1
-                $account->due_date = $account->start_date ? (int) date('j', safe_timestamp($account->start_date)) : 1;
+                $next_due = $this->db->where('savings_account_id', $id)
+                                     ->where_in('status', ['pending', 'partial', 'overdue'])
+                                     ->order_by('due_date', 'ASC')
+                                     ->get('savings_schedule')
+                                     ->row();
+                if ($next_due && isset($next_due->due_date)) {
+                    $account->due_date = (int) date('j', safe_timestamp($next_due->due_date));
+                } else {
+                    // Fallback: use account start_date day or 1
+                    $account->due_date = $account->start_date ? (int) date('j', safe_timestamp($account->start_date)) : 1;
+                }
             }
         }
         // Compatibility mappings for view fields
@@ -420,8 +451,180 @@ class Savings extends Admin_Controller {
         ];
         
         $data['schemes'] = $this->Savings_model->get_schemes(false);
-        
+        // Enrich schemes with member counts and total deposits for the dashboard/charts
+        foreach ($data['schemes'] as &$scheme) {
+            $scheme->member_count = (int) $this->db->where('scheme_id', $scheme->id)
+                                                   ->count_all_results('savings_accounts');
+            // Use CI select_sum(field, alias) to avoid invalid SQL
+            $row = $this->db->select_sum('current_balance', 'total')->where('scheme_id', $scheme->id)->get('savings_accounts')->row();
+            $scheme->total_deposits = (float) ($row->total ?? 0);
+        }
+        unset($scheme);
+
+        $this->load->model('Member_model');
+        $data['members'] = $this->Member_model->get_active_members_dropdown();
+
         $this->load_view('admin/savings/schemes', $data);
+    }
+    
+    /**
+     * Enroll Members to Scheme (Bulk)
+     */
+    public function enroll_members() {
+        if ($this->input->method() !== 'post') {
+            redirect('admin/savings/schemes');
+        }
+
+        $this->load->library('form_validation');
+        $this->form_validation->set_rules('scheme_id', 'Scheme', 'required|numeric');
+        $this->form_validation->set_rules('member_ids[]', 'Members', 'required');
+        $this->form_validation->set_rules('monthly_amount', 'Monthly Amount', 'required|numeric|greater_than[0]');
+        $this->form_validation->set_rules('start_date', 'Start Date', 'required');
+
+        if ($this->form_validation->run() === FALSE) {
+            $this->session->set_flashdata('error', validation_errors());
+            redirect('admin/savings/schemes');
+        }
+
+        $scheme_id = (int) $this->input->post('scheme_id');
+        $raw_member_ids = $this->input->post('member_ids');
+        $monthly_amount = $this->input->post('monthly_amount');
+        $start_date = $this->input->post('start_date');
+
+        // Normalize member ids: accept array or comma-separated string
+        if (!is_array($raw_member_ids)) {
+            if (is_string($raw_member_ids)) {
+                $member_ids = array_filter(array_map('trim', explode(',', $raw_member_ids)));
+            } else {
+                $member_ids = (array) $raw_member_ids;
+            }
+        } else {
+            $member_ids = $raw_member_ids;
+        }
+
+        // Ensure we have numeric ids
+        $member_ids = array_values(array_filter(array_map(function($v){ return is_numeric($v) ? (int)$v : null; }, $member_ids)));
+
+        if (empty($member_ids)) {
+            $this->session->set_flashdata('error', 'No valid members selected');
+            redirect('admin/savings/schemes');
+        }
+
+        $success = [];
+        $failed = [];
+
+        foreach ($member_ids as $member_id) {
+            // Check existing active-ish account for same scheme
+            $existing = $this->db->where('member_id', $member_id)
+                                 ->where('scheme_id', $scheme_id)
+                                 ->get('savings_accounts')
+                                 ->row();
+
+            if ($existing && in_array($existing->status, ['active', 'suspended', 'matured'])) {
+                $failed[] = ['member_id' => $member_id, 'reason' => 'Already enrolled (account ' . ($existing->account_number ?? $existing->id) . ')'];
+                continue;
+            }
+
+            // If closed or no existing account, proceed to create
+            $account_data = [
+                'member_id' => $member_id,
+                'scheme_id' => $scheme_id,
+                'monthly_amount' => $monthly_amount,
+                'start_date' => $start_date,
+                'status' => 'active'
+            ];
+
+            $account_id = $this->Savings_model->create_account($account_data);
+            if ($account_id) {
+                $success[] = $member_id;
+                $this->log_audit('create', 'savings_accounts', 'savings_accounts', $account_id, null, $account_data);
+            } else {
+                $failed[] = ['member_id' => $member_id, 'reason' => 'Failed to create'];
+            }
+        }
+
+        // Prepare flash messages
+        if (!empty($success)) {
+            $this->session->set_flashdata('success', count($success) . ' members enrolled successfully.');
+        }
+
+        if (!empty($failed)) {
+            $this->session->set_flashdata('error', implode('; ', array_map(function($f){ return 'Member ' . $f['member_id'] . ': ' . $f['reason']; }, $failed)));
+        }
+
+        redirect('admin/savings/schemes');
+    }
+    
+    /**
+     * Enroll All Members to Scheme (Bulk)
+     */
+    public function enroll_all_members() {
+        if ($this->input->method() !== 'post') {
+            redirect('admin/savings/schemes');
+        }
+
+        $this->load->library('form_validation');
+        $this->form_validation->set_rules('scheme_id', 'Scheme', 'required|numeric');
+        $this->form_validation->set_rules('monthly_amount', 'Monthly Amount', 'required|numeric|greater_than[0]');
+        $this->form_validation->set_rules('start_date', 'Start Date', 'required');
+
+        if ($this->form_validation->run() === FALSE) {
+            $this->session->set_flashdata('error', validation_errors());
+            redirect('admin/savings/schemes');
+        }
+
+        $scheme_id = (int) $this->input->post('scheme_id');
+        $monthly_amount = $this->input->post('monthly_amount');
+        $start_date = $this->input->post('start_date');
+        $force = $this->input->post('force') ? 1 : 0;
+
+        $scheme = $this->db->where('id', $scheme_id)->get('savings_schemes')->row();
+        if (!$scheme) {
+            $this->session->set_flashdata('error', 'Savings scheme not found.');
+            redirect('admin/savings/schemes');
+        }
+
+        $this->load->model('Member_model');
+        $members = $this->Member_model->get_active_members_dropdown();
+
+        $success = [];
+        $failed = [];
+
+        foreach ($members as $m) {
+            $member_id = (int) $m->id;
+            $existing = $this->db->where('member_id', $member_id)->where('scheme_id', $scheme_id)->get('savings_accounts')->row();
+
+            if ($existing && $force == 0 && in_array($existing->status, ['active', 'suspended', 'matured'])) {
+                $failed[] = ['member_id' => $member_id, 'reason' => 'Already enrolled'];
+                continue;
+            }
+
+            $account_data = [
+                'member_id' => $member_id,
+                'scheme_id' => $scheme_id,
+                'monthly_amount' => $monthly_amount ?: ($scheme->monthly_amount ?? $scheme->min_deposit ?? 0),
+                'start_date' => $start_date,
+                'status' => 'active'
+            ];
+
+            $account_id = $this->Savings_model->create_account($account_data);
+            if ($account_id) {
+                $success[] = $member_id;
+                $this->log_audit('create', 'savings_accounts', 'savings_accounts', $account_id, null, $account_data);
+            } else {
+                $failed[] = ['member_id' => $member_id, 'reason' => 'Failed to create'];
+            }
+        }
+
+        if (!empty($success)) {
+            $this->session->set_flashdata('success', count($success) . ' members enrolled successfully.');
+        }
+
+        if (!empty($failed)) {
+            $this->session->set_flashdata('error', implode('; ', array_map(function($f){ return 'Member ' . $f['member_id'] . ': ' . $f['reason']; }, $failed)));
+        }
+
+        redirect('admin/savings/schemes');
     }
     
     /**

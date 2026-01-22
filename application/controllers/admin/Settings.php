@@ -416,6 +416,7 @@ class Settings extends Admin_Controller {
             'lock_in_period' => $this->input->post('lock_in_period') ?: 0,
             'penalty_rate' => $this->input->post('penalty_rate') ?: 0,
             'maturity_bonus' => $this->input->post('maturity_bonus') ?: 0,
+            'due_day' => $this->input->post('due_day') ? (int) $this->input->post('due_day') : 1,
             'created_by' => $admin_id
         ];
 

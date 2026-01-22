@@ -42,6 +42,9 @@ class Savings_scheme_model extends MY_Model {
         if ($this->db->field_exists('maturity_bonus', $this->table)) {
             $payload['maturity_bonus'] = isset($data['maturity_bonus']) ? (float) $data['maturity_bonus'] : 0.0;
         }
+        if ($this->db->field_exists('due_day', $this->table)) {
+            $payload['due_day'] = isset($data['due_day']) ? (int) $data['due_day'] : 1;
+        }
 
         // always update timestamp if column exists, else ignore
         if ($this->db->field_exists('updated_at', $this->table)) {
