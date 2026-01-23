@@ -206,7 +206,7 @@
                                 <select name="applies_to" id="applies_to" class="form-control" required>
                                     <option value="loan">Loan EMI</option>
                                     <option value="savings">Savings Contribution</option>
-                                    <option value="all">All Payments</option>
+                                    <option value="both">Both (Loan & Savings)</option>
                                 </select>
                             </div>
                         </div>
@@ -392,15 +392,27 @@ $(document).ready(function() {
     // Edit rule
     $('.btn-edit').click(function() {
         var rule = $(this).data('rule');
-        $('#modalTitle').text('Edit');
+        console.log('Editing rule:', rule); // Debug
+        
+        $('#modalTitle').text('Edit Rule');
         $('#rule_id').val(rule.id);
-        $('#rule_name').val(rule.rule_name);
-        $('#applies_to').val(rule.applies_to || 'loan');
+        $('#rule_name').val(rule.rule_name || '');
         
-        // Set fine type first and trigger change to show correct fields
-        $('#fine_type').val(rule.calculation_type || 'fixed');
+        // Set dropdown values - handle both 'all' and 'both' for backwards compatibility
+        var appliesTo = rule.applies_to || 'loan';
+        if (appliesTo === 'all') appliesTo = 'both';
+        $('#applies_to').val(appliesTo);
         
-        // Set values AFTER triggering change
+        // Get calculation type - check multiple field names for compatibility
+        var calcType = rule.calculation_type || rule.fine_type || 'fixed';
+        // Map old fine_type values to calculation_type if needed
+        if (calcType === 'loan_late' || calcType === 'savings_late') calcType = 'fixed';
+        $('#fine_type').val(calcType);
+        
+        // Trigger change to show/hide appropriate fields
+        $('#fine_type').trigger('change');
+        
+        // Set values AFTER triggering change to ensure fields are visible
         setTimeout(function() {
             // For percentage type, fine_value contains the percentage rate
             $('#fine_amount').val(rule.fine_value || 0);
@@ -411,11 +423,14 @@ $(document).ready(function() {
             $('#min_days').val(rule.min_days || 1);
             $('#max_days').val(rule.max_days || 9999);
             $('#description').val(rule.description || '');
+            
+            // Force refresh dropdown display
+            $('#applies_to').val(appliesTo);
+            $('#fine_type').val(calcType);
+            
             updatePreview();
-        }, 50);
+        }, 100);
         
-        // Trigger the change to show/hide fields
-        $('#fine_type').trigger('change');
         $('#addRuleModal').modal('show');
     });
     

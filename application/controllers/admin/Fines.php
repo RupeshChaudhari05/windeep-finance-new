@@ -422,7 +422,7 @@ class Fines extends Admin_Controller {
             'rule_name' => $this->input->post('rule_name'),
             'applies_to' => $this->input->post('applies_to') ?: 'both',
             'fine_type' => $this->input->post('fine_type') ?: 'loan_late',
-            'calculation_type' => $this->input->post('fine_type') ?: 'fixed', // Use same as fine_type for calculation
+            'calculation_type' => $this->input->post('calculation_type') ?: 'fixed',
             // Accept both fine_amount and amount_value for backward compatibility
             // For percentage type, fine_value stores the percentage (e.g., 2.5 for 2.5%)
             'fine_value' => $this->input->post('fine_amount') ?: ($this->input->post('fine_rate') ?: ($this->input->post('amount_value') ?: 0)),
@@ -433,7 +433,6 @@ class Fines extends Admin_Controller {
             // Max fine amount - accept both field names
             'max_fine_amount' => $this->input->post('max_fine') ?: ($this->input->post('max_fine_amount') ?: null),
             'is_active' => $this->input->post('is_active') ? 1 : 0,
-            'description' => $this->input->post('description') ?: '',
             'effective_from' => date('Y-m-d')
         ];
 
@@ -444,15 +443,12 @@ class Fines extends Admin_Controller {
 
         if ($id) {
             $old = $this->db->where('id', $id)->get('fine_rules')->row();
-            $rule_data['updated_at'] = date('Y-m-d H:i:s');
-            $rule_data['updated_by'] = $admin_id;
             $this->db->where('id', $id)->update('fine_rules', $rule_data);
             // Log audit: action, module, table_name, record_id, old_values, new_values
             $this->log_audit('update', 'fine_rules', 'fine_rules', $id, (array)$old, $rule_data);
         } else {
             // Generate rule_code for new rules
             $rule_data['rule_code'] = $this->generate_rule_code();
-            $rule_data['created_at'] = date('Y-m-d H:i:s');
             $rule_data['created_by'] = $admin_id;
             $this->db->insert('fine_rules', $rule_data);
             $id = $this->db->insert_id();

@@ -650,4 +650,187 @@ class Savings extends Admin_Controller {
         
         $this->load->view('admin/savings/print_statement', $data);
     }
+    
+    /**
+     * Send Payment Reminder (Email + Notification)
+     */
+    public function send_reminder() {
+        $this->load->model('Notification_model');
+        $this->load->helper('email');
+        
+        $account_id = $this->input->post('account_id');
+        
+        // Debug log
+        log_message('debug', 'send_reminder called with POST data: ' . json_encode($this->input->post()));
+        
+        if (!$account_id) {
+            $response = [
+                'success' => false, 
+                'message' => 'Invalid account ID',
+                'debug' => [
+                    'post_data' => $this->input->post(),
+                    'account_id' => $account_id
+                ]
+            ];
+            echo json_encode($response);
+            return;
+        }
+        
+        // Get account details with member info
+        $account = $this->db->select('
+            sa.*, 
+            m.id as member_id, 
+            m.first_name, 
+            m.last_name, 
+            m.email, 
+            m.phone,
+            ss.scheme_name
+        ')
+        ->from('savings_accounts sa')
+        ->join('members m', 'm.id = sa.member_id')
+        ->join('savings_schemes ss', 'ss.id = sa.scheme_id')
+        ->where('sa.id', $account_id)
+        ->get()->row();
+        
+        if (!$account) {
+            echo json_encode(['success' => false, 'message' => 'Account not found']);
+            return;
+        }
+        
+        // Get pending dues
+        $pending_dues = $this->db->where('savings_account_id', $account_id)
+                                 ->where('status', 'pending')
+                                 ->where('due_date <', date('Y-m-d'))
+                                 ->get('savings_schedule')->result();
+        
+        $total_due = 0;
+        $oldest_due_date = null;
+        foreach ($pending_dues as $due) {
+            $total_due += ($due->due_amount - $due->paid_amount);
+            if (!$oldest_due_date || $due->due_date < $oldest_due_date) {
+                $oldest_due_date = $due->due_date;
+            }
+        }
+        
+        $email_sent = false;
+        $notification_sent = false;
+        
+        // Send email if email exists
+        if (!empty($account->email)) {
+            $subject = "Payment Reminder - Savings Account #{$account->account_number}";
+            
+            $message = "
+                <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;'>
+                    <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; text-align: center;'>
+                        <h2 style='color: white; margin: 0;'>Payment Reminder</h2>
+                    </div>
+                    <div style='padding: 20px; background: #f9f9f9;'>
+                        <p>Dear {$account->first_name} {$account->last_name},</p>
+                        
+                        <p>This is a friendly reminder regarding your savings account with us.</p>
+                        
+                        <div style='background: white; padding: 15px; border-radius: 5px; margin: 20px 0;'>
+                            <table style='width: 100%; border-collapse: collapse;'>
+                                <tr>
+                                    <td style='padding: 8px 0; color: #666;'>Account Number:</td>
+                                    <td style='padding: 8px 0; font-weight: bold;'>{$account->account_number}</td>
+                                </tr>
+                                <tr>
+                                    <td style='padding: 8px 0; color: #666;'>Scheme:</td>
+                                    <td style='padding: 8px 0;'>{$account->scheme_name}</td>
+                                </tr>
+                                <tr>
+                                    <td style='padding: 8px 0; color: #666;'>Monthly Amount:</td>
+                                    <td style='padding: 8px 0; font-weight: bold;'>₹" . number_format($account->monthly_amount, 2) . "</td>
+                                </tr>";
+            
+            if (count($pending_dues) > 0) {
+                $message .= "
+                                <tr>
+                                    <td colspan='2' style='padding-top: 15px; border-top: 1px solid #eee;'></td>
+                                </tr>
+                                <tr>
+                                    <td style='padding: 8px 0; color: #dc3545;'>Pending Installments:</td>
+                                    <td style='padding: 8px 0; font-weight: bold; color: #dc3545;'>" . count($pending_dues) . "</td>
+                                </tr>
+                                <tr>
+                                    <td style='padding: 8px 0; color: #dc3545;'>Total Due Amount:</td>
+                                    <td style='padding: 8px 0; font-weight: bold; color: #dc3545; font-size: 18px;'>₹" . number_format($total_due, 2) . "</td>
+                                </tr>
+                                <tr>
+                                    <td style='padding: 8px 0; color: #dc3545;'>Oldest Due Date:</td>
+                                    <td style='padding: 8px 0; color: #dc3545;'>" . date('d M Y', strtotime($oldest_due_date)) . "</td>
+                                </tr>";
+            }
+            
+            $message .= "
+                            </table>
+                        </div>
+                        
+                        <p style='color: #dc3545; font-weight: bold;'>Please make your payment at the earliest to avoid late fees.</p>
+                        
+                        <p>If you have already made the payment, please ignore this reminder.</p>
+                        
+                        <p>For any queries, please contact our office.</p>
+                        
+                        <p style='margin-top: 30px;'>
+                            Best regards,<br>
+                            <strong>Windeep Finance</strong>
+                        </p>
+                    </div>
+                    <div style='background: #333; color: white; padding: 15px; text-align: center; font-size: 12px;'>
+                        <p style='margin: 0;'>This is an automated reminder. Please do not reply to this email.</p>
+                    </div>
+                </div>
+            ";
+            
+            $result = send_email($account->email, $subject, $message);
+            $email_sent = $result['success'] ?? false;
+        }
+        
+        // Create in-app notification
+        $notification_data = [
+            'recipient_type' => 'member',
+            'recipient_id' => $account->member_id,
+            'notification_type' => 'savings_reminder',
+            'title' => 'Savings Payment Reminder',
+            'message' => count($pending_dues) > 0 
+                ? "You have " . count($pending_dues) . " pending installment(s) totaling ₹" . number_format($total_due, 2) . ". Please make your payment soon."
+                : "This is a reminder about your savings account #{$account->account_number}. Monthly amount: ₹" . number_format($account->monthly_amount, 2),
+            'data' => [
+                'account_id' => $account->id,
+                'account_number' => $account->account_number,
+                'pending_dues' => count($pending_dues),
+                'total_due' => $total_due
+            ]
+        ];
+        
+        $notification_id = $this->Notification_model->create($notification_data);
+        $notification_sent = $notification_id ? true : false;
+        
+        // Prepare response message
+        $message_parts = [];
+        if ($email_sent) {
+            $message_parts[] = "Email sent to {$account->email}";
+        } elseif (!empty($account->email)) {
+            $message_parts[] = "Failed to send email";
+        } else {
+            $message_parts[] = "No email address on file";
+        }
+        
+        if ($notification_sent) {
+            $message_parts[] = "In-app notification created";
+        } else {
+            $message_parts[] = "Failed to create notification";
+        }
+        
+        $success = $email_sent || $notification_sent;
+        
+        echo json_encode([
+            'success' => $success,
+            'message' => implode('. ', $message_parts),
+            'email_sent' => $email_sent,
+            'notification_sent' => $notification_sent
+        ]);
+    }
 }

@@ -88,9 +88,12 @@
                 
                 <?php if ($account->status == 'active'): ?>
                 <hr>
-                <a href="<?= site_url('admin/savings/collect/' . $account->id) ?>" class="btn btn-success btn-block">
+                <a href="<?= site_url('admin/savings/collect/' . $account->id) ?>" class="btn btn-success btn-block mb-2">
                     <i class="fas fa-rupee-sign mr-1"></i> Collect Payment
                 </a>
+                <button type="button" class="btn btn-info btn-block" id="btnSendReminder" data-account-id="<?= $account->id ?>">
+                    <i class="fas fa-bell mr-1"></i> Send Reminder
+                </button>
                 <?php endif; ?>
             </div>
         </div>
@@ -201,14 +204,15 @@
                                         <tr class="<?= $sch->status == 'pending' && (safe_timestamp($sch->due_date) < time()) ? 'table-danger' : '' ?>">
                                             <td><?= format_date($sch->due_date, 'M Y') ?></td>
                                             <td><?= format_date($sch->due_date, 'd M Y') ?></td>
-                                            <td class="text-right">₹<?= number_format($sch->amount) ?></td>
+                                            <td class="text-right">₹<?= number_format((float)($sch->due_amount ?? 0), 2) ?></td>
                                             <td>
                                                 <?php
                                                 $sch_status = [
                                                     'pending' => 'warning',
                                                     'paid' => 'success',
                                                     'partial' => 'info',
-                                                    'skipped' => 'secondary'
+                                                    'skipped' => 'secondary',
+                                                    'overdue' => 'danger'
                                                 ];
                                                 ?>
                                                 <span class="badge badge-<?= $sch_status[$sch->status] ?? 'secondary' ?>">
@@ -230,3 +234,57 @@
         </div>
     </div>
 </div>
+
+<script>
+$(document).ready(function() {
+    $('#btnSendReminder').click(function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const btn = $(this);
+        const originalHtml = btn.html();
+        const accountId = btn.data('account-id');
+        
+        console.log('Send Reminder - Account ID:', accountId);
+        
+        if (!accountId) {
+            toastr.error('Account ID not found', 'Error');
+            return false;
+        }
+        
+        if (!confirm('Send payment reminder to this member via email and notification?')) {
+            return false;
+        }
+        
+        btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin mr-1"></i> Sending...');
+        
+        // Use fetch API to bypass jQuery's global ajaxSetup
+        fetch('<?= base_url("admin/savings/send_reminder") ?>', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: 'account_id=' + encodeURIComponent(accountId)
+        })
+        .then(response => response.json())
+        .then(data => {
+            console.log('Response:', data);
+            if (data.success) {
+                toastr.success(data.message, 'Reminder Sent');
+            } else {
+                toastr.error(data.message, 'Failed');
+            }
+        })
+        .catch(error => {
+            console.error('Fetch Error:', error);
+            toastr.error('Failed to send reminder.', 'Error');
+        })
+        .finally(() => {
+            btn.prop('disabled', false).html(originalHtml);
+        });
+        
+        return false;
+    });
+});
+</script>

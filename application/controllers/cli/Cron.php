@@ -133,7 +133,7 @@ class Cron extends CI_Controller {
         try {
             // Get overdue loan installments
             $overdue = $this->db->select('
-                li.*, l.member_id, l.product_id,
+                li.*, l.member_id, l.loan_product_id,
                 DATEDIFF(CURDATE(), li.due_date) as days_overdue
             ')
             ->from('loan_installments li')
@@ -142,36 +142,46 @@ class Cron extends CI_Controller {
             ->where('li.due_date <', date('Y-m-d'))
             ->where('l.status', 'active')
             ->get()->result();
-
+            
             $fines_applied = 0;
             
             foreach ($overdue as $installment) {
                 // Check if fine already exists for today
-                $existing = $this->db->where('loan_id', $installment->loan_id)
-                    ->where('installment_id', $installment->id)
+                $existing = $this->db->where('related_type', 'loan_installment')
+                    ->where('related_id', $installment->id)
                     ->where('DATE(created_at)', date('Y-m-d'))
                     ->get('fines')->num_rows();
                 
                 if ($existing > 0) continue;
                 
                 // Calculate fine based on rules
+                $paid = isset($installment->total_paid) ? $installment->total_paid : 0;
                 $fine_amount = $this->Fine_model->calculate_fine(
                     'loan_late',
-                    $installment->emi_amount - $installment->paid_amount,
+                    $installment->emi_amount - $paid,
                     $installment->days_overdue
                 );
                 
                 if ($fine_amount > 0) {
+                    // Get the fine rule ID
+                    $rule = $this->db->where('fine_type', 'loan_late')
+                                    ->where('is_active', 1)
+                                    ->get('fine_rules')->row();
+                    
                     // Apply fine
                     $this->db->insert('fines', [
-                        'loan_id' => $installment->loan_id,
-                        'installment_id' => $installment->id,
+                        'fine_code' => 'FIN-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -6)),
                         'member_id' => $installment->member_id,
                         'fine_type' => 'loan_late',
+                        'related_type' => 'loan_installment',
+                        'related_id' => $installment->id,
+                        'fine_rule_id' => $rule ? $rule->id : null,
+                        'fine_date' => date('Y-m-d'),
+                        'due_date' => $installment->due_date,
+                        'days_late' => $installment->days_overdue,
                         'fine_amount' => $fine_amount,
-                        'outstanding_amount' => $fine_amount,
-                        'reason' => "Late payment for installment #{$installment->installment_number}",
-                        'days_overdue' => $installment->days_overdue,
+                        'balance_amount' => $fine_amount,
+                        'remarks' => "Late payment for installment #{$installment->installment_number}",
                         'status' => 'pending',
                         'created_at' => date('Y-m-d H:i:s')
                     ]);
@@ -194,7 +204,8 @@ class Cron extends CI_Controller {
             
             foreach ($savings_overdue as $schedule) {
                 // Check existing fine
-                $existing = $this->db->where('savings_schedule_id', $schedule->id)
+                $existing = $this->db->where('related_type', 'savings_schedule')
+                    ->where('related_id', $schedule->id)
                     ->where('DATE(created_at)', date('Y-m-d'))
                     ->get('fines')->num_rows();
                 
@@ -208,13 +219,17 @@ class Cron extends CI_Controller {
                 
                 if ($fine_amount > 0) {
                     $this->db->insert('fines', [
-                        'savings_schedule_id' => $schedule->id,
+                        'fine_code' => 'FIN-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -6)),
                         'member_id' => $schedule->member_id,
                         'fine_type' => 'savings_late',
+                        'related_type' => 'savings_schedule',
+                        'related_id' => $schedule->id,
+                        'fine_date' => date('Y-m-d'),
+                        'due_date' => $schedule->due_date,
+                        'days_late' => $schedule->days_overdue,
                         'fine_amount' => $fine_amount,
-                        'outstanding_amount' => $fine_amount,
-                        'reason' => "Late savings deposit for " . date('M Y', strtotime($schedule->due_month)),
-                        'days_overdue' => $schedule->days_overdue,
+                        'balance_amount' => $fine_amount,
+                        'remarks' => "Late savings deposit for " . date('M Y', strtotime($schedule->due_date)),
                         'status' => 'pending',
                         'created_at' => date('Y-m-d H:i:s')
                     ]);

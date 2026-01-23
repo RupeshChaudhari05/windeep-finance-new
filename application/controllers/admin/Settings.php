@@ -213,16 +213,30 @@ class Settings extends Admin_Controller {
                 $settings[$field] = isset($post_data[$field]) ? 1 : 0;
             }
             
+            if (empty($settings)) {
+                $this->session->set_flashdata('error', 'No settings to update.');
+                redirect('admin/settings');
+                return;
+            }
+            
             // Capture previous settings for audit
             $old_settings = $this->Setting_model->get_all_settings();
 
             // Update settings
-            $this->Setting_model->update_settings($settings);
-
-            // Log audit correctly: action, module, table_name, record_id, old_values, new_values
-            // Use record_id=0 to indicate bulk/system settings update
-            $this->log_audit('update', 'settings', 'system_settings', 0, $old_settings, $settings);
-            $this->session->set_flashdata('success', 'Settings updated successfully.');
+            try {
+                $this->Setting_model->update_settings($settings);
+                
+                // Log audit correctly: action, module, table_name, record_id, old_values, new_values
+                // Use record_id=0 to indicate bulk/system settings update
+                $this->log_audit('update', 'settings', 'system_settings', 0, $old_settings, $settings);
+                
+                $this->session->set_flashdata('success', 'Settings updated successfully.');
+            } catch (Exception $e) {
+                log_message('error', 'Settings update failed: ' . $e->getMessage());
+                $this->session->set_flashdata('error', 'Failed to update settings: ' . $e->getMessage());
+            }
+        } else {
+            $this->session->set_flashdata('error', 'No data received.');
         }
         
         redirect('admin/settings');
@@ -501,15 +515,15 @@ class Settings extends Admin_Controller {
             'rule_name' => $this->input->post('rule_name'),
             'applies_to' => $this->input->post('applies_to'),
             'fine_type' => $this->input->post('fine_type'),
-            // 'fine_value' stores either fixed amount or percentage (depending on fine_type)
+            'calculation_type' => $this->input->post('calculation_type') ?: 'fixed',
+            // 'fine_value' stores either fixed amount or percentage (depending on calculation_type)
             'fine_value' => $this->input->post('fine_amount') !== null ? $this->input->post('fine_amount') : ($this->input->post('fine_rate') ?: 0),
             'per_day_amount' => $this->input->post('per_day_amount') ?: 0,
             // Map grace/min days
             'grace_period_days' => $this->input->post('min_days') ?: $this->input->post('grace_period') ?: 0,
             'max_fine_amount' => $this->input->post('max_fine') ?: null,
-            'description' => $this->input->post('description'),
-            'updated_by' => $admin_id,
-            'updated_at' => date('Y-m-d H:i:s')
+            'is_active' => $this->input->post('is_active') !== null ? (int)$this->input->post('is_active') : 1,
+            'effective_from' => $this->input->post('effective_from') ?: date('Y-m-d')
         ];
 
         // Preserve compatibility: if min_days/max_days columns exist store them as well
@@ -523,19 +537,35 @@ class Settings extends Admin_Controller {
         if ($id) {
             // Update existing rule
             $old = $this->db->where('id', $id)->get('fine_rules')->row();
-            $rule_data['updated_at'] = date('Y-m-d H:i:s');
-            $rule_data['updated_by'] = $admin_id;
+            
+            // Remove fields that shouldn't be updated
+            unset($rule_data['rule_code']);
+            unset($rule_data['created_at']);
+            unset($rule_data['created_by']);
+            
             $result = $this->db->where('id', $id)->update('fine_rules', $rule_data);
             $this->log_audit('update', 'fine_rules', 'fine_rules', $id, $old, $rule_data);
             $message = 'Fine rule updated successfully.';
         } else {
-            // Create new rule
+            // Create new rule - generate rule_code
+            $count = $this->db->count_all('fine_rules') + 1;
+            $rule_data['rule_code'] = 'FR-' . date('Y') . '-' . str_pad($count, 4, '0', STR_PAD_LEFT);
             $rule_data['created_by'] = $admin_id;
-            $rule_data['created_at'] = date('Y-m-d H:i:s');
-            $rule_data['is_active'] = 1;
+            
             $result = $this->db->insert('fine_rules', $rule_data);
             $id = $this->db->insert_id();
             $this->log_audit('create', 'fine_rules', 'fine_rules', $id, null, $rule_data);
+            $message = 'Fine rule created successfully.';
+        }
+        
+        if ($result) {
+            $this->session->set_flashdata('success', $message);
+        } else {
+            $this->session->set_flashdata('error', 'Failed to save fine rule.');
+        }
+        
+        redirect('admin/settings/fine_rules');
+    }
             $message = 'Fine rule created successfully.';
         }
         
