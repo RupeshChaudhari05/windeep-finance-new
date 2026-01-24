@@ -273,7 +273,7 @@
                     <div class="card-header">
                         <h3 class="card-title"><i class="fas fa-envelope mr-1"></i> Email Configuration</h3>
                     </div>
-                    <form action="<?= site_url('admin/settings/update') ?>" method="post">
+                    <form action="<?= site_url('admin/settings/save_email') ?>" method="post">
                         <?= form_hidden($this->security->get_csrf_token_name(), $this->security->get_csrf_hash()) ?>
                         
                         <div class="card-body">
@@ -785,5 +785,441 @@ $(document).ready(function() {
             }
         });
     }
+});
+</script>
+
+<!-- Add Financial Year Modal -->
+<div class="modal fade" id="addFYModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <form action="<?= site_url('admin/settings/create_financial_year') ?>" method="post">
+                <?= form_hidden($this->security->get_csrf_token_name(), $this->security->get_csrf_hash()) ?>
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title"><i class="fas fa-calendar-alt mr-2"></i>Add Financial Year</h5>
+                    <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>Year Name/Code <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="year_name" placeholder="e.g., 2025-26" required>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Start Date <span class="text-danger">*</span></label>
+                                <input type="date" class="form-control" name="start_date" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>End Date <span class="text-danger">*</span></label>
+                                <input type="date" class="form-control" name="end_date" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="custom-control custom-switch">
+                        <input type="checkbox" class="custom-control-input" id="fyIsActive" name="is_active" value="1">
+                        <label class="custom-control-label" for="fyIsActive">Set as Current Year</label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success"><i class="fas fa-save mr-1"></i> Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Add Loan Product Modal -->
+<div class="modal fade" id="addProductModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <form action="<?= site_url('admin/settings/save_loan_product') ?>" method="post">
+                <?= form_hidden($this->security->get_csrf_token_name(), $this->security->get_csrf_hash()) ?>
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title"><i class="fas fa-hand-holding-usd mr-2"></i>Add Loan Product</h5>
+                    <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Product Code <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" name="product_code" placeholder="e.g., PL001" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Product Name <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" name="product_name" placeholder="e.g., Personal Loan" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Minimum Amount</label>
+                                <input type="number" class="form-control" name="min_amount" value="10000" min="0" step="100">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Maximum Amount</label>
+                                <input type="number" class="form-control" name="max_amount" value="500000" min="0" step="100">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label>Min Interest Rate (%)</label>
+                                <input type="number" class="form-control" name="min_interest_rate" value="10" min="0" step="0.5">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label>Max Interest Rate (%)</label>
+                                <input type="number" class="form-control" name="max_interest_rate" value="24" min="0" step="0.5">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label>Default Interest Rate (%)</label>
+                                <input type="number" class="form-control" name="default_interest_rate" value="12" min="0" step="0.5">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Min Tenure (Months)</label>
+                                <input type="number" class="form-control" name="min_tenure_months" value="6" min="1">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Max Tenure (Months)</label>
+                                <input type="number" class="form-control" name="max_tenure_months" value="60" min="1">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label>Processing Fee Type</label>
+                                <select class="form-control" name="processing_fee_type">
+                                    <option value="fixed">Fixed Amount</option>
+                                    <option value="percentage">Percentage</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label>Processing Fee Value</label>
+                                <input type="number" class="form-control" name="processing_fee_value" value="0" min="0" step="0.01">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label>Grace Period (Days)</label>
+                                <input type="number" class="form-control" name="grace_period_days" value="5" min="0">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label>Late Fee Type</label>
+                                <select class="form-control" name="late_fee_type">
+                                    <option value="fixed">Fixed Amount</option>
+                                    <option value="percentage">Percentage</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label>Late Fee Value</label>
+                                <input type="number" class="form-control" name="late_fee_value" value="0" min="0" step="0.01">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label>Late Fee Per Day</label>
+                                <input type="number" class="form-control" name="late_fee_per_day" value="0" min="0" step="0.01">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Description</label>
+                        <textarea class="form-control" name="description" rows="2" placeholder="Brief description of the loan product"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary"><i class="fas fa-save mr-1"></i> Save Product</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Add Savings Scheme Modal -->
+<div class="modal fade" id="addSchemeModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <form action="<?= site_url('admin/settings/save_savings_scheme') ?>" method="post">
+                <?= form_hidden($this->security->get_csrf_token_name(), $this->security->get_csrf_hash()) ?>
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title"><i class="fas fa-piggy-bank mr-2"></i>Add Savings Scheme</h5>
+                    <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>Scheme Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="scheme_name" placeholder="e.g., Monthly Savings" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Description</label>
+                        <textarea class="form-control" name="description" rows="2" placeholder="Brief description"></textarea>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Minimum Deposit</label>
+                                <input type="number" class="form-control" name="min_deposit" value="100" min="0" step="10">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Monthly Amount</label>
+                                <input type="number" class="form-control" name="monthly_amount" value="500" min="0" step="10">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Interest Rate (% p.a.)</label>
+                                <input type="number" class="form-control" name="interest_rate" value="4" min="0" step="0.25">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Due Day (1-28)</label>
+                                <input type="number" class="form-control" name="due_day" value="10" min="1" max="28">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Deposit Frequency</label>
+                                <select class="form-control" name="deposit_frequency">
+                                    <option value="monthly">Monthly</option>
+                                    <option value="weekly">Weekly</option>
+                                    <option value="daily">Daily</option>
+                                    <option value="quarterly">Quarterly</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Lock-in Period (Months)</label>
+                                <input type="number" class="form-control" name="lock_in_period" value="12" min="0">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Penalty Rate (%)</label>
+                                <input type="number" class="form-control" name="penalty_rate" value="2" min="0" step="0.5">
+                                <small class="text-muted">For early withdrawal</small>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Maturity Bonus (%)</label>
+                                <input type="number" class="form-control" name="maturity_bonus" value="0" min="0" step="0.5">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success"><i class="fas fa-save mr-1"></i> Save Scheme</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Add Fine Rule Modal -->
+<div class="modal fade" id="addFineRuleModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <form action="<?= site_url('admin/settings/save_fine_rule') ?>" method="post">
+                <?= form_hidden($this->security->get_csrf_token_name(), $this->security->get_csrf_hash()) ?>
+                <div class="modal-header bg-warning">
+                    <h5 class="modal-title"><i class="fas fa-gavel mr-2"></i>Add Fine Rule</h5>
+                    <button type="button" class="close" data-dismiss="modal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>Rule Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="rule_name" placeholder="e.g., Late EMI Payment Fine" required>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Applies To</label>
+                                <select class="form-control" name="applies_to">
+                                    <option value="loan">Loan EMI</option>
+                                    <option value="savings">Savings Deposit</option>
+                                    <option value="both">Both</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Fine Type</label>
+                                <select class="form-control" name="fine_type">
+                                    <option value="late_payment">Late Payment</option>
+                                    <option value="overdue">Overdue</option>
+                                    <option value="missed_payment">Missed Payment</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Calculation Type</label>
+                                <select class="form-control" name="calculation_type" id="fineCalcType">
+                                    <option value="fixed">Fixed Amount</option>
+                                    <option value="percentage">Percentage of Due</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label id="fineValueLabel">Fine Amount (₹)</label>
+                                <input type="number" class="form-control" name="fine_amount" value="100" min="0" step="0.01">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Grace Period (Days)</label>
+                                <input type="number" class="form-control" name="min_days" value="3" min="0">
+                                <small class="text-muted">Fine applies after these days</small>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Max Fine Amount (₹)</label>
+                                <input type="number" class="form-control" name="max_fine" value="5000" min="0">
+                                <small class="text-muted">Maximum cap on fine</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Per Day Amount (₹)</label>
+                        <input type="number" class="form-control" name="per_day_amount" value="0" min="0" step="0.01">
+                        <small class="text-muted">Additional amount per day overdue (optional)</small>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Effective From</label>
+                                <input type="date" class="form-control" name="effective_from" value="<?= date('Y-m-d') ?>">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Status</label>
+                                <select class="form-control" name="is_active">
+                                    <option value="1">Active</option>
+                                    <option value="0">Inactive</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-warning"><i class="fas fa-save mr-1"></i> Save Rule</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Add Admin User Modal -->
+<div class="modal fade" id="addAdminModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <form action="<?= site_url('admin/settings/create_admin') ?>" method="post">
+                <?= form_hidden($this->security->get_csrf_token_name(), $this->security->get_csrf_hash()) ?>
+                <div class="modal-header bg-info text-white">
+                    <h5 class="modal-title"><i class="fas fa-user-plus mr-2"></i>Add Admin User</h5>
+                    <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>Full Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="full_name" placeholder="Enter full name" required>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Email <span class="text-danger">*</span></label>
+                                <input type="email" class="form-control" name="email" placeholder="admin@example.com" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Phone</label>
+                                <input type="text" class="form-control" name="phone" placeholder="Phone number">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Role <span class="text-danger">*</span></label>
+                        <select class="form-control" name="role" required>
+                            <option value="admin">Admin</option>
+                            <option value="manager">Manager</option>
+                            <option value="staff">Staff</option>
+                            <option value="accountant">Accountant</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Password <span class="text-danger">*</span></label>
+                        <input type="password" class="form-control" name="password" placeholder="Enter password" required minlength="6">
+                        <small class="text-muted">Minimum 6 characters</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-info"><i class="fas fa-save mr-1"></i> Create User</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+// Dynamic label for fine calculation type
+$(document).ready(function() {
+    $('#fineCalcType').on('change', function() {
+        var calcType = $(this).val();
+        if (calcType === 'percentage') {
+            $('#fineValueLabel').text('Fine Rate (%)');
+        } else {
+            $('#fineValueLabel').text('Fine Amount (₹)');
+        }
+    });
 });
 </script>

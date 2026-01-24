@@ -173,6 +173,9 @@ class Settings extends Admin_Controller {
         
         $post_data = $this->input->post();
         
+        // Debug logging
+        log_message('debug', 'Settings update - POST data received: ' . json_encode($post_data));
+        
         if ($post_data && is_array($post_data)) {
             // Map org_* fields back to company_* for database storage
             $settings = [];
@@ -198,7 +201,11 @@ class Settings extends Admin_Controller {
             $direct_fields = [
                 'currency_symbol', 'date_format',
                 'member_code_prefix', 'loan_prefix', 'savings_prefix', 'receipt_prefix',
-                'max_active_loans', 'max_guarantor', 'npa_days', 'fixed_due_day'
+                'max_active_loans', 'max_guarantor', 'npa_days', 'fixed_due_day',
+                // Email settings
+                'email_protocol', 'email_smtp_host', 'email_smtp_port', 'email_smtp_crypto',
+                'email_smtp_user', 'email_smtp_pass', 'email_from_address', 'email_from_name',
+                'email_test_recipient'
             ];
             
             foreach ($direct_fields as $field) {
@@ -213,7 +220,10 @@ class Settings extends Admin_Controller {
                 $settings[$field] = isset($post_data[$field]) ? 1 : 0;
             }
             
+            log_message('debug', 'Settings to save: ' . json_encode($settings));
+            
             if (empty($settings)) {
+                log_message('error', 'No settings to update - settings array is empty');
                 $this->session->set_flashdata('error', 'No settings to update.');
                 redirect('admin/settings');
                 return;
@@ -224,7 +234,9 @@ class Settings extends Admin_Controller {
 
             // Update settings
             try {
-                $this->Setting_model->update_settings($settings);
+                $result = $this->Setting_model->update_settings($settings);
+                
+                log_message('debug', 'Settings update result: ' . ($result ? 'success' : 'failed'));
                 
                 // Log audit correctly: action, module, table_name, record_id, old_values, new_values
                 // Use record_id=0 to indicate bulk/system settings update
@@ -236,6 +248,7 @@ class Settings extends Admin_Controller {
                 $this->session->set_flashdata('error', 'Failed to update settings: ' . $e->getMessage());
             }
         } else {
+            log_message('error', 'No POST data received or invalid format');
             $this->session->set_flashdata('error', 'No data received.');
         }
         
@@ -265,7 +278,7 @@ class Settings extends Admin_Controller {
      */
     public function create_financial_year() {
         if ($this->input->method() !== 'post') {
-            redirect('admin/settings/financial_years');
+            redirect('admin/settings#financial');
         }
         
         $year_data = [
@@ -286,7 +299,7 @@ class Settings extends Admin_Controller {
             $this->session->set_flashdata('error', 'Failed to create financial year.');
         }
         
-        redirect('admin/settings/financial_years');
+        redirect('admin/settings#financial');
     }
 
     /**
@@ -295,13 +308,13 @@ class Settings extends Admin_Controller {
     public function set_current_fy($id) {
         if (!$id) {
             $this->session->set_flashdata('error', 'Invalid financial year');
-            redirect('admin/settings/financial_years');
+            redirect('admin/settings#financial');
         }
 
         $this->Financial_year_model->set_active($id);
         $this->log_audit('set_current', 'financial_years', 'financial_years', $id, null, ['id' => $id]);
         $this->session->set_flashdata('success', 'Financial year set as current.');
-        redirect('admin/settings/financial_years');
+        redirect('admin/settings#financial');
     }
     
     /**
@@ -413,7 +426,7 @@ class Settings extends Admin_Controller {
      */
     public function save_savings_scheme() {
         if ($this->input->method() !== 'post') {
-            redirect('admin/settings/savings_schemes');
+            redirect('admin/settings#savings_schemes');
         }
 
         $this->load->model('Savings_scheme_model');
@@ -445,7 +458,7 @@ class Settings extends Admin_Controller {
             $this->session->set_flashdata('error', 'Failed to save scheme.');
         }
 
-        redirect('admin/settings/savings_schemes');
+        redirect('admin/settings#savings_schemes');
     }
 
     /**
@@ -474,7 +487,7 @@ class Settings extends Admin_Controller {
      */
     public function create_admin() {
         if ($this->input->method() !== 'post') {
-            redirect('admin/settings/admin_users');
+            redirect('admin/settings#admin_users');
         }
         
         $this->load->model('Admin_model');
@@ -496,7 +509,7 @@ class Settings extends Admin_Controller {
             $this->session->set_flashdata('error', 'Failed to create admin user.');
         }
         
-        redirect('admin/settings/admin_users');
+        redirect('admin/settings#admin_users');
     }
     
     /**
@@ -504,7 +517,7 @@ class Settings extends Admin_Controller {
      */
     public function save_fine_rule() {
         if ($this->input->method() !== 'post') {
-            redirect('admin/settings/fine_rules');
+            redirect('admin/settings#fine_rules');
         }
         
         $id = $this->input->post('id');
@@ -564,18 +577,7 @@ class Settings extends Admin_Controller {
             $this->session->set_flashdata('error', 'Failed to save fine rule.');
         }
         
-        redirect('admin/settings/fine_rules');
-    }
-            $message = 'Fine rule created successfully.';
-        }
-        
-        if ($result) {
-            $this->session->set_flashdata('success', $message);
-        } else {
-            $this->session->set_flashdata('error', 'Failed to save fine rule.');
-        }
-        
-        redirect('admin/settings/fine_rules');
+        redirect('admin/settings#fine_rules');
     }
     
     /**
@@ -605,7 +607,7 @@ class Settings extends Admin_Controller {
      */
     public function save_loan_product() {
         if ($this->input->method() !== 'post') {
-            redirect('admin/settings/loan_products');
+            redirect('admin/settings#loan_products');
         }
         
         $id = $this->input->post('id');
@@ -652,7 +654,7 @@ class Settings extends Admin_Controller {
             $this->session->set_flashdata('error', 'Failed to save loan product.');
         }
         
-        redirect('admin/settings/loan_products');
+        redirect('admin/settings#loan_products');
     }
     
     /**
@@ -789,6 +791,71 @@ class Settings extends Admin_Controller {
         
         $this->load->helper('download');
         force_download($filename, $backup);
+    }
+    
+    /**
+     * Restore Database from SQL file
+     */
+    public function restore() {
+        if ($this->input->method() !== 'post') {
+            redirect('admin/settings#backup');
+        }
+        
+        // Check if file was uploaded
+        if (!isset($_FILES['backup_file']) || $_FILES['backup_file']['error'] !== 0) {
+            $this->session->set_flashdata('error', 'No file uploaded or upload error occurred.');
+            redirect('admin/settings#backup');
+            return;
+        }
+        
+        $file = $_FILES['backup_file'];
+        $file_ext = pathinfo($file['name'], PATHINFO_EXTENSION);
+        
+        // Validate file extension
+        if (strtolower($file_ext) !== 'sql') {
+            $this->session->set_flashdata('error', 'Invalid file type. Only .sql files are allowed.');
+            redirect('admin/settings#backup');
+            return;
+        }
+        
+        // Read SQL file
+        $sql_content = file_get_contents($file['tmp_name']);
+        
+        if (empty($sql_content)) {
+            $this->session->set_flashdata('error', 'The SQL file is empty or cannot be read.');
+            redirect('admin/settings#backup');
+            return;
+        }
+        
+        // Execute SQL queries
+        try {
+            $this->db->trans_begin();
+            
+            // Split SQL into individual queries
+            $queries = explode(';', $sql_content);
+            
+            foreach ($queries as $query) {
+                $query = trim($query);
+                if (!empty($query)) {
+                    $this->db->query($query);
+                }
+            }
+            
+            if ($this->db->trans_status() === FALSE) {
+                $this->db->trans_rollback();
+                $this->session->set_flashdata('error', 'Database restore failed. Transaction rolled back.');
+            } else {
+                $this->db->trans_commit();
+                $this->log_audit('restore', 'database', 'system', 0, null, ['filename' => $file['name']]);
+                $this->session->set_flashdata('success', 'Database restored successfully from ' . $file['name']);
+            }
+        } catch (Exception $e) {
+            $this->db->trans_rollback();
+            log_message('error', 'Database restore error: ' . $e->getMessage());
+            $this->session->set_flashdata('error', 'Restore failed: ' . $e->getMessage());
+        }
+        
+        redirect('admin/settings#backup');
     }
 
     /**
