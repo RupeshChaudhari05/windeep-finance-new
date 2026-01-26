@@ -860,7 +860,6 @@ class Loans extends Admin_Controller {
             'max_amount' => $this->input->post('max_amount'),
             'interest_rate' => $this->input->post('interest_rate'),
             'interest_type' => $this->input->post('interest_type'),
-            'emi_frequency' => $this->input->post('emi_frequency'),
             'min_tenure_months' => $this->input->post('min_tenure'),
             'max_tenure_months' => $this->input->post('max_tenure'),
             'processing_fee_value' => $this->input->post('processing_fee') ?: 0,
@@ -881,7 +880,7 @@ class Loans extends Admin_Controller {
             return;
         }
         
-        if ($data['min_tenure'] > $data['max_tenure']) {
+        if ($data['min_tenure_months'] > $data['max_tenure_months']) {
             $this->json_response(['success' => false, 'message' => 'Min tenure cannot exceed max tenure']);
             return;
         }
