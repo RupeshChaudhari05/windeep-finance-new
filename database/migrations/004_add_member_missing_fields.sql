@@ -3,7 +3,12 @@
 -- Description: Adds marital_status, occupation, monthly_income and fixes field name mismatches
 
 ALTER TABLE `members`
-ADD COLUMN `marital_status` ENUM('single', 'married', 'divorced', 'widowed') NULL AFTER `gender`,
+ADD COLUMN `marital_status` ENUM(
+    'single',
+    'married',
+    'divorced',
+    'widowed'
+) NULL AFTER `gender`,
 ADD COLUMN `occupation` VARCHAR(100) NULL AFTER `marital_status`,
 ADD COLUMN `monthly_income` DECIMAL(15, 2) NULL AFTER `occupation`;
 
