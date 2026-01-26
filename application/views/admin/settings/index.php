@@ -87,8 +87,9 @@
                     <div class="card-header">
                         <h3 class="card-title"><i class="fas fa-sliders-h mr-1"></i> General Settings</h3>
                     </div>
-                    <form action="<?= site_url('admin/settings/update') ?>" method="post" enctype="multipart/form-data">
+                    <form id="general-settings-form" action="<?= site_url('admin/settings/update') ?>" method="post" enctype="multipart/form-data">
                         <?= form_hidden($this->security->get_csrf_token_name(), $this->security->get_csrf_hash()) ?>
+                        <input type="hidden" name="form_submitted" value="1">
                         
                         <div class="card-body">
                             <h5 class="text-primary border-bottom pb-2 mb-3">Organization Details</h5>
@@ -246,24 +247,62 @@
                                 <i class="fas fa-exclamation-triangle mr-2"></i><strong>Update Existing Schedules:</strong>
                                 <p class="mb-2">The Fixed Due Day setting only applies to <strong>NEW</strong> loans and savings created after enabling it. Existing schedules keep their original due dates.</p>
                                 <p class="mb-2">If you want to update <strong>all existing future schedules</strong> to use the new Fixed Due Day, click the button below:</p>
-                                <form method="post" action="<?= base_url('admin/settings/update_existing_schedules') ?>" onsubmit="return confirm('This will update ALL future loan installments and savings schedules to use Fixed Due Day <?= $settings['fixed_due_day'] ?? 10 ?>. Are you sure?');">
-                                    <?= form_hidden($this->security->get_csrf_token_name(), $this->security->get_csrf_hash()) ?>
-                                    <button type="submit" class="btn btn-warning" <?= !($settings['force_fixed_due_day'] ?? 0) ? 'disabled' : '' ?>>
-                                        <i class="fas fa-sync-alt mr-1"></i> Update All Existing Schedules
-                                    </button>
-                                    <?php if (!($settings['force_fixed_due_day'] ?? 0)): ?>
-                                        <small class="text-muted ml-2">Enable Fixed Due Day first</small>
-                                    <?php endif; ?>
-                                </form>
+                                <a href="<?= base_url('admin/settings/update_existing_schedules') ?>" 
+                                   class="btn btn-warning" 
+                                   <?= !($settings['force_fixed_due_day'] ?? 0) ? 'disabled style="pointer-events:none;opacity:0.5;"' : '' ?>
+                                   onclick="return confirm('This will update ALL future loan installments and savings schedules to use Fixed Due Day <?= $settings['fixed_due_day'] ?? 10 ?>. Are you sure?');">
+                                    <i class="fas fa-sync-alt mr-1"></i> Update All Existing Schedules
+                                </a>
+                                <?php if (!($settings['force_fixed_due_day'] ?? 0)): ?>
+                                    <small class="text-muted ml-2">Enable Fixed Due Day first</small>
+                                <?php endif; ?>
                             </div>
                         </div>
                         
                         <div class="card-footer">
-                            <button type="submit" class="btn btn-primary">
+                            <button type="submit" class="btn btn-primary" id="btn-save-general">
                                 <i class="fas fa-save mr-1"></i> Save Settings
                             </button>
+                            <span class="ml-3 text-muted" id="form-debug"></span>
                         </div>
                     </form>
+                    
+                    <script>
+                    // Immediate debugging - runs when script is parsed
+                    console.log('Settings form script loaded');
+                    
+                    $(document).ready(function() {
+                        console.log('Document ready - Settings form');
+                        
+                        var $form = $('#general-settings-form');
+                        var $btn = $('#btn-save-general');
+                        
+                        console.log('Form found:', $form.length > 0);
+                        console.log('Button found:', $btn.length > 0);
+                        console.log('Form action:', $form.attr('action'));
+                        
+                        // Update debug display
+                        $('#form-debug').text('Form: ' + ($form.length > 0 ? 'OK' : 'NOT FOUND'));
+                        
+                        // Handle form submit
+                        $form.on('submit', function(e) {
+                            console.log('FORM SUBMIT EVENT FIRED');
+                            $('#form-debug').text('Submitting...').css('color', 'green');
+                            return true; // Allow submission
+                        });
+                        
+                        // Handle button click
+                        $btn.on('click', function(e) {
+                            console.log('BUTTON CLICK EVENT FIRED');
+                            // Manually submit form if needed
+                            var form = document.getElementById('general-settings-form');
+                            if (form) {
+                                console.log('Manually submitting form...');
+                                form.submit();
+                            }
+                        });
+                    });
+                    </script>
                 </div>
             </div>
             

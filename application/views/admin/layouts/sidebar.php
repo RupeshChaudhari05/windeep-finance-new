@@ -165,12 +165,12 @@
                             </p>
                         </a>
                         <ul class="nav nav-treeview">
-                            <li class="nav-item">
+                            <!-- <li class="nav-item">
                                 <a href="<?= base_url('admin/installments') ?>" class="nav-link">
                                     <i class="far fa-circle nav-icon"></i>
                                     <p>EMI Schedule</p>
                                 </a>
-                            </li>
+                            </li> -->
                             <li class="nav-item">
                                 <a href="<?= base_url('admin/installments/due-today') ?>" class="nav-link">
                                     <i class="far fa-circle nav-icon"></i>
@@ -279,12 +279,12 @@
                     </li>
 
                     <!-- Guarantors -->
-                    <li class="nav-item">
+                    <!-- <li class="nav-item">
                         <a href="<?= base_url('admin/reports/guarantor') ?>" class="nav-link <?= ($this->uri->segment(2) == 'reports' && $this->uri->segment(3) == 'guarantor') ? 'active' : '' ?>">
                             <i class="nav-icon fas fa-user-shield"></i>
                             <p>Guarantors</p>
                         </a>
-                    </li>
+                    </li> -->
 
                     <!-- Reports -->
                     <li class="nav-item <?= in_array($this->uri->segment(2), ['reports']) ? 'menu-open' : '' ?>">
@@ -393,7 +393,7 @@
                         </a>
                         <ul class="nav nav-treeview">
                             <li class="nav-item">
-                                <a href="<?= base_url('admin/settings/general') ?>" class="nav-link">
+                                <a href="<?= base_url('admin/settings') ?>" class="nav-link">
                                     <i class="far fa-circle nav-icon"></i>
                                     <p>General Settings</p>
                                 </a>
