@@ -98,6 +98,9 @@ class Members extends Admin_Controller {
             ['title' => 'Add New', 'url' => '']
         ];
         
+        // Generate member code for display
+        $data['member_code'] = $this->Member_model->generate_member_code();
+        
         $this->load_view('admin/members/create', $data);
     }
     
@@ -126,6 +129,7 @@ class Members extends Admin_Controller {
         // Prepare data
         $member_data = [
             'first_name' => $this->input->post('first_name', TRUE),
+            'middle_name' => $this->input->post('middle_name', TRUE),
             'last_name' => $this->input->post('last_name', TRUE),
             'phone' => $this->input->post('phone', TRUE),
             'alternate_phone' => $this->input->post('alternate_phone', TRUE),
@@ -175,6 +179,37 @@ class Members extends Admin_Controller {
         $member_id = $this->Member_model->create_member($member_data);
         
         if ($member_id) {
+            // Get the created member details
+            $created_member = $this->Member_model->get_by_id($member_id);
+            
+            // Send welcome email if email is provided and settings are configured
+            if (!empty($member_data['email']) && $created_member) {
+                $this->load->helper('email');
+                
+                $member_name = $member_data['first_name'];
+                if (!empty($member_data['middle_name'])) {
+                    $member_name .= ' ' . $member_data['middle_name'];
+                }
+                $member_name .= ' ' . $member_data['last_name'];
+                
+                // Generate a default password if not provided
+                $default_password = 'Welcome@' . date('Y');
+                
+                // Send welcome email (async, don't wait for response)
+                $email_result = send_welcome_email(
+                    $created_member->member_code,
+                    $member_name,
+                    $member_data['email'],
+                    $default_password
+                );
+                
+                if ($email_result['success']) {
+                    log_message('info', 'Welcome email sent to member: ' . $created_member->member_code);
+                } else {
+                    log_message('error', 'Failed to send welcome email: ' . $email_result['message']);
+                }
+            }
+            
             $this->log_audit('create', 'members', 'members', $member_id, null, $member_data);
             $this->session->set_flashdata('success', 'Member created successfully.');
             redirect('admin/members/view/' . $member_id);
@@ -267,6 +302,7 @@ class Members extends Admin_Controller {
 
         $member_data = [
             'first_name' => $this->input->post('first_name', TRUE),
+            'middle_name' => $this->input->post('middle_name', TRUE),
             'last_name' => $this->input->post('last_name', TRUE),
             'phone' => $phone,
             'alternate_phone' => $this->input->post('alternate_phone', TRUE),

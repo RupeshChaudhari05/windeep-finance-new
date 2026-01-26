@@ -8,6 +8,24 @@
         <?= form_hidden($this->security->get_csrf_token_name(), $this->security->get_csrf_hash()) ?>
         
         <div class="card-body">
+            <!-- Member Code -->
+          
+                <div class="row">
+                    <div class="col-md-6">
+                        <label class="font-weight-bold">Member Code (Auto-Generated):</label>
+                        <div class="input-group">
+                            <div class="input-group-prepend">
+                                <span class="input-group-text"><i class="fas fa-id-card"></i></span>
+                            </div>
+                            <input type="text" class="form-control form-control-lg font-weight-bold" 
+                                   value="<?= isset($member_code) ? $member_code : '' ?>" readonly 
+                                   style="background-color: #e9ecef; font-size: 1.1rem; letter-spacing: 1px;">
+                        </div>
+                        <small class="text-muted">This code will be automatically assigned to the member</small>
+                    </div>
+                </div>
+            
+            <br>
             <!-- Personal Information -->
             <h5 class="text-primary border-bottom pb-2 mb-3">
                 <i class="fas fa-user mr-1"></i> Personal Information
@@ -20,6 +38,14 @@
                                value="<?= set_value('first_name') ?>" required
                                placeholder="Enter first name" title="Member's first name as per ID proof">
                         <span class="text-danger"><?= form_error('first_name') ?></span>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-group">
+                        <label for="middle_name">Middle Name</label>
+                        <input type="text" class="form-control" id="middle_name" name="middle_name" 
+                               value="<?= set_value('middle_name') ?>"
+                               placeholder="Enter middle name" title="Member's middle name (optional)">
                     </div>
                 </div>
                 <div class="col-md-3">
@@ -152,9 +178,9 @@
             <div class="row">
                 <div class="col-md-6">
                     <div class="form-group">
-                        <label for="address_line1">Address Line 1 <span class="text-danger">*</span></label>
+                        <label for="address_line1">Address Line 1</label>
                         <input type="text" class="form-control" id="address_line1" name="address_line1" 
-                               value="<?= set_value('address_line1') ?>" required
+                               value="<?= set_value('address_line1') ?>"
                                placeholder="House/Building No, Street" title="Primary address">
                         <span class="text-danger"><?= form_error('address_line1') ?></span>
                     </div>
@@ -171,17 +197,17 @@
             <div class="row">
                 <div class="col-md-3">
                     <div class="form-group">
-                        <label for="city">City <span class="text-danger">*</span></label>
+                        <label for="city">City</label>
                         <input type="text" class="form-control" id="city" name="city" 
-                               value="<?= set_value('city') ?>" required
+                               value="<?= set_value('city') ?>"
                                placeholder="City" title="City/Town name">
                         <span class="text-danger"><?= form_error('city') ?></span>
                     </div>
                 </div>
                 <div class="col-md-3">
                     <div class="form-group">
-                        <label for="state">State <span class="text-danger">*</span></label>
-                        <select class="form-control" id="state" name="state" required>
+                        <label for="state">State</label>
+                        <select class="form-control" id="state" name="state">
                             <option value="">Select State</option>
                             <option value="Andhra Pradesh" <?= set_select('state', 'Andhra Pradesh') ?>>Andhra Pradesh</option>
                             <option value="Bihar" <?= set_select('state', 'Bihar') ?>>Bihar</option>
@@ -281,17 +307,17 @@
             <div class="row">
                 <div class="col-md-4">
                     <div class="form-group">
-                        <label for="nominee_name">Nominee Name <span class="text-danger">*</span></label>
+                        <label for="nominee_name">Nominee Name</label>
                         <input type="text" class="form-control" id="nominee_name" name="nominee_name" 
-                               value="<?= set_value('nominee_name') ?>" required
+                               value="<?= set_value('nominee_name') ?>"
                                placeholder="Full name of nominee" title="Legal nominee for member's account">
                         <span class="text-danger"><?= form_error('nominee_name') ?></span>
                     </div>
                 </div>
                 <div class="col-md-4">
                     <div class="form-group">
-                        <label for="nominee_relationship">Relationship <span class="text-danger">*</span></label>
-                        <select class="form-control" id="nominee_relationship" name="nominee_relationship" required title="Relationship with nominee">
+                        <label for="nominee_relationship">Relationship</label>
+                        <select class="form-control" id="nominee_relationship" name="nominee_relationship" title="Relationship with nominee">
                             <option value="">Select Relationship</option>
                             <option value="spouse" <?= set_select('nominee_relationship', 'spouse') ?>>Spouse</option>
                             <option value="father" <?= set_select('nominee_relationship', 'father') ?>>Father</option>

@@ -23,6 +23,13 @@
                 </div>
                 <div class="col-md-3">
                     <div class="form-group">
+                        <label for="middle_name">Middle Name</label>
+                        <input type="text" class="form-control" id="middle_name" name="middle_name" 
+                               value="<?= set_value('middle_name', isset($member->middle_name) ? $member->middle_name : '') ?>">
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-group">
                         <label for="last_name">Last Name <span class="text-danger">*</span></label>
                            <input type="text" class="form-control" id="last_name" name="last_name" 
                                value="<?= set_value('last_name', isset($member->last_name) ? $member->last_name : '') ?>" required>
@@ -168,9 +175,9 @@
             <div class="row">
                 <div class="col-md-6">
                     <div class="form-group">
-                        <label for="address_line1">Address Line 1 <span class="text-danger">*</span></label>
+                        <label for="address_line1">Address Line 1</label>
                            <input type="text" class="form-control" id="address_line1" name="address_line1" 
-                               value="<?= set_value('address_line1', isset($member->address_line1) ? $member->address_line1 : '') ?>" required>
+                               value="<?= set_value('address_line1', isset($member->address_line1) ? $member->address_line1 : '') ?>">
                         <span class="text-danger"><?= form_error('address_line1') ?></span>
                     </div>
                 </div>
@@ -279,9 +286,9 @@
             <div class="row">
                 <div class="col-md-4">
                     <div class="form-group">
-                        <label for="nominee_name">Nominee Name <span class="text-danger">*</span></label>
+                        <label for="nominee_name">Nominee Name</label>
                            <input type="text" class="form-control" id="nominee_name" name="nominee_name" 
-                               value="<?= set_value('nominee_name', isset($member->nominee_name) ? $member->nominee_name : '') ?>" required>
+                               value="<?= set_value('nominee_name', isset($member->nominee_name) ? $member->nominee_name : '') ?>">
                         <span class="text-danger"><?= form_error('nominee_name') ?></span>
                     </div>
                 </div>

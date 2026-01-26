@@ -23,33 +23,21 @@ class Member_model extends MY_Model {
     ];
     
     /**
-     * Generate New Member Code
+     * Generate New Member Code - Format: MEMB000001, MEMB000002, etc.
      */
     public function generate_member_code() {
-        $year = date('Y');
+        // Get the highest member code number
+        $result = $this->db->select("CAST(SUBSTRING(member_code, 5) AS UNSIGNED) as max_num")
+                           ->where("member_code REGEXP", '^MEMB[0-9]+$')
+                           ->order_by('max_num', 'DESC')
+                           ->limit(1)
+                           ->get($this->table)
+                           ->row();
         
-        // Get or create sequence
-        $seq = $this->db->where('year', $year)
-                        ->get('member_code_sequence')
-                        ->row();
+        $next_number = ($result && $result->max_num) ? $result->max_num + 1 : 1;
         
-        if (!$seq) {
-            $this->db->insert('member_code_sequence', [
-                'prefix' => 'MEM',
-                'current_number' => 0,
-                'year' => $year
-            ]);
-            $seq = $this->db->where('year', $year)
-                            ->get('member_code_sequence')
-                            ->row();
-        }
-        
-        // Increment
-        $next_number = $seq->current_number + 1;
-        $this->db->where('id', $seq->id)
-                 ->update('member_code_sequence', ['current_number' => $next_number]);
-        
-        return $seq->prefix . '-' . $year . '-' . str_pad($next_number, 4, '0', STR_PAD_LEFT);
+        // Format: MEMB + 6 digit zero-padded number
+        return 'MEMB' . str_pad($next_number, 6, '0', STR_PAD_LEFT);
     }
     
     /**
@@ -62,6 +50,18 @@ class Member_model extends MY_Model {
         
         if (!empty($data['password'])) {
             $data['password'] = password_hash($data['password'], PASSWORD_DEFAULT);
+        }
+        
+        // Convert empty strings to NULL for optional fields
+        $nullable_fields = ['pan_number', 'aadhaar_number', 'id_proof_number', 'email', 
+                           'alternate_phone', 'middle_name', 'address_line1', 'address_line2',
+                           'city', 'state', 'pincode', 'nominee_name', 'nominee_relationship', 
+                           'nominee_phone', 'bank_name', 'bank_account_number', 'bank_ifsc'];
+        
+        foreach ($nullable_fields as $field) {
+            if (isset($data[$field]) && $data[$field] === '') {
+                $data[$field] = NULL;
+            }
         }
         
         $data['created_at'] = date('Y-m-d H:i:s');

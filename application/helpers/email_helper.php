@@ -18,15 +18,19 @@ require_once APPPATH . '../vendor/autoload.php';
 function send_email($to, $subject, $message, $from_email = null, $from_name = null, $attachments = [])
 {
     $CI =& get_instance();
-
-    // Get email config
-    $mail_driver = env('MAIL_DRIVER', 'smtp');
-    $mail_host = env('MAIL_HOST', 'smtp.gmail.com');
-    $mail_port = env('MAIL_PORT', 587);
-    $mail_username = env('MAIL_USERNAME', '');
-    $mail_password = env('MAIL_PASSWORD', '');
-    $mail_from_address = env('MAIL_FROM_ADDRESS', 'noreply@windeep.com');
-    $mail_from_name = env('MAIL_FROM_NAME', 'Windeep Finance');
+    
+    // Load settings helper to get database settings
+    $CI->load->helper('settings');
+    
+    // Get email config from database settings first, fallback to env
+    $mail_driver = get_setting('mail_driver', env('MAIL_DRIVER', 'smtp'));
+    $mail_host = get_setting('mail_host', env('MAIL_HOST', 'smtp.gmail.com'));
+    $mail_port = get_setting('mail_port', env('MAIL_PORT', 587));
+    $mail_username = get_setting('mail_username', env('MAIL_USERNAME', ''));
+    $mail_password = get_setting('mail_password', env('MAIL_PASSWORD', ''));
+    $mail_from_address = get_setting('mail_from_address', env('MAIL_FROM_ADDRESS', 'noreply@windeep.com'));
+    $mail_from_name = get_setting('mail_from_name', env('MAIL_FROM_NAME', 'Windeep Finance'));
+    $mail_encryption = get_setting('mail_encryption', env('MAIL_ENCRYPTION', 'tls'));
 
     // Override defaults if provided
     $from_email = $from_email ?: $mail_from_address;
@@ -41,7 +45,7 @@ function send_email($to, $subject, $message, $from_email = null, $from_name = nu
         $mail->SMTPAuth = true;
         $mail->Username = $mail_username;
         $mail->Password = $mail_password;
-        $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->SMTPSecure = strtolower($mail_encryption) === 'ssl' ? PHPMailer::ENCRYPTION_SMTPS : PHPMailer::ENCRYPTION_STARTTLS;
         $mail->Port = $mail_port;
 
         // Recipients
@@ -281,6 +285,135 @@ function send_installment_reminder($member, $installment_details)
     </div>";
 
     return send_email($member->email, $subject, $message);
+}
+
+/**
+ * Send welcome email to new member
+ */
+function send_welcome_email($member_code, $member_name, $email, $password = null)
+{
+    $CI =& get_instance();
+    
+    // Load settings helper
+    $CI->load->helper('settings');
+    
+    // Check if email settings are configured (from database settings)
+    $mail_username = get_setting('mail_username', env('MAIL_USERNAME', ''));
+    $mail_password = get_setting('mail_password', env('MAIL_PASSWORD', ''));
+    
+    if (empty($mail_username) || empty($mail_password)) {
+        log_message('info', 'Email not sent - Email settings not configured');
+        return ['success' => false, 'message' => 'Email settings not configured'];
+    }
+    
+    if (empty($email)) {
+        return ['success' => false, 'message' => 'Member email not provided'];
+    }
+    
+    $subject = "Welcome to Windeep Finance - Your Account Details";
+    
+    $message = '<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Welcome to Windeep Finance</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f5f5f5; }
+        .container { max-width: 600px; margin: 30px auto; background: white; border-radius: 10px; box-shadow: 0 2px 20px rgba(0,0,0,0.1); overflow: hidden; }
+        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 40px 30px; text-align: center; }
+        .header h1 { margin: 0; font-size: 28px; }
+        .header p { margin: 10px 0 0 0; opacity: 0.9; }
+        .content { padding: 40px 30px; }
+        .welcome-text { font-size: 16px; color: #333; line-height: 1.6; margin-bottom: 30px; }
+        .info-box { background: #f8f9fa; border-left: 4px solid #667eea; padding: 20px; margin: 20px 0; border-radius: 5px; }
+        .info-box h3 { margin: 0 0 15px 0; color: #667eea; font-size: 18px; }
+        .info-item { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #e0e0e0; }
+        .info-item:last-child { border-bottom: none; }
+        .info-label { font-weight: bold; color: #666; }
+        .info-value { color: #333; font-family: monospace; background: #fff; padding: 5px 10px; border-radius: 3px; }
+        .password-note { background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 5px; color: #856404; }
+        .cta-button { display: inline-block; background: #667eea; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; font-weight: bold; }
+        .cta-button:hover { background: #5568d3; }
+        .footer { background: #f8f9fa; padding: 20px 30px; text-align: center; color: #666; font-size: 14px; border-top: 1px solid #e0e0e0; }
+        .footer a { color: #667eea; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎉 Welcome to Windeep Finance!</h1>
+            <p>Your account has been successfully created</p>
+        </div>
+        
+        <div class="content">
+            <div class="welcome-text">
+                <p>Dear <strong>' . htmlspecialchars($member_name) . '</strong>,</p>
+                <p>We are delighted to welcome you to Windeep Finance! Your membership account has been successfully created and is now active.</p>
+                <p>Below are your account details for accessing our member portal:</p>
+            </div>
+            
+            <div class="info-box">
+                <h3>📋 Your Account Information</h3>
+                <div class="info-item">
+                    <span class="info-label">Member Code:</span>
+                    <span class="info-value">' . htmlspecialchars($member_code) . '</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Email/Username:</span>
+                    <span class="info-value">' . htmlspecialchars($email) . '</span>
+                </div>';
+    
+    if ($password) {
+        $message .= '
+                <div class="info-item">
+                    <span class="info-label">Password:</span>
+                    <span class="info-value">' . htmlspecialchars($password) . '</span>
+                </div>';
+    }
+    
+    $message .= '
+            </div>';
+    
+    if ($password) {
+        $message .= '
+            <div class="password-note">
+                <strong>⚠️ Important Security Note:</strong><br>
+                For your security, please change your password after your first login. Keep your login credentials confidential.
+            </div>';
+    }
+    
+    $message .= '
+            
+            <div style="text-align: center; margin: 30px 0;">
+                <a href="' . base_url('member/login') . '" class="cta-button">Login to Member Portal</a>
+            </div>
+            
+            <div class="welcome-text">
+                <h3 style="color: #667eea;">What\'s Next?</h3>
+                <ul style="line-height: 1.8; color: #555;">
+                    <li>Complete your profile information</li>
+                    <li>Explore available loan products</li>
+                    <li>Apply for savings schemes</li>
+                    <li>View your account statements</li>
+                </ul>
+                
+                <p>If you have any questions or need assistance, please don\'t hesitate to contact our support team.</p>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p><strong>Windeep Finance</strong></p>
+            <p>Email: support@windeepfinance.com | Phone: +91-XXXXXXXXXX</p>
+            <p style="margin-top: 15px; font-size: 12px; color: #999;">
+                This is an automated email. Please do not reply to this message.<br>
+                © ' . date('Y') . ' Windeep Finance. All rights reserved.
+            </p>
+        </div>
+    </div>
+</body>
+</html>';
+
+    return send_email($email, $subject, $message);
 }
 
 /**

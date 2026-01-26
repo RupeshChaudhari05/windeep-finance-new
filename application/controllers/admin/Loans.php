@@ -853,25 +853,25 @@ class Loans extends Admin_Controller {
         $id = $this->input->post('id');
         
         $data = [
-            'name' => $this->input->post('name'),
-            'code' => strtoupper($this->input->post('code')),
+            'product_name' => $this->input->post('name'),
+            'product_code' => strtoupper($this->input->post('code')),
             'description' => $this->input->post('description'),
             'min_amount' => $this->input->post('min_amount'),
             'max_amount' => $this->input->post('max_amount'),
             'interest_rate' => $this->input->post('interest_rate'),
             'interest_type' => $this->input->post('interest_type'),
             'emi_frequency' => $this->input->post('emi_frequency'),
-            'min_tenure' => $this->input->post('min_tenure'),
-            'max_tenure' => $this->input->post('max_tenure'),
-            'processing_fee' => $this->input->post('processing_fee') ?: 0,
+            'min_tenure_months' => $this->input->post('min_tenure'),
+            'max_tenure_months' => $this->input->post('max_tenure'),
+            'processing_fee_value' => $this->input->post('processing_fee') ?: 0,
             'processing_fee_type' => $this->input->post('processing_fee_type'),
-            'late_fine_rate' => $this->input->post('late_fine_rate') ?: 0,
-            'grace_period' => $this->input->post('grace_period') ?: 0,
+            'late_fee_value' => $this->input->post('late_fine_rate') ?: 0,
+            'grace_period_days' => $this->input->post('grace_period') ?: 0,
             'is_active' => $this->input->post('is_active') ? 1 : 0
         ];
         
         // Validation
-        if (empty($data['name']) || empty($data['code'])) {
+        if (empty($data['product_name']) || empty($data['product_code'])) {
             $this->json_response(['success' => false, 'message' => 'Name and code are required']);
             return;
         }
@@ -887,7 +887,7 @@ class Loans extends Admin_Controller {
         }
         
         // Check for duplicate code
-        $existing = $this->db->where('code', $data['code']);
+        $existing = $this->db->where('product_code', $data['product_code']);
         if ($id) {
             $existing->where('id !=', $id);
         }
