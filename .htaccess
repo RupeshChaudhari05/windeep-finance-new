@@ -1,5 +1,14 @@
+# Disable MultiViews (important for shared hosting)
+Options -MultiViews -Indexes +FollowSymLinks
+
 RewriteEngine On
 RewriteBase /windeep_finance/
+
+# Protect sensitive files
+<FilesMatch "^\.(env|htaccess|htpasswd|git|gitignore)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
 
 # Redirect trailing slashes if not a folder
 RewriteCond %{REQUEST_FILENAME} !-d
@@ -10,7 +19,7 @@ RewriteRule ^ %1 [L,R=301]
 RewriteCond %{THE_REQUEST} ^GET.*index\.php [NC]
 RewriteRule (.*?)index\.php/*(.*) /$1$2 [R=301,NE,L]
 
-# Route requests to index.php
+# Route requests to index.php (QUERY_STRING method for shared hosting)
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^(.*)$ index.php/$1 [L,QSA]
+RewriteRule ^(.*)$ index.php?/$1 [L,QSA]

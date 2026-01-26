@@ -452,6 +452,11 @@
                         <i class="fas fa-check-circle mr-2"></i>
                         <?= $this->session->flashdata('success') ?>
                     </div>
+                    <script>
+                        $(document).ready(function() {
+                            toastr.success('<?= addslashes($this->session->flashdata('success')) ?>');
+                        });
+                    </script>
                 <?php endif; ?>
                 
                 <?php if ($this->session->flashdata('error')): ?>
@@ -460,6 +465,11 @@
                         <i class="fas fa-exclamation-circle mr-2"></i>
                         <?= $this->session->flashdata('error') ?>
                     </div>
+                    <script>
+                        $(document).ready(function() {
+                            toastr.error('<?= addslashes($this->session->flashdata('error')) ?>');
+                        });
+                    </script>
                 <?php endif; ?>
                 
                 <?php if ($this->session->flashdata('warning')): ?>
@@ -468,6 +478,11 @@
                         <i class="fas fa-exclamation-triangle mr-2"></i>
                         <?= $this->session->flashdata('warning') ?>
                     </div>
+                    <script>
+                        $(document).ready(function() {
+                            toastr.warning('<?= addslashes($this->session->flashdata('warning')) ?>');
+                        });
+                    </script>
                 <?php endif; ?>
                 
                 <?php if ($this->session->flashdata('info')): ?>
@@ -476,4 +491,9 @@
                         <i class="fas fa-info-circle mr-2"></i>
                         <?= $this->session->flashdata('info') ?>
                     </div>
+                    <script>
+                        $(document).ready(function() {
+                            toastr.info('<?= addslashes($this->session->flashdata('info')) ?>');
+                        });
+                    </script>
                 <?php endif; ?>

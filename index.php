@@ -286,6 +286,34 @@ switch (ENVIRONMENT)
 
 /*
  * --------------------------------------------------------------------
+ * LOAD .ENV FILE EARLY (FOR SHARED HOSTING)
+ * --------------------------------------------------------------------
+ * Load environment variables BEFORE CodeIgniter boots
+ * This ensures database.php can read .env values correctly
+ */
+if (file_exists(FCPATH . '.env')) {
+	$lines = file(FCPATH . '.env', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+	foreach ($lines as $line) {
+		// Skip comments and empty lines
+		if (strpos(trim($line), '#') === 0 || trim($line) === '') continue;
+		
+		// Parse key=value pairs
+		if (strpos($line, '=') !== false) {
+			list($key, $value) = explode('=', $line, 2);
+			$key = trim($key);
+			$value = trim($value, '"\'');
+			
+			// Set environment variable if not already set
+			if (!getenv($key)) {
+				putenv("$key=$value");
+				$_ENV[$key] = $value;
+			}
+		}
+	}
+}
+
+/*
+ * --------------------------------------------------------------------
  * LOAD THE BOOTSTRAP FILE
  * --------------------------------------------------------------------
  *

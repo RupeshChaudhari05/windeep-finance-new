@@ -267,6 +267,7 @@
                 </div>
             </div>
             
+            
             <!-- Email Configuration -->
             <div class="tab-pane fade" id="email">
                 <div class="card card-primary">

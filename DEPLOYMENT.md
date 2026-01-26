@@ -21,17 +21,51 @@ DB_NAME=windeep_finance_new
 DB_USERNAME=your_db_user
 DB_PASSWORD=your_secure_password
 
-ENCRYPTION_KEY=generate_secure_32_char_key
+ENCRYPTION_KEY=0J6g5aPBRILYHAU9K2frhVM8oyduOnZv
 ```
 
 ### 2. Database Setup
-```sql
--- Import schema
-mysql -u root -p windeep_finance_new < database/schema.sql
 
--- Run migrations (if needed)
--- Check application/migrations/ folder
+#### For Local Development (XAMPP/WAMP):
+```sql
+-- IMPORTANT: Fix trigger/stored procedure creation error
+-- Run this FIRST in MySQL/phpMyAdmin:
+SET GLOBAL log_bin_trust_function_creators = 1;
+
+-- Then import schema
+mysql -u root -p windeep_finance_new < database/schema.sql
 ```
+
+**Permanent Fix (Add to `my.ini` / `my.cnf` under `[mysqld]`):**
+```ini
+log_bin_trust_function_creators = 1
+```
+
+#### For Shared Hosting (No Admin Access):
+If you get **Access Denied** error, you have 3 options:
+
+**Option 1: Contact Hosting Support (Recommended)**
+Ask them to:
+- Enable `log_bin_trust_function_creators = 1` OR
+- Create the triggers manually from `database/triggers.sql`
+
+**Option 2: Skip Triggers (Application handles it)**
+The application will work without triggers - outstanding amounts are calculated in PHP code.
+Just import the schema without triggers:
+```bash
+# Import only table structures (skip trigger errors)
+mysql -u username -p database_name < database/schema_no_triggers.sql
+```
+
+**Option 3: Use phpMyAdmin Import**
+1. Open phpMyAdmin on your hosting
+2. Select your database
+3. Go to Import tab
+4. Upload `schema.sql`
+5. Check "Ignore errors" option
+6. Import (triggers will fail, tables will succeed)
+
+**Note:** The application is designed to work WITHOUT triggers. They're optimization features only.
 
 ### 3. File Permissions
 ```bash
