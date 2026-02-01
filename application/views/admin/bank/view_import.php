@@ -173,10 +173,10 @@
                 <input type="hidden" id="match_transaction_id">
                 <input type="hidden" id="match_transaction_amount">
                 
-                <!-- Transaction Info -->
-                <div class="row mb-3">
+                <!-- Transaction Info - Sticky Header -->
+                <div class="row mb-3" style="position: sticky; top: 0; z-index: 10; background: white; padding-top: 10px; padding-bottom: 10px; margin-left: -15px; margin-right: -15px; padding-left: 15px; padding-right: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
                     <div class="col-md-6">
-                        <div class="alert alert-info mb-0">
+                        <div class="mb-0">
                             <div class="d-flex justify-content-between align-items-center">
                                 <div>
                                     <strong>Transaction Amount:</strong>
@@ -190,14 +190,17 @@
                         </div>
                     </div>
                     <div class="col-md-6">
-                        <div class="alert mb-0" id="allocation_status">
+                        <div class=" mb-0" id="allocation_status">
                             <div class="d-flex justify-content-between">
-                                <span><strong>Allocated:</strong> <span id="total_allocated">₹0.00</span></span>
-                                <span><strong>Remaining:</strong> <span id="remaining_amount">₹0.00</span></span>
+                                <span><strong>Allocated:</strong> <span id="total_allocated" class="text-primary">₹0.00</span></span>
+                                <span><strong>Remaining:</strong> <span id="remaining_amount" class="text-danger font-weight-bold">₹0.00</span></span>
                             </div>
-                            <div class="progress mt-2" style="height: 8px;">
+                            <div class="progress mt-2" style="height: 10px;">
                                 <div class="progress-bar bg-success" id="allocation_progress" style="width: 0%"></div>
                             </div>
+                            <small class="text-muted mt-1 d-block" id="allocation_helper">
+                                <i class="fas fa-info-circle"></i> You can partially allocate the transaction
+                            </small>
                         </div>
                     </div>
                 </div>
@@ -683,19 +686,28 @@ $(document).ready(function() {
         var $status = $('#allocation_status');
         var $error = $('#validation_error');
         var $btn = $('#confirmMatch');
+        var $helper = $('#allocation_helper');
 
         if (total > transactionAmount) {
             $status.removeClass('alert-info alert-success').addClass('alert-danger');
             $error.show();
             $('#validation_msg').text('Total allocated (₹' + total.toLocaleString('en-IN') + ') exceeds transaction amount (₹' + transactionAmount.toLocaleString('en-IN') + ')');
+            $helper.html('<i class=\"fas fa-exclamation-triangle\"></i> Over-allocated! Please reduce amounts.');
             $btn.prop('disabled', true);
         } else if (allocations.length === 0) {
             $status.removeClass('alert-danger alert-success').addClass('alert-info');
             $error.hide();
+            $helper.html('<i class=\"fas fa-info-circle\"></i> Add allocations to map this transaction');
             $btn.prop('disabled', true);
-        } else {
-            $status.removeClass('alert-danger alert-info').addClass('alert-success');
+        } else if (remaining > 0) {
+            $status.removeClass('alert-danger alert-info').addClass('alert-warning');
             $error.hide();
+            $helper.html('<i class=\"fas fa-check-circle\"></i> Partial mapping: ₹' + remaining.toLocaleString('en-IN', {minimumFractionDigits: 2}) + ' will remain unmapped');
+            $btn.prop('disabled', false);
+        } else {
+            $status.removeClass('alert-danger alert-info alert-warning').addClass('alert-success');
+            $error.hide();
+            $helper.html('<i class=\"fas fa-check-circle\"></i> Fully allocated! Ready to save.');
             $btn.prop('disabled', false);
         }
     }
@@ -716,6 +728,11 @@ $(document).ready(function() {
             toastr.error('Total allocated exceeds transaction amount');
             return;
         }
+        
+        if (total === 0) {
+            toastr.error('Total allocated amount cannot be zero');
+            return;
+        }
 
         // Build mappings array
         var mappings = allocations.map(function(a) {
@@ -729,6 +746,20 @@ $(document).ready(function() {
             };
         });
 
+        var requestData = {
+            transaction_id: transactionId,
+            mappings: mappings,
+            remarks: notes
+        };
+
+        // Debug: Log what we're sending
+        console.log('=== Transaction Mapping Request ===');
+        console.log('Transaction ID:', transactionId);
+        console.log('Transaction Amount:', transactionAmount);
+        console.log('Total Allocated:', total);
+        console.log('Mappings:', mappings);
+        console.log('Full Request:', requestData);
+
         var $btn = $(this);
         $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Saving...');
 
@@ -736,23 +767,36 @@ $(document).ready(function() {
             url: '<?= site_url('admin/bank/save_transaction_mapping') ?>',
             type: 'POST',
             contentType: 'application/json',
-            data: JSON.stringify({
-                transaction_id: transactionId,
-                mappings: mappings,
-                remarks: notes
-            }),
+            data: JSON.stringify(requestData),
+            dataType: 'json',
             success: function(response) {
-                if (response.success) {
+                if (response && response.success) {
                     toastr.success(response.message || 'Transaction mapped successfully');
                     $('#matchModal').modal('hide');
-                    location.reload();
+                    setTimeout(function() {
+                        location.reload();
+                    }, 800);
                 } else {
-                    toastr.error(response.message || 'Failed to save mapping');
+                    var errorMsg = (response && response.message) ? response.message : 'Failed to save mapping';
+                    toastr.error(errorMsg);
+                    console.error('Server response:', response);
                     $btn.prop('disabled', false).html('<i class="fas fa-check"></i> Save Mapping');
                 }
             },
-            error: function() {
-                toastr.error('An error occurred. Please try again.');
+            error: function(xhr, status, error) {
+                var errorMsg = 'An error occurred while saving.';
+                if (xhr.responseJSON && xhr.responseJSON.message) {
+                    errorMsg = xhr.responseJSON.message;
+                } else if (xhr.responseText) {
+                    try {
+                        var resp = JSON.parse(xhr.responseText);
+                        errorMsg = resp.message || errorMsg;
+                    } catch (e) {
+                        console.error('Response parse error:', xhr.responseText);
+                    }
+                }
+                toastr.error(errorMsg);
+                console.error('AJAX Error:', {status: status, error: error, response: xhr.responseText});
                 $btn.prop('disabled', false).html('<i class="fas fa-check"></i> Save Mapping');
             }
         });

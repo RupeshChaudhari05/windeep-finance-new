@@ -275,17 +275,63 @@ class Bank extends Admin_Controller {
         $mappings = $payload['mappings'] ?? null;
         if ($mappings && is_array($mappings)) {
             $txn = $this->db->where('id', $transaction_id)->get('bank_transactions')->row();
-            if (!$txn) { $this->ajax_response(false, 'Transaction not found'); return; }
-
-            $txn_amount = isset($txn->credit_amount) && $txn->credit_amount > 0 ? $txn->credit_amount : (isset($txn->debit_amount) ? abs($txn->debit_amount) : ($txn->amount ?? 0));
-
-            $total = 0;
-            foreach ($mappings as $m) {
-                $total += floatval($m['amount'] ?? 0);
+            if (!$txn) { 
+                log_message('error', 'Transaction not found: ID=' . $transaction_id);
+                $this->ajax_response(false, 'Transaction not found'); 
+                return; 
             }
 
-            if ($total > $txn_amount) {
-                $this->ajax_response(false, 'Mapped amounts exceed transaction amount');
+            // Determine transaction amount - try multiple fields
+            $txn_amount = 0;
+            if (isset($txn->credit_amount) && $txn->credit_amount > 0) {
+                $txn_amount = floatval($txn->credit_amount);
+            } elseif (isset($txn->debit_amount) && $txn->debit_amount > 0) {
+                $txn_amount = floatval(abs($txn->debit_amount));
+            } elseif (isset($txn->amount) && $txn->amount > 0) {
+                $txn_amount = floatval($txn->amount);
+            }
+
+            // Calculate total mapped amount
+            $total = 0;
+            $mapping_details = [];
+            foreach ($mappings as $index => $m) {
+                $amt = floatval($m['amount'] ?? 0);
+                $total += $amt;
+                $mapping_details[] = [
+                    'index' => $index,
+                    'amount' => $amt,
+                    'type' => $m['transaction_type'] ?? 'unknown',
+                    'member_id' => $m['paid_for_member_id'] ?? 'none'
+                ];
+            }
+
+            // Log detailed information
+            log_message('debug', 'Transaction Mapping Details:');
+            log_message('debug', '  Transaction ID: ' . $transaction_id);
+            log_message('debug', '  Transaction Amount: ' . $txn_amount);
+            log_message('debug', '  Total Mapped: ' . $total);
+            log_message('debug', '  Mappings: ' . json_encode($mapping_details));
+            log_message('debug', '  Transaction Object: ' . json_encode($txn));
+
+            // Use a small tolerance for floating point comparison (0.01 = 1 paisa)
+            if ($total > ($txn_amount + 0.01)) {
+                $error_msg = sprintf(
+                    'Mapped amounts (₹%.2f) exceed transaction amount (₹%.2f) by ₹%.2f. Txn fields: credit=%.2f, debit=%.2f, amount=%.2f',
+                    $total,
+                    $txn_amount,
+                    $total - $txn_amount,
+                    floatval($txn->credit_amount ?? 0),
+                    floatval($txn->debit_amount ?? 0),
+                    floatval($txn->amount ?? 0)
+                );
+                log_message('error', 'Mapping validation failed: ' . $error_msg);
+                $this->ajax_response(false, $error_msg);
+                return;
+            }
+
+            if ($txn_amount == 0) {
+                log_message('error', 'Transaction amount is zero. Cannot map. Transaction: ' . json_encode($txn));
+                $this->ajax_response(false, 'Transaction amount is zero. Cannot proceed with mapping.');
                 return;
             }
 
@@ -302,12 +348,23 @@ class Bank extends Admin_Controller {
 
                     if ($amount <= 0) continue;
 
+                    // Convert 'emi' and 'loan' to 'loan_payment' for database enum compatibility
+                    // Database enum: ('savings','loan_payment','fine','other')
+                    $db_mapping_type = $type;
+                    if ($type === 'emi' || $type === 'loan') {
+                        $db_mapping_type = 'loan_payment';
+                    } elseif (!in_array($type, ['savings', 'loan_payment', 'fine', 'other'])) {
+                        // Default to 'other' for unrecognized types
+                        $db_mapping_type = 'other';
+                    }
+                    
                     $insert = [
                         'bank_transaction_id' => $transaction_id,
                         'member_id' => $paid_for,
-                        'mapping_type' => $type,
+                        'mapping_type' => $db_mapping_type,
                         'related_id' => null,
                         'amount' => $amount,
+                        'narration' => $m_remarks,
                         'mapped_by' => $admin_id,
                         'mapped_at' => date('Y-m-d H:i:s')
                     ];
@@ -401,6 +458,8 @@ class Bank extends Admin_Controller {
                 $new_status = ($total == $txn_amount) ? 'mapped' : 'partial';
                 $update = [
                     'mapping_status' => $new_status,
+                    'mapped_amount' => $total,
+                    'unmapped_amount' => $txn_amount - $total,
                     'updated_by' => $admin_id,
                     'updated_at' => date('Y-m-d H:i:s')
                 ];
@@ -685,52 +744,57 @@ class Bank extends Admin_Controller {
      * AJAX: Search Members
      */
     public function search_members() {
-        if (!$this->input->is_ajax_request()) {
-            show_404();
-        }
+        // Allow both AJAX and regular GET requests (for Select2)
+        header('Content-Type: application/json');
         
         $query = $this->input->get('q');
         $limit = $this->input->get('limit') ?: 10;
         
         if (empty($query)) {
             $this->ajax_response(false, 'Search query required');
+            return;
         }
         
-        $this->load->model('Member_model');
-        $members = $this->Member_model->search_members($query, null, $limit);
-        
-        $results = [];
-        foreach ($members as $member) {
-            $full_name = (property_exists($member, 'full_name') && !empty($member->full_name)) ? $member->full_name : '';
-            $phone = (property_exists($member, 'phone') && !empty($member->phone)) ? $member->phone : '';
-            $display = $member->member_code;
-            if ($full_name !== '') $display .= ' - ' . $full_name;
-            if ($phone !== '') $display .= ' (' . $phone . ')';
+        try {
+            $this->load->model('Member_model');
+            $members = $this->Member_model->search_members($query, null, $limit);
+            
+            $results = [];
+            foreach ($members as $member) {
+                $full_name = (property_exists($member, 'full_name') && !empty($member->full_name)) ? $member->full_name : '';
+                $phone = (property_exists($member, 'phone') && !empty($member->phone)) ? $member->phone : '';
+                $display = $member->member_code;
+                if ($full_name !== '') $display .= ' - ' . $full_name;
+                if ($phone !== '') $display .= ' (' . $phone . ')';
 
-            $results[] = [
-                'id' => $member->id,
-                'text' => $display,
-                'member_code' => $member->member_code,
-                'full_name' => $full_name,
-                'phone' => $phone
-            ];
+                $results[] = [
+                    'id' => $member->id,
+                    'text' => $display,
+                    'member_code' => $member->member_code,
+                    'full_name' => $full_name,
+                    'phone' => $phone
+                ];
+            }
+            
+            $this->ajax_response(true, 'Members found', $results);
+        } catch (Exception $e) {
+            log_message('error', 'Member search failed: ' . $e->getMessage());
+            $this->ajax_response(false, 'Search failed: ' . $e->getMessage());
         }
-        
-        $this->ajax_response(true, 'Members found', $results);
     }
     
     /**
      * AJAX: Get Member Accounts
      */
     public function get_member_accounts() {
-        if (!$this->input->is_ajax_request()) {
-            show_404();
-        }
+        // Allow both AJAX and regular GET requests
+        header('Content-Type: application/json');
         
         $member_id = $this->input->get('member_id');
         
         if (empty($member_id)) {
             $this->ajax_response(false, 'Member ID required');
+            return;
         }
         
         $this->load->model('Savings_model');
@@ -772,14 +836,14 @@ class Bank extends Admin_Controller {
      * AJAX: Get Member Details (Loans with installments, Savings, Fines)
      */
     public function get_member_details() {
-        if (!$this->input->is_ajax_request()) {
-            show_404();
-        }
+        // Allow both AJAX and regular GET requests
+        header('Content-Type: application/json');
         
         $member_id = $this->input->get('member_id');
         
         if (empty($member_id)) {
             $this->ajax_response(false, 'Member ID required');
+            return;
         }
         
         $this->load->model('Savings_model');
@@ -858,15 +922,15 @@ class Bank extends Admin_Controller {
      * AJAX: Calculate Fine Due
      */
     public function calculate_fine_due() {
-        if (!$this->input->is_ajax_request()) {
-            show_404();
-        }
+        // Allow both AJAX and regular POST requests
+        header('Content-Type: application/json');
         
         $member_id = $this->input->post('member_id');
         $amount = $this->input->post('amount');
         
         if (empty($member_id) || empty($amount)) {
             $this->ajax_response(false, 'Member ID and amount required');
+            return;
         }
         
         $this->load->model('Fine_model');

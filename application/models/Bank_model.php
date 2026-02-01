@@ -869,10 +869,16 @@ class Bank_model extends MY_Model {
             
             // Process each split
             foreach ($splits as $index => $split) {
+                // Convert 'emi' to 'loan_payment' for database enum compatibility
+                $mapping_type = ($split['type'] ?? 'loan_payment');
+                if ($mapping_type === 'emi' || $mapping_type === 'loan') {
+                    $mapping_type = 'loan_payment';
+                }
+                
                 // Create transaction mapping record
                 $mapping_data = [
                     'bank_transaction_id' => $transaction_id,
-                    'mapping_type' => $split['type'] ?? 'emi',
+                    'mapping_type' => $mapping_type,
                     'related_id' => $split['related_id'] ?? null,
                     'amount' => $split['amount'],
                     'member_id' => $split['member_id'] ?? $txn->paid_by_member_id ?? null,
@@ -951,6 +957,8 @@ class Bank_model extends MY_Model {
             $status = ($total_split_amount >= $txn_amount) ? 'mapped' : 'split';
             $update = [
                 'mapping_status' => $status,
+                'mapped_amount' => $total_split_amount,
+                'unmapped_amount' => $txn_amount - $total_split_amount,
                 'updated_at' => date('Y-m-d H:i:s')
             ];
             if ($this->db->field_exists('mapped_by', 'bank_transactions')) {

@@ -52,7 +52,7 @@ $config['index_page'] = '';
 |
 | WARNING: If you set this to 'PATH_INFO', URIs will always be URL-decoded!
 */
-$config['uri_protocol']	= 'QUERY_STRING';
+$config['uri_protocol']	= 'REQUEST_URI';
 
 /*
 |--------------------------------------------------------------------------
@@ -162,7 +162,7 @@ $config['composer_autoload'] = FCPATH . 'vendor/autoload.php';
 | Note: This option is ignored for CLI requests.
 |
 */
-$config['permitted_uri_chars'] = 'a-z 0-9~%.:_\-';
+$config['permitted_uri_chars'] = 'a-z 0-9~%.:_\-=&';
 
 /*
 |--------------------------------------------------------------------------
