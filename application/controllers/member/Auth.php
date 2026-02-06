@@ -90,6 +90,15 @@ class Auth extends CI_Controller {
             redirect('member/login');
             return;
         }
+
+        // Age check: member must be at least 18
+        $this->load->helper('age_helper');
+        if (!is_age_at_least($member->date_of_birth, 18)) {
+            // Keep the message exact as requested
+            $this->session->set_flashdata('error', 'the age of the member should be greater than 18 years.');
+            redirect('member/login');
+            return;
+        }
         
         // Set session data
         $this->session->set_userdata([

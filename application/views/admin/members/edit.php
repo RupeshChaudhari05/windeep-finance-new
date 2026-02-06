@@ -294,8 +294,8 @@
                 </div>
                 <div class="col-md-4">
                     <div class="form-group">
-                        <label for="nominee_relationship">Relationship <span class="text-danger">*</span></label>
-                        <select class="form-control" id="nominee_relationship" name="nominee_relationship" required>
+                        <label for="nominee_relationship">Relationship</label>
+                        <select class="form-control" id="nominee_relationship" name="nominee_relationship">
                             <option value="">Select Relationship</option>
                             <?php
                             $relationships = ['spouse', 'father', 'mother', 'son', 'daughter', 'brother', 'sister', 'other'];

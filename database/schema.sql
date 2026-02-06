@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS `financial_years` (
     `is_closed` TINYINT(1) DEFAULT 0,
     `closed_at` TIMESTAMP NULL,
     `closed_by` INT UNSIGNED NULL,
+    `created_by` INT UNSIGNED NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `idx_year_code` (`year_code`)

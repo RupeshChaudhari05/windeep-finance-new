@@ -118,7 +118,7 @@ class Members extends Admin_Controller {
         $this->form_validation->set_rules('last_name', 'Last Name', 'required|max_length[100]');
         $this->form_validation->set_rules('phone', 'Phone', 'required|numeric|min_length[10]|max_length[15]|is_unique[members.phone]');
         $this->form_validation->set_rules('email', 'Email', 'valid_email|is_unique[members.email]');
-        $this->form_validation->set_rules('date_of_birth', 'Date of Birth', 'required');
+        $this->form_validation->set_rules('date_of_birth', 'Date of Birth', 'required|callback_validate_age');
         $this->form_validation->set_rules('gender', 'Gender', 'required|in_list[male,female,other]');
         
         if ($this->form_validation->run() === FALSE) {
@@ -264,6 +264,7 @@ class Members extends Admin_Controller {
         $this->form_validation->set_rules('first_name', 'First Name', 'required|max_length[100]');
         $this->form_validation->set_rules('last_name', 'Last Name', 'required|max_length[100]');
         $this->form_validation->set_rules('phone', 'Phone', 'required|numeric|min_length[10]|max_length[15]');
+        $this->form_validation->set_rules('date_of_birth', 'Date of Birth', 'required|callback_validate_age');
         
         // Check phone uniqueness (excluding current member)
         $phone = $this->input->post('phone', TRUE);
@@ -390,6 +391,38 @@ class Members extends Admin_Controller {
         }
         
         redirect('admin/members/view/' . $id);
+    }
+    
+    /**
+     * Validate age - must be at least 18 years
+     */
+    public function validate_age($dob) {
+        if (empty($dob)) {
+            $this->form_validation->set_message('validate_age', 'the age of the member should be greater than 18 years.');
+            return FALSE;
+        }
+
+        // Use DateTime to compute precise age
+        try {
+            $dob_dt = new DateTime($dob);
+        } catch (Exception $e) {
+            $ts = strtotime($dob);
+            if ($ts === FALSE) {
+                $this->form_validation->set_message('validate_age', 'the age of the member should be greater than 18 years.');
+                return FALSE;
+            }
+            $dob_dt = (new DateTime())->setTimestamp($ts);
+        }
+
+        $today = new DateTime();
+        $age = $today->diff($dob_dt)->y;
+
+        if ($age < 18) {
+            $this->form_validation->set_message('validate_age', 'the age of the member should be greater than 18 years.');
+            return FALSE;
+        }
+
+        return TRUE;
     }
     
     /**

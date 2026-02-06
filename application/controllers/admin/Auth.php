@@ -62,6 +62,17 @@ class Auth extends MY_Controller {
         }
         
         $admin = $auth['admin'];
+
+        // Age check for admin (only if DOB exists)
+        $this->load->helper('age_helper');
+        if (isset($admin->date_of_birth) && !empty($admin->date_of_birth)) {
+            if (!is_age_at_least($admin->date_of_birth, 18)) {
+                $this->log_activity('Failed login attempt', 'email: ' . $email . ' (underage)');
+                $this->session->set_flashdata('error', 'the age of the member should be greater than 18 years.');
+                redirect('admin/auth');
+                return;
+            }
+        }
         
         // Create session
         $session_data = [

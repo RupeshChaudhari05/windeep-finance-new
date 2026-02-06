@@ -90,6 +90,8 @@ class Profile extends Member_Controller {
         $this->form_validation->set_rules('email', 'Email', 'valid_email|trim');
         $this->form_validation->set_rules('address_line1', 'Address', 'required|trim');
         $this->form_validation->set_rules('pincode', 'Pincode', 'trim|numeric');
+        // Date of birth must be provided and member should be at least 18 years
+        $this->form_validation->set_rules('date_of_birth', 'Date of Birth', 'required|callback_validate_age');
 
         if ($this->form_validation->run() === FALSE) {
             log_message('debug', 'Validation failed: ' . validation_errors());
@@ -207,4 +209,19 @@ class Profile extends Member_Controller {
             redirect('member/profile/edit');
         }
     }
+
+    /**
+     * Validate age - must be at least 18 years for members
+     */
+    public function validate_age($dob) {
+        $this->load->helper('age_helper');
+
+        if (empty($dob) || !is_age_at_least($dob, 18)) {
+            $this->form_validation->set_message('validate_age', 'the age of the member should be greater than 18 years.');
+            return FALSE;
+        }
+
+        return TRUE;
+    }
 }
+
