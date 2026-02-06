@@ -86,12 +86,25 @@ class Profile extends Member_Controller {
         $this->load->library('form_validation');
         $this->form_validation->set_rules('first_name', 'First Name', 'required|trim');
         $this->form_validation->set_rules('last_name', 'Last Name', 'required|trim');
-        $this->form_validation->set_rules('phone', 'Phone', 'required|trim');
+        $this->form_validation->set_rules('phone', 'Phone', 'required|numeric|min_length[10]|max_length[15]');
         $this->form_validation->set_rules('email', 'Email', 'valid_email|trim');
         $this->form_validation->set_rules('address_line1', 'Address', 'required|trim');
         $this->form_validation->set_rules('pincode', 'Pincode', 'trim|numeric');
         // Date of birth must be provided and member should be at least 18 years
         $this->form_validation->set_rules('date_of_birth', 'Date of Birth', 'required|callback_validate_age');
+
+        // Normalize phone before validation and check uniqueness
+        $this->load->helper('format_helper');
+        $raw_phone = $this->input->post('phone');
+        $normalized_phone = normalize_phone($raw_phone);
+        if ($normalized_phone !== null) {
+            $_POST['phone'] = $normalized_phone;
+        } else {
+            // Let validation rule catch missing/invalid phone
+            $_POST['phone'] = '';
+        }
+
+
 
         if ($this->form_validation->run() === FALSE) {
             log_message('debug', 'Validation failed: ' . validation_errors());
@@ -130,8 +143,8 @@ class Profile extends Member_Controller {
             'date_of_birth' => $this->input->post('date_of_birth') ?: null,
             'gender' => $this->input->post('gender'),
             'email' => $this->input->post('email'),
-            'phone' => $this->input->post('phone'),
-            'alternate_phone' => $this->input->post('alternate_phone'),
+            'phone' => normalize_phone($this->input->post('phone')),
+            'alternate_phone' => normalize_phone($this->input->post('alternate_phone')),
             'address_line1' => $this->input->post('address_line1'),
             'address_line2' => $this->input->post('address_line2'),
             'city' => $this->input->post('city'),
@@ -147,7 +160,7 @@ class Profile extends Member_Controller {
             'account_holder_name' => $this->input->post('account_holder_name'),
             'nominee_name' => $this->input->post('nominee_name'),
             'nominee_relation' => $this->input->post('nominee_relation'),
-            'nominee_phone' => $this->input->post('nominee_phone'),
+            'nominee_phone' => normalize_phone($this->input->post('nominee_phone')),
             'nominee_aadhaar' => $this->input->post('nominee_aadhaar'),
             'notes' => $this->input->post('notes')
         ];

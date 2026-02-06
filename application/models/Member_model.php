@@ -44,6 +44,18 @@ class Member_model extends MY_Model {
      * Create Member
      */
     public function create_member($data) {
+        // Ensure phone numbers are normalized
+        $this->load->helper('format_helper');
+        if (isset($data['phone'])) {
+            $data['phone'] = normalize_phone($data['phone']);
+        }
+        if (isset($data['alternate_phone'])) {
+            $data['alternate_phone'] = normalize_phone($data['alternate_phone']);
+        }
+        if (isset($data['nominee_phone'])) {
+            $data['nominee_phone'] = normalize_phone($data['nominee_phone']);
+        }
+
         if (empty($data['member_code'])) {
             $data['member_code'] = $this->generate_member_code();
         }

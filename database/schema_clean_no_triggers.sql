@@ -1128,7 +1128,7 @@ CREATE TABLE `members` (
     `deleted_at` timestamp NULL DEFAULT NULL COMMENT 'Soft delete',
     PRIMARY KEY (`id`),
     UNIQUE KEY `idx_member_code` (`member_code`),
-    UNIQUE KEY `idx_phone` (`phone`),
+    KEY `idx_phone` (`phone`),
     UNIQUE KEY `idx_aadhaar` (`aadhaar_number`),
     UNIQUE KEY `idx_pan` (`pan_number`),
     KEY `idx_status` (`status`),

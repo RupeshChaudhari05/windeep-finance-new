@@ -146,3 +146,42 @@ if (!function_exists('mask_pan')) {
         return $start . '*****' . $end;
     }
 }
+
+if (!function_exists('sanitize_phone')) {
+    /**
+     * Remove non-digit characters from phone and return null when empty
+     */
+    function sanitize_phone($value) {
+        if ($value === null) return null;
+        $v = preg_replace('/\D+/', '', (string) $value);
+        return $v === '' ? null : $v;
+    }
+}
+
+if (!function_exists('normalize_phone')) {
+    /**
+     * Normalize phone to canonical form.
+     * - strips non-digits
+     * - if >10 digits, keeps last 10 digits (common for country codes like +91)
+     * - returns null when invalid
+     */
+    function normalize_phone($value) {
+        $v = sanitize_phone($value);
+        if ($v === null) return null;
+        // If contains country code, prefer last 10 digits
+        if (strlen($v) >= 10) {
+            return substr($v, -10);
+        }
+        return $v;
+    }
+}
+
+if (!function_exists('validate_phone')) {
+    /**
+     * Validate phone is 10 digits (after normalization)
+     */
+    function validate_phone($value) {
+        $v = normalize_phone($value);
+        return $v !== null && preg_match('/^[0-9]{10}$/', $v) === 1;
+    }
+}

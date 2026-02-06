@@ -112,6 +112,15 @@ class Members extends Admin_Controller {
             redirect('admin/members/create');
         }
         
+        // Normalize phone before validation to ensure consistent uniqueness checks
+        $this->load->helper('format_helper');
+        $raw_phone = $this->input->post('phone', TRUE);
+        $normalized_phone = normalize_phone($raw_phone);
+        // Override POST so form_validation rules use normalized value
+        if ($normalized_phone !== null) {
+            $_POST['phone'] = $normalized_phone;
+        }
+
         // Validation
         $this->load->library('form_validation');
         $this->form_validation->set_rules('first_name', 'First Name', 'required|max_length[100]');
@@ -126,13 +135,13 @@ class Members extends Admin_Controller {
             redirect('admin/members/create');
         }
         
-        // Prepare data
+        // Prepare data (use normalized phone)
         $member_data = [
             'first_name' => $this->input->post('first_name', TRUE),
             'middle_name' => $this->input->post('middle_name', TRUE),
             'last_name' => $this->input->post('last_name', TRUE),
-            'phone' => $this->input->post('phone', TRUE),
-            'alternate_phone' => $this->input->post('alternate_phone', TRUE),
+            'phone' => normalize_phone($this->input->post('phone', TRUE)),
+            'alternate_phone' => normalize_phone($this->input->post('alternate_phone', TRUE)),
             'email' => $this->input->post('email', TRUE),
             'date_of_birth' => $this->input->post('date_of_birth'),
             'gender' => $this->input->post('gender'),
@@ -152,7 +161,7 @@ class Members extends Admin_Controller {
             'bank_ifsc' => strtoupper($this->input->post('bank_ifsc', TRUE)),
             'nominee_name' => $this->input->post('nominee_name', TRUE),
             'nominee_relationship' => $this->input->post('nominee_relationship', TRUE),
-            'nominee_phone' => $this->input->post('nominee_phone', TRUE),
+            'nominee_phone' => normalize_phone($this->input->post('nominee_phone', TRUE)),
             'created_by' => $this->session->userdata('admin_id')
         ];
         
@@ -259,6 +268,14 @@ class Members extends Admin_Controller {
             redirect('admin/members');
         }
         
+        // Normalize phone before validation
+        $this->load->helper('format_helper');
+        $raw_phone = $this->input->post('phone', TRUE);
+        $normalized_phone = normalize_phone($raw_phone);
+        if ($normalized_phone !== null) {
+            $_POST['phone'] = $normalized_phone;
+        }
+
         // Validation
         $this->load->library('form_validation');
         $this->form_validation->set_rules('first_name', 'First Name', 'required|max_length[100]');
@@ -266,15 +283,7 @@ class Members extends Admin_Controller {
         $this->form_validation->set_rules('phone', 'Phone', 'required|numeric|min_length[10]|max_length[15]');
         $this->form_validation->set_rules('date_of_birth', 'Date of Birth', 'required|callback_validate_age');
         
-        // Check phone uniqueness (excluding current member)
-        $phone = $this->input->post('phone', TRUE);
-        $existing = $this->db->where('phone', $phone)
-                             ->where('id !=', $id)
-                             ->count_all_results('members');
-        if ($existing > 0) {
-            $this->session->set_flashdata('error', 'Phone number already exists.');
-            redirect('admin/members/edit/' . $id);
-        }
+
         
         if ($this->form_validation->run() === FALSE) {
             $this->session->set_flashdata('error', validation_errors());
