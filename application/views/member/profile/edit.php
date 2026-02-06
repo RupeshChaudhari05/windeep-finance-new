@@ -48,8 +48,8 @@
                     <input type="text" name="father_name" class="form-control" value="<?= set_value('father_name', $member->father_name) ?>">
                 </div>
                 <div class="form-group col-md-3">
-                    <label>Date of Birth</label>
-                    <input type="date" name="date_of_birth" class="form-control" value="<?= set_value('date_of_birth', $member->date_of_birth) ?>">
+                    <label>Date of Birth <span class="text-danger">*</span></label>
+                    <input type="date" name="date_of_birth" class="form-control" required value="<?= set_value('date_of_birth', $member->date_of_birth) ?>" max="<?= date('Y-m-d', safe_timestamp('-18 years')) ?>" title="You must be at least 18 years old">
                 </div>
                 <div class="form-group col-md-3">
                     <label>Gender</label>
