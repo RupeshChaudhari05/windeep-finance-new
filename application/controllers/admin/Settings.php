@@ -523,12 +523,28 @@ class Settings extends Admin_Controller {
         $id = $this->input->post('id');
         $admin_id = $this->session->userdata('admin_id');
         
+        // Server-side validation for fine rule inputs
+        $this->load->library('form_validation');
+        $this->form_validation->set_rules('rule_name', 'Rule Name', 'required|max_length[100]');
+        $this->form_validation->set_rules('applies_to', 'Applies To', 'required|in_list[loan,savings,both]');
+        $this->form_validation->set_rules('fine_type', 'Calculation Type', 'required|in_list[fixed,percentage,per_day,fixed_plus_daily,slab]');
+
+        if ($this->form_validation->run() === FALSE) {
+            $this->session->set_flashdata('error', validation_errors());
+            redirect('admin/settings#fine_rules');
+            return;
+        }
+
         // Map incoming form fields to DB schema-compatible columns
+        $fine_type_post = $this->input->post('fine_type');
+        // Use 'calculation_type' to store canonical type for newer code paths
+        $calculation_type = $fine_type_post;
+
         $rule_data = [
             'rule_name' => $this->input->post('rule_name'),
             'applies_to' => $this->input->post('applies_to'),
-            'fine_type' => $this->input->post('fine_type'),
-            'calculation_type' => $this->input->post('calculation_type') ?: 'fixed',
+            'fine_type' => $fine_type_post,
+            'calculation_type' => $calculation_type,
             // 'fine_value' stores either fixed amount or percentage (depending on calculation_type)
             'fine_value' => $this->input->post('fine_amount') !== null ? $this->input->post('fine_amount') : ($this->input->post('fine_rate') ?: 0),
             'per_day_amount' => $this->input->post('per_day_amount') ?: 0,
@@ -538,6 +554,34 @@ class Settings extends Admin_Controller {
             'is_active' => $this->input->post('is_active') !== null ? (int)$this->input->post('is_active') : 1,
             'effective_from' => $this->input->post('effective_from') ?: date('Y-m-d')
         ];
+
+        // Validate presence of required numeric fields depending on type
+        if ($calculation_type === 'fixed' || $calculation_type === 'fixed_plus_daily') {
+            if (!is_numeric($rule_data['fine_value']) || $rule_data['fine_value'] < 0) {
+                $this->session->set_flashdata('error', 'Initial fine amount is required and must be a non-negative number.');
+                redirect('admin/settings#fine_rules');
+                return;
+            }
+        }
+        if ($calculation_type === 'percentage') {
+            $rate = $this->input->post('fine_rate');
+            if (!is_numeric($rate) || $rate < 0) {
+                $this->session->set_flashdata('error', 'Fine rate (%) is required and must be a non-negative number.');
+                redirect('admin/settings#fine_rules');
+                return;
+            }
+            // Store rate in fine_value
+            $rule_data['fine_value'] = $rate;
+        }
+        if ($calculation_type === 'per_day' || $calculation_type === 'fixed_plus_daily') {
+            $per_day = $this->input->post('per_day_amount');
+            if (!is_numeric($per_day) || $per_day < 0) {
+                $this->session->set_flashdata('error', 'Per day fine amount is required and must be a non-negative number.');
+                redirect('admin/settings#fine_rules');
+                return;
+            }
+            $rule_data['per_day_amount'] = $per_day;
+        }
 
         // Preserve compatibility: if min_days/max_days columns exist store them as well
         if ($this->db->field_exists('min_days', 'fine_rules')) {

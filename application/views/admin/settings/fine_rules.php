@@ -405,10 +405,43 @@ $(document).ready(function() {
         
         // Get calculation type - check multiple field names for compatibility
         var calcType = rule.calculation_type || rule.fine_type || 'fixed';
-        // Map old fine_type values to calculation_type if needed
-        if (calcType === 'loan_late' || calcType === 'savings_late') calcType = 'fixed';
-        $('#fine_type').val(calcType);
-        
+        // Normalize and map historical/variant values to current select options
+        if (typeof calcType === 'string') {
+            calcType = calcType.toLowerCase().trim();
+            calcType = calcType.replace(/\s+/g, '_');
+            // Common legacy values -> map to supported types
+            if (calcType === 'loan_late' || calcType === 'savings_late') calcType = 'fixed';
+            if (calcType === 'perday' || calcType === 'per-day') calcType = 'per_day';
+            if (calcType === 'fixedplusdaily' || calcType === 'fixed_plus_daily' || (calcType.indexOf('plus') !== -1 && calcType.indexOf('daily') !== -1)) calcType = 'fixed_plus_daily';
+            // Fallback to fixed when unknown
+            var allowed = ['fixed', 'percentage', 'per_day', 'fixed_plus_daily', 'slab'];
+            if (allowed.indexOf(calcType) === -1) calcType = 'fixed';
+        } else {
+            calcType = 'fixed';
+        }
+
+        // Try to select the exact matching option; if not found, attempt relaxed matching
+        var $opt = $('#fine_type option[value="' + calcType + '"]');
+        if ($opt.length) {
+            $opt.prop('selected', true);
+        } else {
+            // Attempt to match by partial keywords
+            var found = false;
+            $('#fine_type option').each(function() {
+                var v = $(this).val().toLowerCase();
+                if (v.indexOf(calcType) !== -1 || calcType.indexOf(v) !== -1) {
+                    $(this).prop('selected', true);
+                    found = true;
+                    return false; // break
+                }
+            });
+            if (!found) {
+                // As last resort, pick 'fixed'
+                $('#fine_type option[value="fixed"]').prop('selected', true);
+                calcType = 'fixed';
+            }
+        }
+
         // Trigger change to show/hide appropriate fields
         $('#fine_type').trigger('change');
         
