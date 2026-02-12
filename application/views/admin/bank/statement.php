@@ -1,167 +1,252 @@
-<!-- Bank Import Details -->
-<div class="row">
-    <div class="col-md-4">
-        <!-- Import Summary -->
-        <div class="card card-primary">
-            <div class="card-header">
-                <h3 class="card-title"><i class="fas fa-file-import mr-1"></i> Import Details</h3>
-            </div>
-            <div class="card-body">
-                <table class="table table-borderless table-sm">
-                    <tr>
-                        <td class="text-muted">Import Code:</td>
-                        <td><strong><?= $import->import_code ?></strong></td>
-                    </tr>
-                    <tr>
-                        <td class="text-muted">Bank Account:</td>
-                        <td><?= $import->bank_name ?> - <?= $import->account_number ?></td>
-                    </tr>
-                    <tr>
-                        <td class="text-muted">Import Date:</td>
-                        <td><?= format_date_time($import->imported_at, 'd M Y h:i A') ?></td>
-                    </tr>
-                    <tr>
-                        <td class="text-muted">Imported By:</td>
-                        <td><?= $import->imported_by_name ?? 'System' ?></td>
-                    </tr>
-                    <tr>
-                        <td class="text-muted">Total Transactions:</td>
-                        <td><span class="badge badge-info"><?= $import->total_transactions ?? count($transactions) ?></span></td>
-                    </tr>
-                    <tr>
-                        <td class="text-muted">Auto Matched:</td>
-                        <td><span class="badge badge-success"><?= $import->mapped_count ?? 0 ?></span></td>
-                    </tr>
-                </table>
-            </div>
-        </div>
-        
-        <!-- Summary Stats -->
-        <div class="card">
-            <div class="card-header">
-                <h3 class="card-title"><i class="fas fa-chart-pie mr-1"></i> Transaction Summary</h3>
-            </div>
-            <div class="card-body p-0">
-                <?php
-                $credits = 0; $debits = 0; $matched = 0; $unmatched = 0;
-                foreach ($transactions as $t) {
-                    if ($t->transaction_type == 'credit') $credits += $t->amount;
-                    else $debits += $t->amount;
-                    if ($t->mapping_status == 'mapped') $matched++;
-                    else $unmatched++;
-                }
-                ?>
-                <table class="table mb-0">
-                    <tr class="bg-success text-white">
-                        <td>Total Credits</td>
-                        <td class="text-right">₹<?= number_format($credits, 2) ?></td>
-                    </tr>
-                    <tr class="bg-danger text-white">
-                        <td>Total Debits</td>
-                        <td class="text-right">₹<?= number_format($debits, 2) ?></td>
-                    </tr>
-                    <tr>
-                        <td>Net Amount</td>
-                        <td class="text-right font-weight-bold">₹<?= number_format($credits - $debits, 2) ?></td>
-                    </tr>
-                </table>
-            </div>
-        </div>
-        
-        <!-- Match Status -->
-        <div class="card">
-            <div class="card-body">
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                    <span>Matched</span>
-                    <span class="badge badge-success"><?= $matched ?></span>
-                </div>
-                <div class="progress mb-3" style="height: 10px;">
-                    <div class="progress-bar bg-success" style="width: <?= count($transactions) ? ($matched / count($transactions) * 100) : 0 ?>%"></div>
-                </div>
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                    <span>Unmatched</span>
-                    <span class="badge badge-warning"><?= $unmatched ?></span>
-                </div>
-                <div class="progress" style="height: 10px;">
-                    <div class="progress-bar bg-warning" style="width: <?= count($transactions) ? ($unmatched / count($transactions) * 100) : 0 ?>%"></div>
-                </div>
-            </div>
+<!-- Unified Bank Statement - All transactions for a financial year -->
+
+<!-- Filters -->
+<div class="card card-outline card-primary">
+    <div class="card-header py-2">
+        <h3 class="card-title"><i class="fas fa-filter mr-1"></i> Filters</h3>
+        <div class="card-tools">
+            <a href="<?= site_url('admin/bank/import') ?>" class="btn btn-sm btn-outline-secondary">
+                <i class="fas fa-upload mr-1"></i> Import Statement
+            </a>
         </div>
     </div>
-    
-    <div class="col-md-8">
-        <!-- Transactions -->
-        <div class="card">
-            <div class="card-header">
-                <h3 class="card-title"><i class="fas fa-list mr-1"></i> Transactions</h3>
-                <div class="card-tools">
-                    <div class="btn-group btn-group-sm">
-                        <button class="btn btn-default filter-btn active" data-filter="all">All</button>
-                        <button class="btn btn-default filter-btn" data-filter="unmapped">Unmatched</button>
-                        <button class="btn btn-default filter-btn" data-filter="mapped">Matched</button>
+    <div class="card-body py-2">
+        <form method="get" action="<?= site_url('admin/bank/statement') ?>" id="filterForm">
+            <div class="row">
+                <div class="col-md-2">
+                    <label class="small font-weight-bold">Financial Year</label>
+                    <select class="form-control form-control-sm" name="fy_id" id="fy_id">
+                        <?php foreach ($financial_years as $fy): ?>
+                        <option value="<?= $fy->id ?>" <?= ($selected_fy && $selected_fy->id == $fy->id) ? 'selected' : '' ?>>
+                            <?= $fy->year_code ?>
+                            <?php if (isset($fy->is_active) && $fy->is_active): ?> (Active)<?php endif; ?>
+                        </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="small font-weight-bold">Bank Account</label>
+                    <select class="form-control form-control-sm" name="bank_id">
+                        <option value="">All Accounts</option>
+                        <?php foreach ($bank_accounts as $acc): ?>
+                        <option value="<?= $acc->id ?>" <?= ($filters['bank_id'] == $acc->id) ? 'selected' : '' ?>>
+                            <?= $acc->account_name ?? $acc->bank_name ?> - <?= $acc->account_number ?>
+                        </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="small font-weight-bold">Mapping Status</label>
+                    <select class="form-control form-control-sm" name="mapping_status">
+                        <option value="">All</option>
+                        <option value="unmapped" <?= ($filters['mapping_status'] == 'unmapped') ? 'selected' : '' ?>>Unmapped</option>
+                        <option value="mapped" <?= ($filters['mapping_status'] == 'mapped') ? 'selected' : '' ?>>Mapped</option>
+                        <option value="partial" <?= ($filters['mapping_status'] == 'partial') ? 'selected' : '' ?>>Partial</option>
+                        <option value="ignored" <?= ($filters['mapping_status'] == 'ignored') ? 'selected' : '' ?>>Ignored</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="small font-weight-bold">Transaction Type</label>
+                    <select class="form-control form-control-sm" name="transaction_type">
+                        <option value="">All</option>
+                        <option value="credit" <?= ($filters['transaction_type'] == 'credit') ? 'selected' : '' ?>>Credits Only</option>
+                        <option value="debit" <?= ($filters['transaction_type'] == 'debit') ? 'selected' : '' ?>>Debits Only</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="small font-weight-bold">Member ID</label>
+                    <input type="number" class="form-control form-control-sm" name="member_id" 
+                           value="<?= $filters['member_id'] ?>" placeholder="Filter by member">
+                </div>
+                <div class="col-md-2">
+                    <label class="small font-weight-bold">&nbsp;</label>
+                    <div>
+                        <button type="submit" class="btn btn-primary btn-sm">
+                            <i class="fas fa-search mr-1"></i> Apply
+                        </button>
+                        <a href="<?= site_url('admin/bank/statement') ?>" class="btn btn-default btn-sm">
+                            <i class="fas fa-times mr-1"></i> Reset
+                        </a>
                     </div>
                 </div>
             </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-hover table-striped mb-0" id="transactionsTable">
-                        <thead class="thead-light">
-                            <tr>
-                                <th>Date</th>
-                                <th>Description</th>
-                                <th>Reference</th>
-                                <th class="text-right">Amount</th>
-                                <th>Status</th>
-                                <th width="120">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($transactions as $txn): ?>
-                            <tr data-status="<?= $txn->mapping_status ?>">
-                                <td><?= format_date($txn->transaction_date, 'd M Y') ?></td>
-                                <td>
-                                    <?= character_limiter($txn->description, 40) ?>
-                                    <?php if ($txn->mapping_status == 'mapped'): ?>
-                                    <br><small class="text-success"><i class="fas fa-link"></i> Mapped</small>
-                                    <?php endif; ?>
-                                </td>
-                                <td><small><?= $txn->reference_number ?: '-' ?></small></td>
-                                <td class="text-right">
-                                    <span class="text-<?= $txn->transaction_type == 'credit' ? 'success' : 'danger' ?>">
-                                        <?= $txn->transaction_type == 'credit' ? '+' : '-' ?>₹<?= number_format($txn->amount, 2) ?>
-                                    </span>
-                                </td>
-                                <td>
-                                    <?php if ($txn->mapping_status == 'mapped'): ?>
-                                    <span class="badge badge-success"><i class="fas fa-check"></i> Matched</span>
-                                    <?php elseif ($txn->mapping_status == 'partial'): ?>
-                                    <span class="badge badge-warning"><i class="fas fa-clock"></i> Partial</span>
-                                    <?php else: ?>
-                                    <span class="badge badge-secondary"><i class="fas fa-question"></i> Unmatched</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                    <?php if ($txn->mapping_status != 'mapped'): ?>
-                                    <button class="btn btn-info btn-sm btn-match" data-id="<?= $txn->id ?>" data-amount="<?= $txn->amount ?>" data-type="<?= $txn->transaction_type ?>">
-                                        <i class="fas fa-link"></i> Match
-                                    </button>
-                                    <?php else: ?>
-                                    <button class="btn btn-default btn-sm" disabled>
-                                        <i class="fas fa-check"></i> Done
-                                    </button>
-                                    <?php endif; ?>
-                                </td>
-                            </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
+        </form>
+    </div>
+</div>
+
+<!-- Summary Cards -->
+<div class="row">
+    <?php
+    $total_credits = 0; $total_debits = 0; $total_mapped = 0; $total_unmapped = 0; $total_partial = 0;
+    foreach ($transactions as $t) {
+        if ($t->transaction_type == 'credit') $total_credits += $t->amount;
+        else $total_debits += $t->amount;
+        if ($t->mapping_status == 'mapped') $total_mapped++;
+        elseif ($t->mapping_status == 'partial') $total_partial++;
+        else $total_unmapped++;
+    }
+    ?>
+    <div class="col-md-2">
+        <div class="small-box bg-info">
+            <div class="inner">
+                <h4><?= count($transactions) ?></h4>
+                <p>Total Transactions</p>
             </div>
+            <div class="icon"><i class="fas fa-list"></i></div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="small-box bg-success">
+            <div class="inner">
+                <h4>₹<?= number_format($total_credits, 0) ?></h4>
+                <p>Total Credits</p>
+            </div>
+            <div class="icon"><i class="fas fa-arrow-down"></i></div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="small-box bg-danger">
+            <div class="inner">
+                <h4>₹<?= number_format($total_debits, 0) ?></h4>
+                <p>Total Debits</p>
+            </div>
+            <div class="icon"><i class="fas fa-arrow-up"></i></div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="small-box bg-primary">
+            <div class="inner">
+                <h4>₹<?= number_format($total_credits - $total_debits, 0) ?></h4>
+                <p>Net Amount</p>
+            </div>
+            <div class="icon"><i class="fas fa-balance-scale"></i></div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="small-box bg-warning">
+            <div class="inner">
+                <h4><?= $total_mapped ?> / <?= count($transactions) ?></h4>
+                <p>Mapped</p>
+            </div>
+            <div class="icon"><i class="fas fa-check-circle"></i></div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="small-box bg-secondary">
+            <div class="inner">
+                <h4><?= $total_unmapped ?></h4>
+                <p>Unmapped</p>
+            </div>
+            <div class="icon"><i class="fas fa-question-circle"></i></div>
         </div>
     </div>
 </div>
 
-<!-- Enhanced Match Transaction Modal -->
+<!-- Financial Year Info -->
+<?php if ($selected_fy): ?>
+<div class="alert alert-info py-2">
+    <i class="fas fa-calendar-alt mr-1"></i>
+    <strong>Financial Year: <?= $selected_fy->year_code ?></strong>
+    &mdash; <?= date('d M Y', strtotime($selected_fy->start_date)) ?> to <?= date('d M Y', strtotime($selected_fy->end_date)) ?>
+    &mdash; <strong><?= count($transactions) ?></strong> transactions (all imports combined into one statement)
+</div>
+<?php endif; ?>
+
+<!-- Unified Statement Table -->
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">
+            <i class="fas fa-file-alt mr-1"></i> 
+            Bank Statement
+            <?php if ($selected_fy): ?> &mdash; <?= $selected_fy->year_code ?><?php endif; ?>
+        </h3>
+        <div class="card-tools">
+            <div class="btn-group btn-group-sm" id="quickFilters">
+                <button class="btn btn-default quick-filter active" data-filter="all">All</button>
+                <button class="btn btn-default quick-filter" data-filter="unmapped">Unmapped</button>
+                <button class="btn btn-default quick-filter" data-filter="mapped">Mapped</button>
+                <button class="btn btn-default quick-filter" data-filter="credit">Credits</button>
+                <button class="btn btn-default quick-filter" data-filter="debit">Debits</button>
+            </div>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover table-striped table-sm mb-0" id="statementTable">
+                <thead class="thead-light">
+                    <tr>
+                        <th width="30">#</th>
+                        <th width="100">Date</th>
+                        <th>Description</th>
+                        <th>Reference</th>
+                        <th class="text-right" width="110">Credit</th>
+                        <th class="text-right" width="110">Debit</th>
+                        <th width="80">Status</th>
+                        <th>Member</th>
+                        <th width="80">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php $row_num = 0; foreach ($transactions as $txn): $row_num++; ?>
+                    <tr data-mapping-status="<?= $txn->mapping_status ?>" data-txn-type="<?= $txn->transaction_type ?>">
+                        <td class="text-muted"><?= $row_num ?></td>
+                        <td><?= date('d M Y', strtotime($txn->transaction_date)) ?></td>
+                        <td>
+                            <?= character_limiter($txn->description, 50) ?>
+                        </td>
+                        <td><small class="text-muted"><?= $txn->reference_number ?: ($txn->utr_number ?: '-') ?></small></td>
+                        <td class="text-right">
+                            <?php if ($txn->transaction_type == 'credit'): ?>
+                            <span class="text-success font-weight-bold">₹<?= number_format($txn->amount, 2) ?></span>
+                            <?php endif; ?>
+                        </td>
+                        <td class="text-right">
+                            <?php if ($txn->transaction_type == 'debit'): ?>
+                            <span class="text-danger font-weight-bold">₹<?= number_format($txn->amount, 2) ?></span>
+                            <?php endif; ?>
+                        </td>
+                        <td>
+                            <?php if ($txn->mapping_status == 'mapped'): ?>
+                            <span class="badge badge-success"><i class="fas fa-check"></i> Mapped</span>
+                            <?php elseif ($txn->mapping_status == 'partial'): ?>
+                            <span class="badge badge-warning"><i class="fas fa-clock"></i> Partial</span>
+                            <?php elseif ($txn->mapping_status == 'ignored'): ?>
+                            <span class="badge badge-dark"><i class="fas fa-ban"></i> Ignored</span>
+                            <?php else: ?>
+                            <span class="badge badge-secondary"><i class="fas fa-question"></i> Unmapped</span>
+                            <?php endif; ?>
+                        </td>
+                        <td>
+                            <?php if ($txn->paid_for_name): ?>
+                                <small><?= $txn->paid_for_name ?></small>
+                            <?php elseif ($txn->paid_by_name): ?>
+                                <small><?= $txn->paid_by_name ?></small>
+                            <?php elseif ($txn->detected_member_id): ?>
+                                <small class="text-info">Auto-detected #<?= $txn->detected_member_id ?></small>
+                            <?php else: ?>
+                                <small class="text-muted">-</small>
+                            <?php endif; ?>
+                        </td>
+                        <td>
+                            <?php if ($txn->mapping_status != 'mapped' && $txn->mapping_status != 'ignored'): ?>
+                            <button class="btn btn-info btn-xs btn-match" data-id="<?= $txn->id ?>" data-amount="<?= $txn->amount ?>" data-type="<?= $txn->transaction_type ?>">
+                                <i class="fas fa-link"></i> Match
+                            </button>
+                            <?php else: ?>
+                            <button class="btn btn-default btn-xs" disabled>
+                                <i class="fas fa-check"></i> Done
+                            </button>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Enhanced Match Transaction Modal (same as view_import) -->
 <div class="modal fade" id="matchModal" tabindex="-1" data-backdrop="static">
     <div class="modal-dialog modal-xl">
         <div class="modal-content">
@@ -190,7 +275,7 @@
                         </div>
                     </div>
                     <div class="col-md-6">
-                        <div class=" mb-0" id="allocation_status">
+                        <div class="mb-0" id="allocation_status">
                             <div class="d-flex justify-content-between">
                                 <span><strong>Allocated:</strong> <span id="total_allocated" class="text-primary">₹0.00</span></span>
                                 <span><strong>Remaining:</strong> <span id="remaining_amount" class="text-danger font-weight-bold">₹0.00</span></span>
@@ -332,17 +417,14 @@
         </div>
         <div class="card-body py-2">
             <div class="row">
-                <!-- Loans Column -->
                 <div class="col-md-4">
                     <label class="small font-weight-bold"><i class="fas fa-hand-holding-usd"></i> Loans/EMI</label>
                     <div class="loans-list" style="max-height: 150px; overflow-y: auto;"></div>
                 </div>
-                <!-- Savings Column -->
                 <div class="col-md-4">
                     <label class="small font-weight-bold"><i class="fas fa-piggy-bank"></i> Savings</label>
                     <div class="savings-list" style="max-height: 150px; overflow-y: auto;"></div>
                 </div>
-                <!-- Fines Column -->
                 <div class="col-md-4">
                     <label class="small font-weight-bold"><i class="fas fa-exclamation-circle"></i> Fines</label>
                     <div class="fines-list" style="max-height: 150px; overflow-y: auto;"></div>
@@ -354,23 +436,42 @@
 
 <script>
 $(document).ready(function() {
-    // DataTable
-    var table = $('#transactionsTable').DataTable({
-        "order": [[0, "desc"]],
-        "pageLength": 50
+    // DataTable with all sorting options
+    var table = $('#statementTable').DataTable({
+        "order": [[1, "asc"]], // Sort by date ascending (chronological statement)
+        "pageLength": 100,
+        "lengthMenu": [[50, 100, 250, 500, -1], [50, 100, 250, 500, "All"]],
+        "dom": '<"row"<"col-md-6"l><"col-md-6"f>>rtip',
+        "language": {
+            "info": "Showing _START_ to _END_ of _TOTAL_ transactions",
+            "lengthMenu": "Show _MENU_ transactions per page"
+        },
+        "columnDefs": [
+            { "orderable": false, "targets": [8] }, // Actions column not sortable
+            { "type": "date", "targets": [1] }
+        ]
     });
     
-    // Filter buttons
-    $('.filter-btn').click(function() {
-        $('.filter-btn').removeClass('active');
+    // Quick filter buttons (client-side filtering via DataTable)
+    $('.quick-filter').click(function() {
+        $('.quick-filter').removeClass('active');
         $(this).addClass('active');
         var filter = $(this).data('filter');
-        if (filter === 'all') {
-            table.column(4).search('').draw();
-        } else if (filter === 'unmapped') {
-            table.column(4).search('Unmatched').draw();
+        
+        // Clear all column filters first
+        table.columns().search('');
+        
+        if (filter === 'unmapped') {
+            table.column(6).search('Unmapped').draw();
         } else if (filter === 'mapped') {
-            table.column(4).search('Matched').draw();
+            table.column(6).search('Mapped').draw();
+        } else if (filter === 'credit') {
+            // Filter rows where credit column has a value
+            table.column(4).search('.+', true, false).draw();
+        } else if (filter === 'debit') {
+            table.column(5).search('.+', true, false).draw();
+        } else {
+            table.draw();
         }
     });
 
@@ -387,7 +488,6 @@ $(document).ready(function() {
                 delay: 250,
                 data: function(params) { return { q: params.term, limit: 15 }; },
                 processResults: function(resp) {
-                    // server returns { success, message, data }
                     var items = resp && resp.data ? resp.data : [];
                     return { results: items };
                 }
@@ -410,14 +510,14 @@ $(document).ready(function() {
         });
     }
 
-    // Match button click - use event delegation so it works across DataTable pages
-    $('#transactionsTable').on('click', '.btn-match', function() {
+    // Match button click - event delegation for DataTable pagination compatibility
+    $('#statementTable').on('click', '.btn-match', function() {
         var id = $(this).data('id');
         var amount = parseFloat($(this).data('amount'));
         var type = $(this).data('type');
         var $row = $(this).closest('tr');
-        var date = $row.find('td:eq(0)').text();
-        var desc = $row.find('td:eq(1)').text();
+        var date = $row.find('td:eq(1)').text();
+        var desc = $row.find('td:eq(2)').text();
 
         // Reset modal
         allocations = [];
@@ -447,12 +547,10 @@ $(document).ready(function() {
         var $card = $(template);
         $card.attr('id', cardId);
         
-        // Add member search
         var $searchDiv = $('<div class="mb-2"><select class="form-control member-search-select" style="width: 100%;"><option value="">Search member...</option></select></div>');
         $card.find('.card-body').prepend($searchDiv);
         $('#paid_for_container').append($card);
 
-        // Initialize select2
         var $select = $card.find('.member-search-select');
         $select.select2({
             ajax: {
@@ -479,7 +577,6 @@ $(document).ready(function() {
             }
         });
 
-        // On member select, load their accounts
         $select.on('select2:select', function(e) {
             var member = e.params.data;
             $card.attr('data-member-id', member.id);
@@ -488,10 +585,8 @@ $(document).ready(function() {
             loadMemberAccounts($card, member.id);
         });
 
-        // Remove member card
         $card.find('.remove-member-btn').click(function() {
             var memberId = $card.attr('data-member-id');
-            // Remove allocations for this member
             allocations = allocations.filter(a => a.member_id != memberId);
             $card.remove();
             updateAllocationsTable();
@@ -502,7 +597,6 @@ $(document).ready(function() {
         });
     });
 
-    // Load member accounts (loans, savings, fines)
     function loadMemberAccounts($card, memberId) {
         $.get('<?= site_url('admin/bank/get_member_details') ?>', { member_id: memberId }, function(response) {
             if (response.success) {
@@ -580,10 +674,8 @@ $(document).ready(function() {
         var related = $input.data('related');
         var label = $input.data('label');
 
-        // Remove existing allocation for this input
         allocations = allocations.filter(a => !(a.member_id == memberId && a.related == related));
 
-        // Add new allocation if amount > 0
         if (amount > 0) {
             allocations.push({
                 member_id: memberId,
@@ -658,13 +750,11 @@ $(document).ready(function() {
         }
     }
 
-    // Remove allocation
     $(document).on('click', '.remove-allocation-btn', function() {
         var index = $(this).data('index');
         var alloc = allocations[index];
         allocations.splice(index, 1);
         
-        // Clear the input if it was from a member card
         if (alloc.member_id && alloc.related) {
             $('.allocation-input[data-member="' + alloc.member_id + '"][data-related="' + alloc.related + '"]').val('');
         }
@@ -693,25 +783,21 @@ $(document).ready(function() {
         var $helper = $('#allocation_helper');
 
         if (total > transactionAmount) {
-            $status.removeClass('alert-info alert-success').addClass('alert-danger');
             $error.show();
-            $('#validation_msg').text('Total allocated (₹' + total.toLocaleString('en-IN') + ') exceeds transaction amount (₹' + transactionAmount.toLocaleString('en-IN') + ')');
-            $helper.html('<i class=\"fas fa-exclamation-triangle\"></i> Over-allocated! Please reduce amounts.');
+            $('#validation_msg').text('Total allocated exceeds transaction amount');
+            $helper.html('<i class="fas fa-exclamation-triangle"></i> Over-allocated! Please reduce amounts.');
             $btn.prop('disabled', true);
         } else if (allocations.length === 0) {
-            $status.removeClass('alert-danger alert-success').addClass('alert-info');
             $error.hide();
-            $helper.html('<i class=\"fas fa-info-circle\"></i> Add allocations to map this transaction');
+            $helper.html('<i class="fas fa-info-circle"></i> Add allocations to map this transaction');
             $btn.prop('disabled', true);
         } else if (remaining > 0) {
-            $status.removeClass('alert-danger alert-info').addClass('alert-warning');
             $error.hide();
-            $helper.html('<i class=\"fas fa-check-circle\"></i> Partial mapping: ₹' + remaining.toLocaleString('en-IN', {minimumFractionDigits: 2}) + ' will remain unmapped');
+            $helper.html('<i class="fas fa-check-circle"></i> Partial mapping: ₹' + remaining.toLocaleString('en-IN', {minimumFractionDigits: 2}) + ' will remain unmapped');
             $btn.prop('disabled', false);
         } else {
-            $status.removeClass('alert-danger alert-info alert-warning').addClass('alert-success');
             $error.hide();
-            $helper.html('<i class=\"fas fa-check-circle\"></i> Fully allocated! Ready to save.');
+            $helper.html('<i class="fas fa-check-circle"></i> Fully allocated! Ready to save.');
             $btn.prop('disabled', false);
         }
     }
@@ -738,7 +824,6 @@ $(document).ready(function() {
             return;
         }
 
-        // Build mappings array
         var mappings = allocations.map(function(a) {
             return {
                 paying_member_id: payingMemberId,
@@ -756,14 +841,6 @@ $(document).ready(function() {
             remarks: notes
         };
 
-        // Debug: Log what we're sending
-        console.log('=== Transaction Mapping Request ===');
-        console.log('Transaction ID:', transactionId);
-        console.log('Transaction Amount:', transactionAmount);
-        console.log('Total Allocated:', total);
-        console.log('Mappings:', mappings);
-        console.log('Full Request:', requestData);
-
         var $btn = $(this);
         $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Saving...');
 
@@ -777,13 +854,10 @@ $(document).ready(function() {
                 if (response && response.success) {
                     toastr.success(response.message || 'Transaction mapped successfully');
                     $('#matchModal').modal('hide');
-                    setTimeout(function() {
-                        location.reload();
-                    }, 800);
+                    setTimeout(function() { location.reload(); }, 800);
                 } else {
                     var errorMsg = (response && response.message) ? response.message : 'Failed to save mapping';
                     toastr.error(errorMsg);
-                    console.error('Server response:', response);
                     $btn.prop('disabled', false).html('<i class="fas fa-check"></i> Save Mapping');
                 }
             },
@@ -795,12 +869,9 @@ $(document).ready(function() {
                     try {
                         var resp = JSON.parse(xhr.responseText);
                         errorMsg = resp.message || errorMsg;
-                    } catch (e) {
-                        console.error('Response parse error:', xhr.responseText);
-                    }
+                    } catch (e) {}
                 }
                 toastr.error(errorMsg);
-                console.error('AJAX Error:', {status: status, error: error, response: xhr.responseText});
                 $btn.prop('disabled', false).html('<i class="fas fa-check"></i> Save Mapping');
             }
         });

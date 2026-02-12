@@ -80,6 +80,11 @@
         <div class="card card-info">
             <div class="card-header">
                 <h3 class="card-title"><i class="fas fa-info-circle mr-1"></i> Sample Format</h3>
+                <div class="card-tools">
+                    <a href="<?= site_url('admin/bank/download_sample') ?>" class="btn btn-success btn-xs" download>
+                        <i class="fas fa-download mr-1"></i> Download Template
+                    </a>
+                </div>
             </div>
             <div class="card-body">
                 <p class="mb-2"><strong>Expected CSV Columns:</strong></p>
@@ -129,6 +134,9 @@
     <div class="card-header">
         <h3 class="card-title"><i class="fas fa-history mr-1"></i> Recent Imports</h3>
         <div class="card-tools">
+            <a href="<?= site_url('admin/bank/statement') ?>" class="btn btn-primary btn-sm mr-1">
+                <i class="fas fa-file-alt mr-1"></i> View Full Statement
+            </a>
             <a href="<?= site_url('admin/bank/unmatched') ?>" class="btn btn-warning btn-sm">
                 <i class="fas fa-exclamation-triangle mr-1"></i> View Unmatched
             </a>

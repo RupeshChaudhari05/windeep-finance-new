@@ -126,6 +126,7 @@ $route['admin/bank/accounts/edit/(:num)'] = 'admin/bank/edit/$1';
 $route['admin/bank/accounts/toggle/(:num)'] = 'admin/bank/toggle/$1';
 $route['admin/bank/accounts'] = 'admin/bank/accounts';
 $route['admin/bank/import'] = 'admin/bank/import';
+$route['admin/bank/download_sample'] = 'admin/bank/download_sample';
 $route['admin/bank/upload'] = 'admin/bank/upload';
 $route['admin/bank/view_import/(:num)'] = 'admin/bank/view_import/$1';
 $route['admin/bank/transactions'] = 'admin/bank/transactions';
@@ -133,7 +134,9 @@ $route['admin/bank/mapping'] = 'admin/bank/mapping';
 $route['admin/bank/save_transaction_mapping'] = 'admin/bank/save_transaction_mapping';
 $route['admin/bank/search_members'] = 'admin/bank/search_members';
 $route['admin/bank/get_member_accounts'] = 'admin/bank/get_member_accounts';
+$route['admin/bank/get_member_details'] = 'admin/bank/get_member_details';
 $route['admin/bank/calculate_fine_due'] = 'admin/bank/calculate_fine_due';
+$route['admin/bank/statement'] = 'admin/bank/statement';
 
 // Reports routes
 $route['admin/reports'] = 'admin/reports/index';

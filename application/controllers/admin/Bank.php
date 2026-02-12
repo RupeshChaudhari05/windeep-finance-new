@@ -27,6 +27,203 @@ class Bank extends Admin_Controller {
         $this->load->view('admin/bank/import', $this->data);
         $this->load->view('admin/layouts/footer', $this->data);
     }
+
+    /**
+     * Unified Bank Statement - All transactions for a financial year as a single continuous statement
+     */
+    public function statement() {
+        $this->data['page_title'] = 'Bank Statement';
+        $this->data['breadcrumb'] = [
+            ['label' => 'Bank', 'link' => site_url('admin/bank/import')],
+            ['label' => 'Statement']
+        ];
+
+        // Load financial years
+        $this->load->model('Financial_year_model');
+        $financial_years = $this->Financial_year_model->get_all_years();
+        $this->data['financial_years'] = $financial_years;
+
+        // Get active financial year as default
+        $active_fy = $this->Financial_year_model->get_active();
+
+        // Determine selected financial year
+        $fy_id = $this->input->get('fy_id');
+        $selected_fy = null;
+        if ($fy_id) {
+            foreach ($financial_years as $fy) {
+                if ($fy->id == $fy_id) { $selected_fy = $fy; break; }
+            }
+        }
+        if (!$selected_fy && $active_fy) {
+            $selected_fy = $active_fy;
+        }
+        if (!$selected_fy && !empty($financial_years)) {
+            $selected_fy = $financial_years[0];
+        }
+        $this->data['selected_fy'] = $selected_fy;
+
+        // Get bank accounts for filter
+        $this->data['bank_accounts'] = $this->Bank_model->get_accounts();
+
+        // Build filters
+        $filters = [
+            'bank_id' => $this->input->get('bank_id'),
+            'mapping_status' => $this->input->get('mapping_status'),
+            'member_id' => $this->input->get('member_id'),
+            'transaction_type' => $this->input->get('transaction_type'),
+        ];
+
+        // Use financial year date range
+        if ($selected_fy) {
+            $filters['from_date'] = $selected_fy->start_date;
+            $filters['to_date'] = $selected_fy->end_date;
+        }
+
+        $this->data['filters'] = $filters;
+
+        // Get all transactions for the financial year (no limit - single continuous statement)
+        $this->data['transactions'] = $this->Bank_model->get_transactions_for_mapping($filters);
+
+        // Provide JS config for mapping modal
+        $config = "<script>\n" .
+                  "window.BANK_MAPPING_CONFIG = {\n" .
+                  "  search_members_url: '" . site_url('admin/bank/search_members') . "',\n" .
+                  "  get_member_details_url: '" . site_url('admin/bank/get_member_details') . "',\n" .
+                  "  get_member_accounts_url: '" . site_url('admin/bank/get_member_accounts') . "',\n" .
+                  "  save_mapping_url: '" . site_url('admin/bank/save_transaction_mapping') . "',\n" .
+                  "  calculate_fine_url: '" . site_url('admin/bank/calculate_fine_due') . "'\n" .
+                  "};\n" .
+                  "</script>";
+
+        $this->data['extra_js'] = $config;
+
+        $this->load->view('admin/layouts/header', $this->data);
+        $this->load->view('admin/layouts/sidebar', $this->data);
+        $this->load->view('admin/bank/statement', $this->data);
+        $this->load->view('admin/layouts/footer', $this->data);
+    }
+
+    /**
+     * Download Sample Excel Format
+     */
+    public function download_sample() {
+        // Load PHPSpreadsheet
+        require_once FCPATH . 'vendor/autoload.php';
+        
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        
+        // Set document properties
+        $spreadsheet->getProperties()
+            ->setCreator('WinDeep Finance')
+            ->setTitle('Bank Statement Import Template')
+            ->setSubject('Sample format for bank statement import')
+            ->setDescription('Use this template to import bank transactions');
+        
+        // Set column headers with styling
+        $headers = ['TransaDate', 'Description', 'Credit', 'Debit', 'Reference'];
+        $sheet->fromArray($headers, NULL, 'A1');
+        
+        // Style header row
+        $headerStyle = [
+            'font' => ['bold' => true, 'size' => 11, 'color' => ['rgb' => 'FFFFFF']],
+            'fill' => ['fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID, 'startColor' => ['rgb' => '4472C4']],
+            'alignment' => ['horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER]
+        ];
+        $sheet->getStyle('A1:E1')->applyFromArray($headerStyle);
+        
+        // Add sample data rows
+        $sampleData = [
+            ['05/01/2026', 'MEMB000001 Monthly Savings Deposit', '5000', '', 'UPI/123456789'],
+            ['06/01/2026', 'MEMB000025 Loan EMI Payment LNC440DA', '3500', '', 'NEFT/987654321'],
+            ['08/01/2026', 'UPI Payment from Member 9707502695', '2000', '', 'UPI/456789123'],
+            ['10/01/2026', 'MEMB000042 Fine Payment for Late EMI', '500', '', 'UPI/741852963'],
+            ['12/01/2026', 'SAV2025000120 Savings Account Deposit', '10000', '', 'RTGS/159357246'],
+            ['15/01/2026', 'Bank Charges - SMS Service', '', '250', 'CHG/202601'],
+            ['18/01/2026', 'Cash Withdrawal from Branch', '', '50000', 'WDL/202601001'],
+        ];
+        
+        $rowNum = 2;
+        foreach ($sampleData as $data) {
+            $sheet->fromArray($data, NULL, 'A' . $rowNum);
+            $rowNum++;
+        }
+        
+        // Format amount columns
+        $sheet->getStyle('C2:D' . ($rowNum - 1))->getNumberFormat()
+              ->setFormatCode('#,##0.00');
+        
+        // Set column widths
+        $sheet->getColumnDimension('A')->setWidth(12);
+        $sheet->getColumnDimension('B')->setWidth(45);
+        $sheet->getColumnDimension('C')->setWidth(12);
+        $sheet->getColumnDimension('D')->setWidth(12);
+        $sheet->getColumnDimension('E')->setWidth(20);
+        
+        // Add instructions sheet
+        $instructionsSheet = $spreadsheet->createSheet();
+        $instructionsSheet->setTitle('Instructions');
+        
+        $instructions = [
+            ['Bank Statement Import Instructions'],
+            [''],
+            ['Required Columns:'],
+            ['1. TransaDate', 'Transaction date (DD/MM/YYYY format)'],
+            ['2. Description', 'Transaction description/narration'],
+            ['3. Credit', 'Amount received (money IN) - enter positive numbers'],
+            ['4. Debit', 'Amount spent (money OUT) - enter positive numbers'],
+            ['5. Reference', 'Transaction reference/UTR number (optional)'],
+            [''],
+            ['Important Notes:'],
+            ['• Each transaction should have EITHER Credit OR Debit amount (not both)'],
+            ['• Leave the other amount column blank'],
+            ['• Dates should be in DD/MM/YYYY, DD-MM-YYYY, or YYYY-MM-DD format'],
+            ['• For auto-matching, include member codes (MEMB000001), phone numbers,'],
+            ['  savings account numbers (SAV2025000120), or loan numbers (LNC440DA)'],
+            ['  in the description field'],
+            [''],
+            ['Example Patterns for Auto-Matching:'],
+            ['• Member Code: "MEMB000001 Deposit" or "Payment from MEMB000025"'],
+            ['• Phone: "UPI Payment 9707502695" (10-digit phone number)'],
+            ['• Savings Account: "SAV2025000120 Deposit"'],
+            ['• Loan Number: "LNC440DA EMI Payment"'],
+            [''],
+            ['File Format:'],
+            ['• Supported formats: Excel (.xlsx, .xls) or CSV'],
+            ['• Maximum file size: 10MB'],
+            ['• First row must contain column headers'],
+            [''],
+            ['After Import:'],
+            ['• System will auto-match transactions where possible'],
+            ['• You can manually map remaining transactions'],
+            ['• Split payments across multiple members/accounts are supported'],
+        ];
+        
+        $instructionsSheet->fromArray($instructions, NULL, 'A1');
+        $instructionsSheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
+        $instructionsSheet->getStyle('A3')->getFont()->setBold(true);
+        $instructionsSheet->getStyle('A10')->getFont()->setBold(true);
+        $instructionsSheet->getStyle('A18')->getFont()->setBold(true);
+        $instructionsSheet->getStyle('A25')->getFont()->setBold(true);
+        $instructionsSheet->getStyle('A30')->getFont()->setBold(true);
+        $instructionsSheet->getColumnDimension('A')->setWidth(60);
+        $instructionsSheet->getColumnDimension('B')->setWidth(50);
+        
+        // Set active sheet back to data sheet
+        $spreadsheet->setActiveSheetIndex(0);
+        
+        // Generate filename
+        $filename = 'Bank_Statement_Import_Template_' . date('Y-m-d') . '.xlsx';
+        
+        // Set headers for download
+        header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        header('Content-Disposition: attachment;filename="' . $filename . '"');
+        header('Cache-Control: max-age=0');
+        
+        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+        $writer->save('php://output');
+        exit;
+    }
     
     public function upload() {
         if (!$this->input->post()) {

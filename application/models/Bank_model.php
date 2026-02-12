@@ -687,9 +687,10 @@ class Bank_model extends MY_Model {
      * Get Single Import
      */
     public function get_import($import_id) {
-        return $this->db->select('bsi.*, ba.bank_name, ba.account_number')
+        return $this->db->select('bsi.*, ba.bank_name, ba.account_number, au.full_name as imported_by_name')
                         ->from('bank_statement_imports bsi')
                         ->join('bank_accounts ba', 'ba.id = bsi.bank_account_id')
+                        ->join('admin_users au', 'au.id = bsi.imported_by', 'left')
                         ->where('bsi.id', $import_id)
                         ->get()
                         ->row();
@@ -1097,9 +1098,20 @@ class Bank_model extends MY_Model {
         if (!empty($filters['mapping_status'])) {
             $this->db->where('bt.mapping_status', $filters['mapping_status']);
         }
+
+        if (!empty($filters['member_id'])) {
+            $this->db->group_start();
+            $this->db->where('bt.paid_by_member_id', $filters['member_id']);
+            $this->db->or_where('bt.paid_for_member_id', $filters['member_id']);
+            $this->db->or_where('bt.detected_member_id', $filters['member_id']);
+            $this->db->group_end();
+        }
+
+        if (!empty($filters['transaction_type'])) {
+            $this->db->where('bt.transaction_type', $filters['transaction_type']);
+        }
         
         $this->db->order_by('bt.transaction_date', 'DESC');
-        $this->db->limit(100);
         
         $transactions = $this->db->get()->result();
         
