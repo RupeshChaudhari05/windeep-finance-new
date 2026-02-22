@@ -40,12 +40,26 @@
                 </div>
                 <div class="col-md-3">
                     <div class="form-group">
+                        <label for="father_name">Father's Name</label>
+                        <input type="text" class="form-control" id="father_name" name="father_name"
+                               value="<?= set_value('father_name', $member->father_name ?? '') ?>">
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-group">
                         <label for="phone">Phone Number <span class="text-danger">*</span>
                             <i class="fas fa-info-circle text-muted ml-1" data-toggle="tooltip" title="10-digit mobile number. Used for OTP and notifications."></i>
                         </label>
                            <input type="tel" class="form-control" id="phone" name="phone" 
                                value="<?= set_value('phone', isset($member->phone) ? $member->phone : '') ?>" required maxlength="10">
                         <span class="text-danger"><?= form_error('phone') ?></span>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-group">
+                        <label for="alternate_phone">Alternate Phone</label>
+                        <input type="tel" class="form-control" id="alternate_phone" name="alternate_phone" maxlength="10"
+                               value="<?= set_value('alternate_phone', $member->alternate_phone ?? '') ?>">
                     </div>
                 </div>
                 <div class="col-md-3">
@@ -87,6 +101,25 @@
                             <option value="married" <?= set_select('marital_status', 'married', (isset($member->marital_status) && $member->marital_status == 'married')) ?>>Married</option>
                             <option value="widowed" <?= set_select('marital_status', 'widowed', (isset($member->marital_status) && $member->marital_status == 'widowed')) ?>>Widowed</option>
                             <option value="divorced" <?= set_select('marital_status', 'divorced', (isset($member->marital_status) && $member->marital_status == 'divorced')) ?>>Divorced</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-group">
+                        <label for="join_date">Join Date</label>
+                        <input type="date" class="form-control" id="join_date" name="join_date"
+                               value="<?= set_value('join_date', $member->join_date ?? '') ?>">
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-group">
+                        <label for="membership_type">Membership Type
+                            <i class="fas fa-info-circle text-muted ml-1" data-toggle="tooltip" title="DB-level member category: Regular, Premium, or Founder"></i>
+                        </label>
+                        <select class="form-control" id="membership_type" name="membership_type">
+                            <option value="regular" <?= set_select('membership_type', 'regular', ($member->membership_type ?? 'regular') == 'regular') ?>>Regular</option>
+                            <option value="premium" <?= set_select('membership_type', 'premium', ($member->membership_type ?? '') == 'premium') ?>>Premium</option>
+                            <option value="founder" <?= set_select('membership_type', 'founder', ($member->membership_type ?? '') == 'founder') ?>>Founder</option>
                         </select>
                     </div>
                 </div>

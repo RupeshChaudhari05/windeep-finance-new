@@ -132,7 +132,7 @@ class Members extends Admin_Controller {
         $this->load->library('form_validation');
         $this->form_validation->set_rules('first_name', 'First Name', 'required|max_length[100]');
         $this->form_validation->set_rules('last_name', 'Last Name', 'required|max_length[100]');
-        $this->form_validation->set_rules('phone', 'Phone', 'required|numeric|min_length[10]|max_length[15]|is_unique[members.phone]');
+        $this->form_validation->set_rules('phone', 'Phone', 'required|numeric|min_length[10]|max_length[15]');
         $this->form_validation->set_rules('email', 'Email', 'valid_email|is_unique[members.email]');
         $this->form_validation->set_rules('date_of_birth', 'Date of Birth', 'callback_validate_age');
         $this->form_validation->set_rules('gender', 'Gender', 'in_list[male,female,other]');
@@ -329,12 +329,15 @@ class Members extends Admin_Controller {
             'first_name' => $this->input->post('first_name', TRUE),
             'middle_name' => $this->input->post('middle_name', TRUE),
             'last_name' => $this->input->post('last_name', TRUE),
+            'father_name' => $this->input->post('father_name', TRUE) ?: NULL,
             'phone' => $normalized_phone,
-            'alternate_phone' => $this->input->post('alternate_phone', TRUE),
+            'alternate_phone' => $this->input->post('alternate_phone', TRUE) ?: NULL,
             'email' => $this->input->post('email', TRUE),
             'date_of_birth' => $this->input->post('date_of_birth'),
             'gender' => $this->input->post('gender'),
             'marital_status' => $this->input->post('marital_status'),
+            'join_date' => $this->input->post('join_date') ?: NULL,
+            'membership_type' => $this->input->post('membership_type') ?: 'regular',
             'occupation' => $this->input->post('occupation', TRUE),
             'monthly_income' => $this->input->post('monthly_income'),
             'address_line1' => $this->input->post('address_line1', TRUE),

@@ -98,61 +98,133 @@
         
         <!-- Member Details -->
         <div class="card">
-            <div class="card-header">
-                <h3 class="card-title"><i class="fas fa-user mr-1"></i> Member Details</h3>
+            <div class="card-header d-flex align-items-center">
+                <h3 class="card-title flex-grow-1"><i class="fas fa-user mr-1"></i> Member Details</h3>
+                <a href="<?= site_url('admin/members/edit/' . $member->id) ?>" class="btn btn-sm btn-warning ml-2">
+                    <i class="fas fa-edit mr-1"></i> Edit Member
+                </a>
+                <a href="<?= site_url('admin/members/view/' . $member->id) ?>" class="btn btn-sm btn-outline-info ml-1">
+                    <i class="fas fa-external-link-alt mr-1"></i> Full Profile
+                </a>
             </div>
             <div class="card-body">
-                <div class="row">
+                <?php
+                    // Member level / membership type badge helper
+                    $ml = $member->member_level ?? $member->membership_type ?? '';
+                    $mt = $member->membership_type ?? '';
+                    $ml_labels = ['founding_member'=>'Founding Member','level2'=>'Level 2','level3'=>'Level 3'];
+                    $mt_labels = ['founder'=>'Founder','premium'=>'Premium','regular'=>'Regular'];
+                    $ml_colors = ['founding_member'=>'warning','level2'=>'info','level3'=>'secondary'];
+                    $mt_colors = ['founder'=>'warning','premium'=>'primary','regular'=>'secondary'];
+                ?>
+                <!-- Top row: photo + identity -->
+                <div class="row mb-2">
                     <div class="col-md-2 text-center">
-                        <?php if (!empty($member->profile_photo)): ?>
-                        <img src="<?= base_url('uploads/profile_images/' . $member->profile_photo) ?>" class="img-circle img-thumbnail" style="width: 100px; height: 100px; object-fit: cover;">
+                        <?php
+                            $photo = $member->profile_photo ?? $member->photo ?? '';
+                        ?>
+                        <?php if (!empty($photo)): ?>
+                        <img src="<?= base_url('uploads/profile_images/' . $photo) ?>" class="img-circle img-thumbnail" style="width: 90px; height: 90px; object-fit: cover;">
                         <?php else: ?>
-                        <div class="img-circle bg-secondary d-flex align-items-center justify-content-center" style="width: 100px; height: 100px; margin: auto;">
+                        <div class="img-circle bg-secondary d-flex align-items-center justify-content-center mx-auto" style="width: 90px; height: 90px;">
                             <i class="fas fa-user fa-3x text-white"></i>
                         </div>
                         <?php endif; ?>
+                        <div class="mt-1">
+                            <span class="badge badge-<?= ($member->status ?? 'inactive') == 'active' ? 'success' : 'danger' ?>"><?= ucfirst($member->status ?? 'inactive') ?></span>
+                        </div>
+                        <?php if (!empty($ml)): ?>
+                        <div class="mt-1">
+                            <span class="badge badge-<?= $ml_colors[$ml] ?? 'secondary' ?>">
+                                <i class="fas fa-star mr-1"></i><?= $ml_labels[$ml] ?? ucfirst(str_replace('_',' ',$ml)) ?>
+                            </span>
+                        </div>
+                        <?php endif; ?>
+                        <?php if (!empty($mt) && $mt !== 'regular'): ?>
+                        <div class="mt-1">
+                            <span class="badge badge-<?= $mt_colors[$mt] ?? 'secondary' ?>">
+                                <?= $mt_labels[$mt] ?? ucfirst($mt) ?>
+                            </span>
+                        </div>
+                        <?php endif; ?>
+                        <?php if (!empty($member->kyc_verified)): ?>
+                        <div class="mt-1"><span class="badge badge-success"><i class="fas fa-check-circle mr-1"></i>KYC Verified</span></div>
+                        <?php else: ?>
+                        <div class="mt-1"><span class="badge badge-secondary">KYC Pending</span></div>
+                        <?php endif; ?>
                     </div>
                     <div class="col-md-5">
-                        <table class="table table-borderless table-sm">
-                            <tr>
-                                <td class="text-muted">Member Code:</td>
-                                <td><strong><?= $member->member_code ?></strong></td>
-                            </tr>
-                            <tr>
-                                <td class="text-muted">Name:</td>
-                                <td><?= $member->first_name ?> <?= $member->last_name ?></td>
-                            </tr>
-                            <tr>
-                                <td class="text-muted">Phone:</td>
-                                <td><a href="tel:<?= $member->phone ?>"><?= $member->phone ?></a></td>
-                            </tr>
-                            <tr>
-                                <td class="text-muted">Email:</td>
-                                <td><?= $member->email ?: '-' ?></td>
-                            </tr>
+                        <h6 class="text-muted border-bottom pb-1 mb-2"><i class="fas fa-id-card mr-1"></i> Identity</h6>
+                        <table class="table table-borderless table-sm mb-0">
+                            <tr><td class="text-muted" style="width:45%">Member Code:</td><td><strong><?= $member->member_code ?></strong></td></tr>
+                            <tr><td class="text-muted">Full Name:</td><td><strong><?= trim(($member->first_name ?? '') . ' ' . ($member->middle_name ?? '') . ' ' . ($member->last_name ?? '')) ?></strong></td></tr>
+                            <tr><td class="text-muted">Father's Name:</td><td><?= $member->father_name ?: '<span class="text-muted">—</span>' ?></td></tr>
+                            <tr><td class="text-muted">Date of Birth:</td><td><?= !empty($member->date_of_birth) ? date('d M Y', strtotime($member->date_of_birth)) : '—' ?></td></tr>
+                            <tr><td class="text-muted">Gender:</td><td><?= !empty($member->gender) ? ucfirst($member->gender) : '—' ?></td></tr>
+                            <tr><td class="text-muted">Join Date:</td><td><?= !empty($member->join_date) ? date('d M Y', strtotime($member->join_date)) : '—' ?></td></tr>
                         </table>
                     </div>
                     <div class="col-md-5">
-                        <table class="table table-borderless table-sm">
-                            <tr>
-                                <td class="text-muted">Status:</td>
-                                <td><span class="badge badge-<?= ($member->status ?? 'inactive') == 'active' ? 'success' : 'danger' ?>"><?= ucfirst($member->status ?? 'inactive') ?></span></td>
-                            </tr>
-                            <tr>
-                                <td class="text-muted">Savings Balance:</td>
-                                <td class="text-success">₹<?= number_format($member->savings_summary->current_balance ?? 0) ?></td>
-                            </tr>
-                            <tr>
-                                <td class="text-muted">Active Loans:</td>
-                                <td><?= $member->loan_summary->total_loans ?? 0 ?></td>
-                            </tr>
-                            <tr>
-                                <td class="text-muted">Member Since:</td>
-                                <td><?= format_date($member->created_at) ?></td>
-                            </tr>
+                        <h6 class="text-muted border-bottom pb-1 mb-2"><i class="fas fa-phone mr-1"></i> Contact</h6>
+                        <table class="table table-borderless table-sm mb-0">
+                            <tr><td class="text-muted" style="width:45%">Phone:</td><td><a href="tel:<?= $member->phone ?>"><?= $member->phone ?></a></td></tr>
+                            <tr><td class="text-muted">Alt. Phone:</td><td><?= !empty($member->alternate_phone) ? '<a href="tel:'.$member->alternate_phone.'">'.$member->alternate_phone.'</a>' : '—' ?></td></tr>
+                            <tr><td class="text-muted">Email:</td><td><?= !empty($member->email) ? '<a href="mailto:'.$member->email.'">'.$member->email.'</a>' : '—' ?></td></tr>
+                            <tr><td class="text-muted">City / State:</td><td><?= implode(', ', array_filter([$member->city ?? '', $member->state ?? ''])) ?: '—' ?></td></tr>
+                            <tr><td class="text-muted">PIN Code:</td><td><?= $member->pincode ?: '—' ?></td></tr>
+                            <tr><td class="text-muted">Address:</td><td><?= implode(', ', array_filter([$member->address_line1 ?? '', $member->address_line2 ?? ''])) ?: '—' ?></td></tr>
                         </table>
                     </div>
                 </div>
+
+                <div class="row mt-2">
+                    <!-- Financial -->
+                    <div class="col-md-4">
+                        <h6 class="text-muted border-bottom pb-1 mb-2"><i class="fas fa-chart-bar mr-1"></i> Financial Snapshot</h6>
+                        <table class="table table-borderless table-sm mb-0">
+                            <tr><td class="text-muted" style="width:55%">Savings Balance:</td><td class="text-success font-weight-bold">₹<?= number_format($member->savings_summary->current_balance ?? 0, 2) ?></td></tr>
+                            <tr><td class="text-muted">Active Loans:</td><td><?= $member->loan_summary->total_loans ?? 0 ?></td></tr>
+                            <tr><td class="text-muted">Outstanding:</td><td class="text-danger">₹<?= number_format($member->loan_summary->outstanding_principal ?? 0, 2) ?></td></tr>
+                            <tr><td class="text-muted">Occupation:</td><td><?= $member->occupation ?: '—' ?></td></tr>
+                            <tr><td class="text-muted">Monthly Income:</td><td><?= !empty($member->monthly_income) ? '₹'.number_format($member->monthly_income, 2) : '—' ?></td></tr>
+                        </table>
+                    </div>
+                    <!-- ID Proof -->
+                    <div class="col-md-4">
+                        <h6 class="text-muted border-bottom pb-1 mb-2"><i class="fas fa-fingerprint mr-1"></i> ID Proof</h6>
+                        <table class="table table-borderless table-sm mb-0">
+                            <?php
+                                $aadhaar = $member->aadhaar_number ?? '';
+                                $pan     = $member->pan_number ?? '';
+                                $masked_aadhaar = !empty($aadhaar) ? 'XXXX-XXXX-' . substr($aadhaar, -4) : '—';
+                                $masked_pan     = !empty($pan)     ? substr($pan,0,3).'XXXXX'.substr($pan,-2) : '—';
+                            ?>
+                            <tr><td class="text-muted" style="width:50%">Aadhaar:</td><td><?= $masked_aadhaar ?></td></tr>
+                            <tr><td class="text-muted">PAN:</td><td><?= $masked_pan ?></td></tr>
+                            <tr><td class="text-muted">Voter ID:</td><td><?= !empty($member->voter_id) ? $member->voter_id : '—' ?></td></tr>
+                            <tr><td class="text-muted">Max Guarantee:</td><td>₹<?= number_format($member->max_guarantee_amount ?? 100000, 0) ?></td></tr>
+                            <tr><td class="text-muted">Max Guarantee#:</td><td><?= $member->max_guarantee_count ?? 3 ?></td></tr>
+                        </table>
+                    </div>
+                    <!-- Bank & Nominee -->
+                    <div class="col-md-4">
+                        <h6 class="text-muted border-bottom pb-1 mb-2"><i class="fas fa-university mr-1"></i> Bank</h6>
+                        <table class="table table-borderless table-sm mb-0">
+                            <tr><td class="text-muted" style="width:45%">Bank:</td><td><?= $member->bank_name ?: '—' ?></td></tr>
+                            <tr><td class="text-muted">Account:</td><td><?= !empty($member->account_number) ? 'XXXX' . substr($member->account_number, -4) : '—' ?></td></tr>
+                            <tr><td class="text-muted">IFSC:</td><td><?= $member->ifsc_code ?: '—' ?></td></tr>
+                        </table>
+                        <h6 class="text-muted border-bottom pb-1 mb-2 mt-2"><i class="fas fa-user-shield mr-1"></i> Nominee</h6>
+                        <table class="table table-borderless table-sm mb-0">
+                            <tr><td class="text-muted" style="width:45%">Name:</td><td><?= $member->nominee_name ?: '—' ?></td></tr>
+                            <tr><td class="text-muted">Relation:</td><td><?= !empty($member->nominee_relation) ? ucfirst($member->nominee_relation) : '—' ?></td></tr>
+                            <tr><td class="text-muted">Phone:</td><td><?= $member->nominee_phone ?: '—' ?></td></tr>
+                        </table>
+                    </div>
+                </div>
+                <?php if (!empty($member->notes)): ?>
+                <div class="alert alert-light mt-2 mb-0"><strong>Notes:</strong> <?= nl2br(htmlspecialchars($member->notes)) ?></div>
+                <?php endif; ?>
             </div>
         </div>
         
