@@ -80,8 +80,8 @@
             <div class="row">
                 <div class="col-md-3">
                     <div class="form-group">
-                        <label for="date_of_birth">Date of Birth <span class="text-danger">*</span></label>
-                        <input type="date" class="form-control" id="date_of_birth" name="date_of_birth" required
+                        <label for="date_of_birth">Date of Birth</label>
+                        <input type="date" class="form-control" id="date_of_birth" name="date_of_birth"
                                value="<?= set_value('date_of_birth') ?>" max="<?= date('Y-m-d', safe_timestamp('-18 years')) ?>"
                                title="Must be at least 18 years old">
                         <span class="text-danger"><?= form_error('date_of_birth') ?></span>
@@ -129,8 +129,8 @@
             <div class="row">
                 <div class="col-md-3">
                     <div class="form-group">
-                        <label for="id_proof_type">ID Type <span class="text-danger">*</span></label>
-                        <select class="form-control" id="id_proof_type" name="id_proof_type" required title="Select primary ID type">
+                        <label for="id_proof_type">ID Type</label>
+                        <select class="form-control" id="id_proof_type" name="id_proof_type" title="Select primary ID type">
                             <option value="">Select ID Type</option>
                             <option value="aadhar" <?= set_select('id_proof_type', 'aadhar') ?>>Aadhar Card</option>
                             <option value="voter_id" <?= set_select('id_proof_type', 'voter_id') ?>>Voter ID</option>
@@ -143,9 +143,9 @@
                 </div>
                 <div class="col-md-3">
                     <div class="form-group">
-                        <label for="id_proof_number">ID Number <span class="text-danger">*</span></label>
+                        <label for="id_proof_number">ID Number</label>
                         <input type="text" class="form-control" id="id_proof_number" name="id_proof_number" 
-                               value="<?= set_value('id_proof_number') ?>" required
+                               value="<?= set_value('id_proof_number') ?>"
                                placeholder="Enter ID number" title="ID number as shown on document">
                         <span class="text-danger"><?= form_error('id_proof_number') ?></span>
                     </div>
@@ -229,9 +229,9 @@
                 </div>
                 <div class="col-md-3">
                     <div class="form-group">
-                        <label for="pincode">PIN Code <span class="text-danger">*</span></label>
+                        <label for="pincode">PIN Code</label>
                         <input type="text" class="form-control" id="pincode" name="pincode" 
-                               value="<?= set_value('pincode') ?>" required maxlength="6"
+                               value="<?= set_value('pincode') ?>" maxlength="6"
                                placeholder="6-digit PIN" title="6-digit postal code">
                         <span class="text-danger"><?= form_error('pincode') ?></span>
                     </div>
@@ -341,6 +341,24 @@
                 </div>
             </div>
             
+            <!-- Admin Section -->
+            <h5 class="text-primary border-bottom pb-2 mb-3 mt-4">
+                <i class="fas fa-shield-alt mr-1"></i> Admin Classification
+            </h5>
+            <div class="row">
+                <div class="col-md-4">
+                    <div class="form-group">
+                        <label for="member_level">Member Level <i class="fas fa-info-circle text-muted ml-1" data-toggle="tooltip" title="Admin-only classification for this member"></i></label>
+                        <select class="form-control" id="member_level" name="member_level" title="Select member level">
+                            <option value="">-- Select Level --</option>
+                            <option value="founding_member" <?= set_select('member_level', 'founding_member') ?>>Founding Member</option>
+                            <option value="level2" <?= set_select('member_level', 'level2') ?>>Level 2 Member</option>
+                            <option value="level3" <?= set_select('member_level', 'level3') ?>>Level 3 Member</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
             <!-- Referral -->
             <h5 class="text-primary border-bottom pb-2 mb-3 mt-4">
                 <i class="fas fa-share-alt mr-1"></i> Referral Details (Optional)
@@ -423,7 +441,7 @@ $(document).ready(function() {
         }
         
         var pincode = $('#pincode').val();
-        if (pincode.length !== 6) {
+        if (pincode.length > 0 && pincode.length !== 6) {
             e.preventDefault();
             Swal.fire('Error', 'Please enter a valid 6-digit PIN code', 'error');
             return false;

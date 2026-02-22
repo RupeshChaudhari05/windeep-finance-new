@@ -15,7 +15,9 @@
             <div class="row">
                 <div class="col-md-3">
                     <div class="form-group">
-                        <label for="first_name">First Name <span class="text-danger">*</span></label>
+                        <label for="first_name">First Name <span class="text-danger">*</span>
+                            <i class="fas fa-info-circle text-muted ml-1" data-toggle="tooltip" title="Member's first name as per official ID proof"></i>
+                        </label>
                         <input type="text" class="form-control" id="first_name" name="first_name" 
                                value="<?= set_value('first_name', isset($member->first_name) ? $member->first_name : '') ?>" required>
                         <span class="text-danger"><?= form_error('first_name') ?></span>
@@ -38,7 +40,9 @@
                 </div>
                 <div class="col-md-3">
                     <div class="form-group">
-                        <label for="phone">Phone Number <span class="text-danger">*</span></label>
+                        <label for="phone">Phone Number <span class="text-danger">*</span>
+                            <i class="fas fa-info-circle text-muted ml-1" data-toggle="tooltip" title="10-digit mobile number. Used for OTP and notifications."></i>
+                        </label>
                            <input type="tel" class="form-control" id="phone" name="phone" 
                                value="<?= set_value('phone', isset($member->phone) ? $member->phone : '') ?>" required maxlength="10">
                         <span class="text-danger"><?= form_error('phone') ?></span>
@@ -88,7 +92,20 @@
                 </div>
                 <div class="col-md-3">
                     <div class="form-group">
-                        <label for="status">Member Status <span class="text-danger">*</span></label>
+                        <label for="member_level">Member Level</label>
+                        <select class="form-control" id="member_level" name="member_level" title="Admin-only classification">
+                            <option value="">-- Select Level --</option>
+                            <option value="founding_member" <?= set_select('member_level', 'founding_member', (isset($member->member_level) && $member->member_level == 'founding_member')) ?>>Founding Member</option>
+                            <option value="level2" <?= set_select('member_level', 'level2', (isset($member->member_level) && $member->member_level == 'level2')) ?>>Level 2 Member</option>
+                            <option value="level3" <?= set_select('member_level', 'level3', (isset($member->member_level) && $member->member_level == 'level3')) ?>>Level 3 Member</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-group">
+                        <label for="status">Member Status <span class="text-danger">*</span>
+                            <i class="fas fa-info-circle text-muted ml-1" data-toggle="tooltip" title="Active: can use services. Inactive: temporarily disabled. Suspended: blocked due to violations."></i>
+                        </label>
                         <select class="form-control" id="status" name="status" required>
                             <option value="active" <?= set_select('status', 'active', (isset($member->status) && $member->status == 'active')) ?>>Active</option>
                             <option value="inactive" <?= set_select('status', 'inactive', (isset($member->status) && $member->status == 'inactive')) ?>>Inactive</option>
@@ -129,7 +146,9 @@
             <div class="row">
                 <div class="col-md-3">
                     <div class="form-group">
-                        <label for="id_proof_type">ID Type <span class="text-danger">*</span></label>
+                        <label for="id_proof_type">ID Type <span class="text-danger">*</span>
+                            <i class="fas fa-info-circle text-muted ml-1" data-toggle="tooltip" title="Primary government-issued ID used for KYC verification"></i>
+                        </label>
                         <select class="form-control" id="id_proof_type" name="id_proof_type" required>
                             <option value="">Select ID Type</option>
                             <option value="aadhar" <?= set_select('id_proof_type', 'aadhar', (isset($member->id_proof_type) && $member->id_proof_type == 'aadhar')) ?>>Aadhar Card</option>
@@ -143,7 +162,9 @@
                 </div>
                 <div class="col-md-3">
                     <div class="form-group">
-                        <label for="id_proof_number">ID Number <span class="text-danger">*</span></label>
+                        <label for="id_proof_number">ID Number <span class="text-danger">*</span>
+                            <i class="fas fa-info-circle text-muted ml-1" data-toggle="tooltip" title="ID document number matching the selected ID type"></i>
+                        </label>
                            <input type="text" class="form-control" id="id_proof_number" name="id_proof_number" 
                                value="<?= set_value('id_proof_number', isset($member->id_proof_number) ? $member->id_proof_number : '') ?>" required>
                         <span class="text-danger"><?= form_error('id_proof_number') ?></span>
@@ -151,7 +172,9 @@
                 </div>
                 <div class="col-md-3">
                     <div class="form-group">
-                        <label for="pan_number">PAN Number</label>
+                        <label for="pan_number">PAN Number
+                            <i class="fas fa-info-circle text-muted ml-1" data-toggle="tooltip" title="10-character PAN: ABCDE1234F"></i>
+                        </label>
                            <input type="text" class="form-control text-uppercase" id="pan_number" name="pan_number" 
                                value="<?= set_value('pan_number', isset($member->pan_number) ? $member->pan_number : '') ?>" maxlength="10">
                         <span class="text-danger"><?= form_error('pan_number') ?></span>
@@ -215,7 +238,9 @@
                 </div>
                 <div class="col-md-3">
                     <div class="form-group">
-                        <label for="pincode">PIN Code <span class="text-danger">*</span></label>
+                        <label for="pincode">PIN Code <span class="text-danger">*</span>
+                            <i class="fas fa-info-circle text-muted ml-1" data-toggle="tooltip" title="6-digit postal PIN code"></i>
+                        </label>
                            <input type="text" class="form-control" id="pincode" name="pincode" 
                                value="<?= set_value('pincode', isset($member->pincode) ? $member->pincode : '') ?>" required maxlength="6">
                         <span class="text-danger"><?= form_error('pincode') ?></span>
@@ -237,7 +262,9 @@
                 </div>
                 <div class="col-md-4">
                     <div class="form-group">
-                        <label for="monthly_income">Monthly Income (₹)</label>
+                        <label for="monthly_income">Monthly Income (₹)
+                            <i class="fas fa-info-circle text-muted ml-1" data-toggle="tooltip" title="Gross monthly income. Used for loan eligibility assessment."></i>
+                        </label>
                            <input type="number" class="form-control" id="monthly_income" name="monthly_income" 
                                value="<?= set_value('monthly_income', isset($member->monthly_income) ? $member->monthly_income : '') ?>" min="0">
                     </div>
@@ -265,14 +292,18 @@
                 </div>
                 <div class="col-md-4">
                     <div class="form-group">
-                        <label for="bank_account_number">Account Number</label>
+                        <label for="bank_account_number">Account Number
+                            <i class="fas fa-info-circle text-muted ml-1" data-toggle="tooltip" title="Bank account number for loan disbursement"></i>
+                        </label>
                            <input type="text" class="form-control" id="bank_account_number" name="bank_account_number" 
                                value="<?= set_value('bank_account_number', isset($member->bank_account_number) ? $member->bank_account_number : '') ?>">
                     </div>
                 </div>
                 <div class="col-md-4">
                     <div class="form-group">
-                        <label for="bank_ifsc">IFSC Code</label>
+                        <label for="bank_ifsc">IFSC Code
+                            <i class="fas fa-info-circle text-muted ml-1" data-toggle="tooltip" title="11-character IFSC code: XXXX0XXXXXX"></i>
+                        </label>
                            <input type="text" class="form-control text-uppercase" id="bank_ifsc" name="bank_ifsc" 
                                value="<?= set_value('bank_ifsc', isset($member->bank_ifsc) ? $member->bank_ifsc : '') ?>" maxlength="11">
                     </div>
@@ -366,12 +397,37 @@ $(document).ready(function() {
         this.value = this.value.toUpperCase().slice(0, 11);
     });
     
-    // Form submit
+    // Form submit with better validation messages
     $('#memberForm').on('submit', function(e) {
         var phone = $('#phone').val();
         if (phone.length !== 10) {
             e.preventDefault();
-            Swal.fire('Error', 'Please enter a valid 10-digit phone number', 'error');
+            Swal.fire('Validation Error', 'Phone number must be exactly 10 digits. Currently: ' + phone.length + ' digits.', 'error');
+            $('#phone').focus();
+            return false;
+        }
+        
+        var pincode = $('#pincode').val();
+        if (pincode && pincode.length !== 6) {
+            e.preventDefault();
+            Swal.fire('Validation Error', 'PIN code must be exactly 6 digits.', 'error');
+            $('#pincode').focus();
+            return false;
+        }
+        
+        var pan = $('#pan_number').val();
+        if (pan && !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan)) {
+            e.preventDefault();
+            Swal.fire('Validation Error', 'PAN format must be ABCDE1234F (5 letters, 4 digits, 1 letter).', 'error');
+            $('#pan_number').focus();
+            return false;
+        }
+        
+        var ifsc = $('#bank_ifsc').val();
+        if (ifsc && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc)) {
+            e.preventDefault();
+            Swal.fire('Validation Error', 'IFSC format must be XXXX0XXXXXX (e.g. SBIN0001234).', 'error');
+            $('#bank_ifsc').focus();
             return false;
         }
         

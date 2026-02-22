@@ -14,7 +14,9 @@
                     </h5>
                     
                     <div class="form-group">
-                        <label for="member_id">Select Member <span class="text-danger">*</span></label>
+                        <label for="member_id">Select Member <span class="text-danger">*</span>
+                            <i class="fas fa-info-circle text-muted ml-1" data-toggle="tooltip" title="Search and select the member applying for the loan. Member must have active status and completed KYC."></i>
+                        </label>
                         <select class="form-control select2" id="member_id" name="member_id" required data-placeholder="Search by name or code...">
                             <option value="">Select Member</option>
                             <?php foreach ($members as $m): ?>
@@ -47,7 +49,9 @@
                     <div class="row">
                         <div class="col-md-6">
                             <div class="form-group">
-                                <label for="product_id">Loan Product <span class="text-danger">*</span></label>
+                                <label for="product_id">Loan Product <span class="text-danger">*</span>
+                                    <i class="fas fa-info-circle text-muted ml-1" data-toggle="tooltip" title="Select the loan product. Each product has different interest rates, tenure ranges, and amount limits."></i>
+                                </label>
                                 <select class="form-control" id="product_id" name="product_id" required>
                                     <option value="">Select Product</option>
                                     <?php foreach ($products as $p): ?>
@@ -65,7 +69,9 @@
                         </div>
                         <div class="col-md-6">
                             <div class="form-group">
-                                <label for="requested_amount">Loan Amount (₹) <span class="text-danger">*</span></label>
+                                <label for="requested_amount">Loan Amount (₹) <span class="text-danger">*</span>
+                                    <i class="fas fa-info-circle text-muted ml-1" data-toggle="tooltip" title="Amount the member wants to borrow. Must be within the product's min-max range shown below."></i>
+                                </label>
                                 <input type="number" class="form-control" id="requested_amount" name="requested_amount" 
                                        value="<?= set_value('requested_amount') ?>" required min="1000"
                                        placeholder="Enter loan amount">
@@ -77,7 +83,9 @@
                     <div class="row">
                         <div class="col-md-6">
                             <div class="form-group">
-                                <label for="tenure_months">Tenure (Months) <span class="text-danger">*</span></label>
+                                <label for="tenure_months">Tenure (Months) <span class="text-danger">*</span>
+                                    <i class="fas fa-info-circle text-muted ml-1" data-toggle="tooltip" title="Loan repayment period in months. Longer tenure = lower EMI but more total interest."></i>
+                                </label>
                                 <input type="number" class="form-control" id="tenure_months" name="tenure_months" 
                                        value="<?= set_value('tenure_months', 12) ?>" required min="1" max="240">
                                 <small id="tenureRange" class="form-text text-muted"></small>
@@ -85,7 +93,9 @@
                         </div>
                         <div class="col-md-6">
                             <div class="form-group">
-                                <label for="emi_date">EMI Payment Day <span class="text-danger">*</span></label>
+                                <label for="emi_date">EMI Payment Day <span class="text-danger">*</span>
+                                    <i class="fas fa-info-circle text-muted ml-1" data-toggle="tooltip" title="Day of each month when EMI is due. Choose a date after the member's salary date. Max 28 to avoid month-end issues."></i>
+                                </label>
                                 <select class="form-control" id="emi_date" name="emi_date" required title="Day of month for EMI payment">
                                     <?php for ($i = 1; $i <= 28; $i++): ?>
                                         <option value="<?= $i ?>" <?= $i == 5 ? 'selected' : '' ?>><?= $i ?>th</option>
@@ -96,7 +106,9 @@
                     </div>
                     
                     <div class="form-group">
-                        <label for="purpose">Loan Purpose <span class="text-danger">*</span></label>
+                        <label for="purpose">Loan Purpose <span class="text-danger">*</span>
+                            <i class="fas fa-info-circle text-muted ml-1" data-toggle="tooltip" title="Primary reason for taking the loan. This is recorded for regulatory compliance."></i>
+                        </label>
                         <select class="form-control" id="purpose" name="purpose" required>
                             <option value="">Select Purpose</option>
                             <option value="business">Business / Working Capital</option>

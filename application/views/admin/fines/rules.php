@@ -15,19 +15,20 @@
                     <tr>
                         <th width="50">#</th>
                         <th>Rule Name</th>
-                        <th>Fine Type</th>
-                        <th>Amount Type</th>
+                        <th>Applies To</th>
+                        <th>Calculation</th>
                         <th class="text-right">Amount/Rate</th>
                         <th>Grace Period</th>
                         <th>Max Fine</th>
                         <th>Status</th>
+                        <th>Effective From</th>
                         <th width="120">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if (empty($rules)): ?>
                     <tr>
-                        <td colspan="9" class="text-center py-4">
+                        <td colspan="10" class="text-center py-4">
                             <i class="fas fa-balance-scale fa-3x text-muted mb-3"></i>
                             <p class="text-muted">No fine rules configured. Click "Add Rule" to create one.</p>
                         </td>
@@ -44,11 +45,13 @@
                             </td>
                             <td>
                                 <span class="badge badge-<?= 
-                                    $rule->fine_type == 'loan_late' ? 'danger' : 
-                                    ($rule->fine_type == 'savings_late' ? 'warning' : 
-                                    ($rule->fine_type == 'per_day' ? 'info' : 'secondary'))
+                                    ($rule->applies_to ?? 'both') == 'loan' ? 'danger' : 
+                                    (($rule->applies_to ?? 'both') == 'savings' ? 'warning' : 'info')
                                 ?>">
-                                    <?= ucwords(str_replace('_', ' ', $rule->fine_type)) ?>
+                                    <?php 
+                                    $at = $rule->applies_to ?? 'both';
+                                    echo $at == 'both' ? 'Savings & Loans' : ($at == 'savings' ? 'Savings Only' : 'Loans Only');
+                                    ?>
                                 </span>
                             </td>
                             <td>
@@ -89,6 +92,22 @@
                                 <span class="badge badge-success"><i class="fas fa-check"></i> Active</span>
                                 <?php else: ?>
                                 <span class="badge badge-danger"><i class="fas fa-times"></i> Inactive</span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <?php 
+                                $eff = $rule->effective_from ?? null;
+                                if ($eff): 
+                                    $effDate = date('d M Y', strtotime($eff));
+                                    $isFuture = strtotime($eff) > time();
+                                ?>
+                                    <?php if ($isFuture): ?>
+                                        <span class="badge badge-warning"><i class="fas fa-clock"></i> <?= $effDate ?></span>
+                                    <?php else: ?>
+                                        <span class="text-muted"><?= $effDate ?></span>
+                                    <?php endif; ?>
+                                <?php else: ?>
+                                    <span class="text-muted">—</span>
                                 <?php endif; ?>
                             </td>
                             <td>
@@ -172,6 +191,12 @@
                     <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
                 </div>
                 <div class="modal-body">
+                    <!-- Edit notice (shown only when editing) -->
+                    <div class="alert alert-info d-none" id="editNotice">
+                        <i class="fas fa-info-circle mr-1"></i>
+                        Changes to existing rules take effect from <strong id="effectiveDate"></strong> (1st of next month).
+                    </div>
+
                     <div class="row">
                         <div class="col-md-6">
                             <div class="form-group">
@@ -181,54 +206,41 @@
                         </div>
                         <div class="col-md-6">
                             <div class="form-group">
-                                <label>Fine Type <span class="text-danger">*</span></label>
-                                <select name="fine_type" id="fine_type" class="form-control" required>
-                                    <option value="loan_late">Late EMI Payment</option>
-                                    <option value="savings_late">Late Savings Deposit</option>
-                                    <option value="meeting_absence">Meeting Absence</option>
-                                    <option value="document_missing">Missing Documents</option>
-                                    <option value="other">Other</option>
+                                <label>Applies To <span class="text-danger">*</span></label>
+                                <select name="applies_to" id="applies_to" class="form-control" required>
+                                    <option value="both">Both Savings & Loans</option>
+                                    <option value="savings">Savings Only</option>
+                                    <option value="loan">Loans Only</option>
                                 </select>
                             </div>
                         </div>
                     </div>
+
+                    <div class="form-group">
+                        <label>Description</label>
+                        <textarea name="description" id="description" class="form-control" rows="2" placeholder="Brief description of this fine rule..."></textarea>
+                    </div>
                     
                     <div class="row">
-                        <div class="col-md-6">
+                        <div class="col-md-4">
                             <div class="form-group">
-                                <label>Calculation Type <span class="text-danger">*</span></label>
-                                <select name="calculation_type" id="calculation_type" class="form-control" required>
+                                <label>Fine Type <span class="text-danger">*</span></label>
+                                <select name="fine_type" id="fine_type" class="form-control" required>
                                     <option value="fixed">Fixed Amount</option>
-                                    <option value="percentage">Percentage</option>
+                                    <option value="percentage">Percentage of Due</option>
                                     <option value="per_day">Fixed + Per Day</option>
                                 </select>
                             </div>
                         </div>
-                    
-                    <div class="form-group">
-                        <label>Description</label>
-                        <textarea name="description" id="description" class="form-control" rows="2"></textarea>
-                    </div>
-                    
-                    <div class="row">
                         <div class="col-md-4">
                             <div class="form-group">
-                                <label>Amount Type <span class="text-danger">*</span></label>
-                                <select name="amount_type" id="amount_type" class="form-control" required>
-                                    <option value="fixed">Fixed Amount</option>
-                                    <option value="percentage">Percentage</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="col-md-4">
-                            <div class="form-group">
-                                <label id="amountLabel">Amount/Rate <span class="text-danger">*</span></label>
+                                <label id="amountLabel">Fine Amount <span class="text-danger">*</span></label>
                                 <div class="input-group">
                                     <div class="input-group-prepend" id="amountPrefix"><span class="input-group-text">₹</span></div>
                                     <input type="number" name="amount_value" id="amount_value" class="form-control" required step="0.01" min="0">
                                     <div class="input-group-append" id="amountSuffix" style="display:none"><span class="input-group-text">%</span></div>
                                 </div>
-                                <small class="text-muted" id="amountHelp">Fixed amount or percentage value</small>
+                                <small class="text-muted" id="amountHelp">Fixed fine amount</small>
                             </div>
                         </div>
                         <div class="col-md-4" id="perDayAmountGroup" style="display:none">
@@ -238,18 +250,7 @@
                                     <div class="input-group-prepend"><span class="input-group-text">₹</span></div>
                                     <input type="number" name="per_day_amount" id="per_day_amount" class="form-control" step="0.01" min="0">
                                 </div>
-                                <small class="text-muted">Additional amount per day overdue</small>
-                            </div>
-                        </div>
-                        <div class="col-md-4" id="frequencyGroup">
-                            <div class="form-group">
-                                <label>Frequency</label>
-                                <select name="frequency" id="frequency" class="form-control">
-                                    <option value="one_time">One Time</option>
-                                    <option value="daily">Daily</option>
-                                    <option value="weekly">Weekly</option>
-                                    <option value="monthly">Monthly</option>
-                                </select>
+                                <small class="text-muted">Additional daily charge after grace period</small>
                             </div>
                         </div>
                     </div>
@@ -264,7 +265,7 @@
                         </div>
                         <div class="col-md-4">
                             <div class="form-group">
-                                <label>Maximum Fine</label>
+                                <label>Maximum Fine Cap</label>
                                 <div class="input-group">
                                     <div class="input-group-prepend"><span class="input-group-text">₹</span></div>
                                     <input type="number" name="max_fine_amount" id="max_fine_amount" class="form-control" min="0">
@@ -274,12 +275,12 @@
                         </div>
                         <div class="col-md-4">
                             <div class="form-group">
-                                <label>Applies To</label>
-                                <select name="applies_to" id="applies_to" class="form-control">
-                                    <option value="all">All Members</option>
-                                    <option value="loan_holders">Loan Holders Only</option>
-                                    <option value="savings_accounts">Savings Accounts Only</option>
+                                <label>Frequency</label>
+                                <select name="frequency" id="frequency" class="form-control">
+                                    <option value="one_time">One Time</option>
+                                    <option value="monthly">Monthly</option>
                                 </select>
+                                <small class="text-muted">How often fine is applied</small>
                             </div>
                         </div>
                     </div>
@@ -307,46 +308,48 @@ $(document).ready(function() {
         "pageLength": 25
     });
     
-    // Calculation type toggle
-    $('#calculation_type').change(function() {
-        var calcType = $(this).val();
+    // Fine type toggle - controls amount field UI
+    $('#fine_type').change(function() {
+        var fineType = $(this).val();
         
-        if (calcType == 'percentage') {
-            $('#amountLabel').text('Percentage Rate');
-            $('#amountHelp').text('Percentage of the due amount');
+        if (fineType == 'percentage') {
+            $('#amountLabel').html('Percentage Rate <span class="text-danger">*</span>');
+            $('#amountHelp').text('Percentage of the overdue amount');
             $('#amountPrefix').hide();
             $('#amountSuffix').show();
             $('#perDayAmountGroup').hide();
-            $('#frequencyGroup').show();
-        } else if (calcType == 'per_day') {
-            $('#amountLabel').text('Initial Fixed Amount');
-            $('#amountHelp').text('Fixed amount for first day overdue');
+        } else if (fineType == 'per_day') {
+            $('#amountLabel').html('Initial Fine Amount <span class="text-danger">*</span>');
+            $('#amountHelp').text('One-time charge when overdue starts');
             $('#amountPrefix').show();
             $('#amountSuffix').hide();
             $('#perDayAmountGroup').show();
-            $('#frequencyGroup').hide();
         } else {
-            $('#amountLabel').text('Fixed Amount');
+            $('#amountLabel').html('Fine Amount <span class="text-danger">*</span>');
             $('#amountHelp').text('Fixed fine amount');
             $('#amountPrefix').show();
             $('#amountSuffix').hide();
             $('#perDayAmountGroup').hide();
-            $('#frequencyGroup').show();
         }
     });
+    
+    // Compute next month 1st for edit notice
+    var now = new Date();
+    var nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    var effectiveDateStr = nextMonth.toLocaleDateString('en-IN', {day: '2-digit', month: 'short', year: 'numeric'});
     
     // Reset modal on close
     $('#addRuleModal').on('hidden.bs.modal', function() {
         $('#ruleForm')[0].reset();
         $('#rule_id').val('');
         $('#modalTitle').text('Add');
+        $('#editNotice').addClass('d-none');
         $('#is_active').prop('checked', true);
         $('#amountPrefix').show();
         $('#amountSuffix').hide();
         $('#perDayAmountGroup').hide();
-        $('#frequencyGroup').show();
-        $('#amountLabel').text('Amount/Rate');
-        $('#amountHelp').text('Fixed amount or percentage value');
+        $('#amountLabel').html('Fine Amount <span class="text-danger">*</span>');
+        $('#amountHelp').text('Fixed fine amount');
     });
     
     // Edit rule
@@ -355,19 +358,23 @@ $(document).ready(function() {
         $('#modalTitle').text('Edit');
         $('#rule_id').val(rule.id);
         $('#rule_name').val(rule.rule_name);
-        $('#fine_type').val(rule.fine_type);
-        $('#calculation_type').val(rule.calculation_type || 'fixed');
+        $('#fine_type').val(rule.fine_type || rule.calculation_type || 'fixed');
         $('#description').val(rule.description);
-        $('#amount_value').val(rule.amount_value || rule.fine_value);
-        $('#per_day_amount').val(rule.per_day_amount);
-        $('#grace_days').val(rule.grace_days);
+        $('#amount_value').val(rule.fine_value || rule.amount_value || 0);
+        $('#per_day_amount').val(rule.per_day_amount || 0);
+        $('#grace_days').val(rule.grace_period_days || rule.grace_days || 0);
         $('#max_fine_amount').val(rule.max_fine_amount);
-        $('#applies_to').val(rule.applies_to);
+        $('#applies_to').val(rule.applies_to || 'both');
         $('#is_active').prop('checked', rule.is_active == 1);
+        
+        // Show effective date notice for edits
+        $('#effectiveDate').text(effectiveDateStr);
+        $('#editNotice').removeClass('d-none');
+        
         $('#addRuleModal').modal('show');
         
-        // Trigger calculation type change to update UI
-        $('#calculation_type').trigger('change');
+        // Trigger fine_type change to update UI
+        $('#fine_type').trigger('change');
     });
     
     // Toggle status
@@ -389,16 +396,25 @@ $(document).ready(function() {
     $('.btn-delete').click(function() {
         var ruleId = $(this).data('id');
         
-        if (confirm('Are you sure you want to delete this rule?')) {
-            $.post('<?= site_url('admin/fines/delete_rule') ?>', {id: ruleId}, function(response) {
-                if (response.success) {
-                    toastr.success('Rule deleted');
-                    location.reload();
-                } else {
-                    toastr.error(response.message || 'Failed to delete');
-                }
-            }, 'json');
-        }
+        Swal.fire({
+            title: 'Delete Rule?',
+            text: 'This cannot be undone. Rules with existing fines cannot be deleted.',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            confirmButtonText: 'Yes, delete it'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                $.post('<?= site_url('admin/fines/delete_rule') ?>', {id: ruleId}, function(response) {
+                    if (response.success) {
+                        toastr.success('Rule deleted');
+                        location.reload();
+                    } else {
+                        toastr.error(response.message || 'Failed to delete');
+                    }
+                }, 'json');
+            }
+        });
     });
     
     // Form submission
@@ -407,7 +423,7 @@ $(document).ready(function() {
         
         $.post($(this).attr('action'), $(this).serialize(), function(response) {
             if (response.success) {
-                toastr.success('Rule saved successfully');
+                toastr.success(response.message || 'Rule saved successfully');
                 $('#addRuleModal').modal('hide');
                 location.reload();
             } else {

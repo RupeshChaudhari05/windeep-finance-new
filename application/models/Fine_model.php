@@ -9,6 +9,20 @@ class Fine_model extends MY_Model {
     protected $table = 'fines';
     protected $primary_key = 'id';
     
+    // Cache schema checks to avoid repeated DESCRIBE queries
+    private $_field_cache = [];
+    
+    /**
+     * Check if a column exists in a table (cached per request)
+     */
+    private function _has_field($field, $table) {
+        $key = $table . '.' . $field;
+        if (!isset($this->_field_cache[$key])) {
+            $this->_field_cache[$key] = $this->db->field_exists($field, $table);
+        }
+        return $this->_field_cache[$key];
+    }
+    
     /**
      * Generate Fine Code
      */
@@ -57,10 +71,10 @@ class Fine_model extends MY_Model {
 
         // Helper to add days range conditionally depending on schema
         $add_days_conditions = function($db, $days) {
-            if ($this->db->field_exists('min_days', 'fine_rules')) {
+            if ($this->_has_field('min_days', 'fine_rules')) {
                 $db->where('min_days <=', $days)
                    ->where('max_days >=', $days);
-            } elseif ($this->db->field_exists('grace_period_days', 'fine_rules')) {
+            } elseif ($this->_has_field('grace_period_days', 'fine_rules')) {
                 // If only grace_period is present, pick rules where grace_period_days <= days_late
                 $db->where('grace_period_days <=', $days);
             } else {
@@ -69,17 +83,20 @@ class Fine_model extends MY_Model {
         };
         
         // Get product-specific rule first
-        $query = $this->db->where('fine_type', 'loan_late')
-                          ->where('loan_product_id', $installment->loan_product_id)
-                          ->where('is_active', 1);
+        $query = $this->db->where_in('applies_to', ['loan', 'both'])
+                          ->where('is_active', 1)
+                          ->where('effective_from <=', date('Y-m-d'));
+        if ($this->_has_field('loan_product_id', 'fine_rules')) {
+            $query->where('loan_product_id', $installment->loan_product_id);
+        }
         $add_days_conditions($query, $days_late);
         $rule = $query->get('fine_rules')->row();
         
         if (!$rule) {
             // Get default rule (no product-specific)
-            $query = $this->db->where('fine_type', 'loan_late')
-                              ->where('loan_product_id IS NULL')
-                              ->where('is_active', 1);
+            $query = $this->db->where_in('applies_to', ['loan', 'both'])
+                              ->where('is_active', 1)
+                              ->where('effective_from <=', date('Y-m-d'));
             $add_days_conditions($query, $days_late);
             $rule = $query->get('fine_rules')->row();
         }
@@ -156,12 +173,13 @@ class Fine_model extends MY_Model {
         $days_late = floor((safe_timestamp(date('Y-m-d')) - safe_timestamp($schedule->due_date)) / 86400);
         
         // Build query with conditional day constraints
-        $query = $this->db->where('fine_type', 'savings_late')
-                          ->where('is_active', 1);
-        if ($this->db->field_exists('min_days', 'fine_rules')) {
+        $query = $this->db->where_in('applies_to', ['savings', 'both'])
+                          ->where('is_active', 1)
+                          ->where('effective_from <=', date('Y-m-d'));
+        if ($this->_has_field('min_days', 'fine_rules')) {
             $query->where('min_days <=', $days_late)
                   ->where('max_days >=', $days_late);
-        } elseif ($this->db->field_exists('grace_period_days', 'fine_rules')) {
+        } elseif ($this->_has_field('grace_period_days', 'fine_rules')) {
             $query->where('grace_period_days <=', $days_late);
         }
         
@@ -218,9 +236,12 @@ class Fine_model extends MY_Model {
      * Record Fine Payment
      */
     public function record_payment($fine_id, $amount, $payment_mode, $reference = null, $received_by = null) {
+        $this->db->trans_begin();
+        
         $fine = $this->get_by_id($fine_id);
         
         if (!$fine || $fine->status === 'paid') {
+            $this->db->trans_rollback();
             return false;
         }
         
@@ -233,17 +254,25 @@ class Fine_model extends MY_Model {
             $new_balance = 0;
         }
         
-        return $this->db->where('id', $fine_id)
-                        ->update($this->table, [
-                            'paid_amount' => $new_paid,
-                            'balance_amount' => $new_balance,
-                            'status' => $status,
-                            'payment_mode' => $payment_mode,
-                            'payment_reference' => $reference,
-                            'payment_date' => date('Y-m-d'),
-                            'received_by' => $received_by,
-                            'updated_at' => date('Y-m-d H:i:s')
-                        ]);
+        $this->db->where('id', $fine_id)
+                 ->update($this->table, [
+                     'paid_amount' => $new_paid,
+                     'balance_amount' => $new_balance,
+                     'status' => $status,
+                     'payment_mode' => $payment_mode,
+                     'payment_reference' => $reference,
+                     'payment_date' => date('Y-m-d'),
+                     'received_by' => $received_by,
+                     'updated_at' => date('Y-m-d H:i:s')
+                 ]);
+        
+        if ($this->db->trans_status() === FALSE) {
+            $this->db->trans_rollback();
+            return false;
+        }
+        
+        $this->db->trans_commit();
+        return true;
     }
     
     /**
@@ -327,9 +356,9 @@ class Fine_model extends MY_Model {
         
         // Choose ordering column based on schema compatibility
         $order_col = 'id';
-        if ($this->db->field_exists('min_days', 'fine_rules')) {
+        if ($this->_has_field('min_days', 'fine_rules')) {
             $order_col = 'min_days';
-        } elseif ($this->db->field_exists('grace_period_days', 'fine_rules')) {
+        } elseif ($this->_has_field('grace_period_days', 'fine_rules')) {
             $order_col = 'grace_period_days';
         }
         
@@ -468,7 +497,7 @@ class Fine_model extends MY_Model {
     public function get_member_waiver_request($fine_id, $member_id) {
         // Build select list conditionally so code works even if `admin_comments` column isn't present in older schemas
         $select = 'f.id, f.waiver_reason, f.waiver_requested_at, f.waiver_requested_amount, f.waiver_approved_at, f.waiver_denied_at, f.waiver_denied_reason, f.status as fine_status';
-        if ($this->db->field_exists('admin_comments', 'fines')) {
+        if ($this->_has_field('admin_comments', 'fines')) {
             $select .= ', f.admin_comments';
         } else {
             // Provide a NULL alias so views can safely reference ->admin_comments without error
@@ -535,7 +564,7 @@ class Fine_model extends MY_Model {
      * Supports: Fixed, Percentage, Per Day, Fixed + Daily
      */
     public function calculate_fine_amount($rule, $days_late, $due_amount = 0) {
-        $grace_period = $rule->grace_period ?? 0;
+        $grace_period = $rule->grace_period_days ?? ($rule->grace_period ?? 0);
         $effective_days = max(0, $days_late - $grace_period);
         
         if ($effective_days <= 0) {
@@ -543,37 +572,29 @@ class Fine_model extends MY_Model {
         }
         
         $fine_amount = 0;
-        $fine_type = $rule->fine_type ?? 'fixed';
+        $fine_type = $rule->calculation_type ?? ($rule->fine_type ?? 'fixed');
         
         switch ($fine_type) {
             case 'fixed':
-                // One-time fixed amount
-                $fine_amount = $rule->fine_amount ?? 0;
+                $fine_amount = $rule->fine_value ?? ($rule->fine_amount ?? 0);
                 break;
                 
             case 'percentage':
-                // Percentage of due amount
-                $rate = $rule->fine_rate ?? 0;
+                $rate = $rule->fine_value ?? ($rule->fine_rate ?? 0);
                 $fine_amount = $due_amount * ($rate / 100);
                 break;
                 
             case 'per_day':
-                // Per day calculation only
+                // Initial fixed + daily amount after grace period
+                // Example: fine_value=100, per_day_amount=10, 3 days late → 100 + 10*2 = 120
+                $initial = $rule->fine_value ?? 0;
                 $per_day = $rule->per_day_amount ?? 0;
-                $fine_amount = $effective_days * $per_day;
-                break;
-                
-            case 'fixed_plus_daily':
-                // Indian banking style: Initial fixed + daily amount
-                // Example: ₹100 initial + ₹10 per day after grace period
-                $initial = $rule->fine_amount ?? 100;
-                $per_day = $rule->per_day_amount ?? 10;
-                $fine_amount = $initial + ($effective_days * $per_day);
+                $fine_amount = $initial + ($per_day * max(0, $effective_days - 1));
                 break;
         }
         
         // Apply maximum cap if set
-        $max_fine = $rule->max_fine ?? 0;
+        $max_fine = $rule->max_fine_amount ?? ($rule->max_fine ?? 0);
         if ($max_fine > 0 && $fine_amount > $max_fine) {
             $fine_amount = $max_fine;
         }

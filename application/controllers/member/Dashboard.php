@@ -87,11 +87,20 @@ class Dashboard extends Member_Controller {
     }
 
     /**
-     * Mark notification read
+     * Mark notification read (with ownership check)
      */
     public function mark_notification_read($id) {
+        $member_id = $this->member->id;
+        
         $this->db->where('id', $id)
+                 ->where('target_type', 'member')
+                 ->where('target_id', $member_id)
                  ->update('notifications', ['is_read' => 1, 'read_at' => date('Y-m-d H:i:s')]);
-        $this->json_response(['success' => true]);
+        
+        if ($this->db->affected_rows() > 0) {
+            $this->json_response(['success' => true, 'message' => 'Notification marked as read.']);
+        } else {
+            $this->json_response(['success' => false, 'message' => 'Notification not found.']);
+        }
     }
 }

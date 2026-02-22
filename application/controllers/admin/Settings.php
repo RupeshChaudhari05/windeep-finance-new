@@ -245,7 +245,7 @@ class Settings extends Admin_Controller {
                 $this->session->set_flashdata('success', 'Settings updated successfully.');
             } catch (Exception $e) {
                 log_message('error', 'Settings update failed: ' . $e->getMessage());
-                $this->session->set_flashdata('error', 'Failed to update settings: ' . $e->getMessage());
+                $this->session->set_flashdata('error', 'Settings could not be updated due to a system error. Please try again or contact support.');
             }
         } else {
             log_message('error', 'No POST data received or invalid format');
@@ -296,7 +296,7 @@ class Settings extends Admin_Controller {
             $this->log_audit('create', 'financial_years', 'financial_years', $result, null, $year_data);
             $this->session->set_flashdata('success', 'Financial year created successfully.');
         } else {
-            $this->session->set_flashdata('error', 'Failed to create financial year.');
+            $this->session->set_flashdata('error', 'The financial year could not be created. Please check for overlapping date ranges and try again.');
         }
         
         redirect('admin/settings#financial');
@@ -455,7 +455,7 @@ class Settings extends Admin_Controller {
             $this->log_audit($id ? 'update' : 'create', 'savings_schemes', 'savings_schemes', $res, null, $scheme_data);
             $this->session->set_flashdata('success', 'Savings scheme saved successfully.');
         } else {
-            $this->session->set_flashdata('error', 'Failed to save scheme.');
+            $this->session->set_flashdata('error', 'The savings scheme could not be saved. Please verify all required fields and try again.');
         }
 
         redirect('admin/settings#savings_schemes');
@@ -473,6 +473,15 @@ class Settings extends Admin_Controller {
         $this->load->model('Savings_scheme_model');
         $id = $this->input->post('id');
         $is_active = $this->input->post('is_active') ? 1 : 0;
+
+        // Prevent deactivating the default scheme
+        if (!$is_active) {
+            $scheme = $this->db->where('id', $id)->get('savings_schemes')->row();
+            if ($scheme && !empty($scheme->is_default)) {
+                echo json_encode(['success' => false, 'message' => 'The default scheme cannot be deactivated. Set another scheme as default first.']);
+                return;
+            }
+        }
 
         $ok = $this->Savings_scheme_model->toggle_scheme($id, $is_active);
         if ($ok) {
@@ -506,7 +515,7 @@ class Settings extends Admin_Controller {
             $this->log_audit('create', 'admin_users', 'admin_users', $result, null, ['email' => $user_data['email']]);
             $this->session->set_flashdata('success', 'Admin user created successfully.');
         } else {
-            $this->session->set_flashdata('error', 'Failed to create admin user.');
+            $this->session->set_flashdata('error', 'Admin user creation failed. The email or username may already be in use.');
         }
         
         redirect('admin/settings#admin_users');
@@ -618,7 +627,7 @@ class Settings extends Admin_Controller {
         if ($result) {
             $this->session->set_flashdata('success', $message);
         } else {
-            $this->session->set_flashdata('error', 'Failed to save fine rule.');
+            $this->session->set_flashdata('error', 'The fine rule could not be saved. Please check for conflicts with existing rules.');
         }
         
         redirect('admin/settings#fine_rules');
@@ -695,7 +704,7 @@ class Settings extends Admin_Controller {
         if ($result) {
             $this->session->set_flashdata('success', $message);
         } else {
-            $this->session->set_flashdata('error', 'Failed to save loan product.');
+            $this->session->set_flashdata('error', 'The loan product could not be saved. Please verify all fields and try again.');
         }
         
         redirect('admin/settings#loan_products');
@@ -896,7 +905,7 @@ class Settings extends Admin_Controller {
         } catch (Exception $e) {
             $this->db->trans_rollback();
             log_message('error', 'Database restore error: ' . $e->getMessage());
-            $this->session->set_flashdata('error', 'Restore failed: ' . $e->getMessage());
+            $this->session->set_flashdata('error', 'Database restore failed due to a system error. Please verify the backup file is valid and try again.');
         }
         
         redirect('admin/settings#backup');
@@ -1180,7 +1189,7 @@ class Settings extends Admin_Controller {
 
         } catch (Exception $e) {
             $this->db->trans_rollback();
-            $this->session->set_flashdata('error', 'Error updating schedules: ' . $e->getMessage());
+            $this->session->set_flashdata('error', 'Loan schedules could not be updated due to a system error. Please contact support if this persists.');
         }
 
         redirect('admin/settings');

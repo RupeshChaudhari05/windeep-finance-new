@@ -326,7 +326,7 @@ class Loans extends Admin_Controller {
             $this->session->set_flashdata('success', 'Loan application submitted successfully.');
             redirect('admin/loans/view_application/' . $application_id);
         } else {
-            $this->session->set_flashdata('error', 'Failed to submit application.');
+            $this->session->set_flashdata('error', 'The loan application could not be created. Please verify all fields are correct and try again.');
             redirect('admin/loans/apply');
         }
     }
@@ -388,7 +388,7 @@ class Loans extends Admin_Controller {
                     redirect('admin/loans/view_application/' . $id);
                     return;
                 } else {
-                    $this->session->set_flashdata('error', 'Failed to approve application.');
+                    $this->session->set_flashdata('error', 'Loan approval failed. The application may have been modified. Please refresh and retry.');
                     redirect('admin/loans/approve/' . $id);
                     return;
                 }
@@ -963,25 +963,82 @@ class Loans extends Admin_Controller {
         $loan_id = $this->input->post('loan_id');
         
         if (!$loan_id) {
-            $this->json_response(['success' => false, 'message' => 'Invalid loan']);
+            $this->json_response(['success' => false, 'message' => 'Please select a valid loan.']);
             return;
         }
         
-        // Get loan details
+        // Get loan details with member info
         $loan = $this->Loan_model->get_loan_details($loan_id);
         if (!$loan) {
-            $this->json_response(['success' => false, 'message' => 'Loan not found']);
+            $this->json_response(['success' => false, 'message' => 'Loan not found.']);
             return;
         }
         
-        // TODO: Implement SMS/WhatsApp reminder
-        // For now, just log it
+        $member = $this->Member_model->get_by_id($loan->member_id);
+        if (!$member) {
+            $this->json_response(['success' => false, 'message' => 'Member not found for this loan.']);
+            return;
+        }
+        
+        $reminder_sent = false;
+        $channels = [];
+        
+        // Send Email reminder if member has email
+        if (!empty($member->email)) {
+            try {
+                $this->load->library('email');
+                $from_email = $this->get_setting('smtp_user', 'noreply@windeepfinance.com');
+                $org_name = $this->get_setting('organization_name', 'Windeep Finance');
+                
+                $this->email->from($from_email, $org_name);
+                $this->email->to($member->email);
+                $this->email->subject('Payment Reminder - Loan ' . $loan->loan_number);
+                
+                $message = "Dear " . $member->first_name . ",\n\n";
+                $message .= "This is a friendly reminder regarding your loan " . $loan->loan_number . ".\n\n";
+                $message .= "Outstanding Amount: " . $this->get_setting('currency_symbol', '₹') . number_format($loan->outstanding_principal ?? 0, 2) . "\n";
+                $message .= "Please make your payment at the earliest.\n\n";
+                $message .= "Thank you,\n" . $org_name;
+                
+                $this->email->message($message);
+                
+                if ($this->email->send()) {
+                    $reminder_sent = true;
+                    $channels[] = 'email';
+                }
+            } catch (Exception $e) {
+                log_message('error', 'Loan reminder email failed: ' . $e->getMessage());
+            }
+        }
+        
+        // Send in-app notification
+        $this->load->model('Notification_model');
+        $this->Notification_model->create([
+            'target_type' => 'member',
+            'target_id' => $member->id,
+            'title' => 'Payment Reminder',
+            'message' => 'Reminder: Your loan ' . $loan->loan_number . ' has a pending payment. Please clear your dues at the earliest.',
+            'type' => 'reminder',
+            'reference_type' => 'loan',
+            'reference_id' => $loan_id,
+            'is_read' => 0,
+            'created_at' => date('Y-m-d H:i:s')
+        ]);
+        $channels[] = 'notification';
+        $reminder_sent = true;
+        
+        // Log the audit
         $this->log_audit('reminder_sent', 'loans', 'loans', $loan_id, null, [
             'member_id' => $loan->member_id,
-            'phone' => $loan->phone
+            'phone' => $member->phone ?? '',
+            'channels' => implode(', ', $channels)
         ]);
         
-        $this->json_response(['success' => true, 'message' => 'Reminder sent']);
+        if ($reminder_sent) {
+            $this->json_response(['success' => true, 'message' => 'Reminder sent successfully via: ' . implode(', ', $channels)]);
+        } else {
+            $this->json_response(['success' => false, 'message' => 'Failed to send reminder. Member has no email or phone on file.']);
+        }
     }
     
     /**

@@ -51,19 +51,24 @@ class Profile extends Member_Controller {
         $current_password = $this->input->post('current_password');
         $new_password = $this->input->post('new_password');
         
-        // Verify current password
-        if (!password_verify($current_password, $this->member->password ?? '') && $current_password !== $this->member->member_code) {
+        // Verify current password (bcrypt only - no backdoor)
+        if (!password_verify($current_password, $this->member->password ?? '')) {
             $this->session->set_flashdata('error', 'Current password is incorrect.');
             redirect('member/profile');
             return;
         }
         
-        // Update password
+        // Update password and clear force-change flag
         $hashed = password_hash($new_password, PASSWORD_DEFAULT);
-        if ($this->db->where('id', $this->member->id)->update('members', ['password' => $hashed])) {
+        $update_data = [
+            'password' => $hashed,
+            'must_change_password' => 0,
+            'password_changed_at' => date('Y-m-d H:i:s')
+        ];
+        if ($this->db->where('id', $this->member->id)->update('members', $update_data)) {
             $this->session->set_flashdata('success', 'Password updated successfully.');
         } else {
-            $this->session->set_flashdata('error', 'Failed to update password.');
+                $this->session->set_flashdata('error', 'Your password could not be updated due to a system error. Please try again or contact support.');
         }
         
         redirect('member/profile');
@@ -73,10 +78,6 @@ class Profile extends Member_Controller {
      * Process Profile Edit
      */
     private function _process_edit() {
-        // Debug: Check if method is called
-        log_message('debug', 'Profile _process_edit called for member ID: ' . ($this->member->id ?? 'NULL') . ' Method: ' . $this->input->method());
-        log_message('debug', 'POST data: ' . print_r($this->input->post(), true));
-        
         if (!$this->member || !$this->member->id) {
             $this->session->set_flashdata('error', 'Member data not found. Please login again.');
             redirect('member/auth/login');
@@ -107,13 +108,10 @@ class Profile extends Member_Controller {
 
 
         if ($this->form_validation->run() === FALSE) {
-            log_message('debug', 'Validation failed: ' . validation_errors());
             $this->session->set_flashdata('error', validation_errors());
             redirect('member/profile/edit');
             return;
         }
-        
-        log_message('debug', 'Validation passed, processing update');
 
         // Map form fields to DB columns (include commonly admin-updated fields)
         // Sanitize and validate Aadhaar/PAN
@@ -178,6 +176,7 @@ class Profile extends Member_Controller {
 
         foreach ($doc_fields as $field => $input_name) {
             if (!empty($_FILES[$input_name]['name'])) {
+                $config = [];
                 $config['upload_path'] = $upload_base;
                 $config['allowed_types'] = 'jpg|jpeg|png';
                 $config['max_size'] = 2048; // 2MB for photos
@@ -189,7 +188,9 @@ class Profile extends Member_Controller {
                     $config['max_size'] = 4096; // 4MB for documents
                 }
 
-                $this->load->library('upload', $config);
+                // Must use initialize() in a loop - load->library only works once
+                $this->load->library('upload');
+                $this->upload->initialize($config);
                 if ($this->upload->do_upload($input_name)) {
                     $upload_data = $this->upload->data();
                     // Delete old file if exists
@@ -206,19 +207,13 @@ class Profile extends Member_Controller {
         }
 
         if ($this->db->where('id', $this->member->id)->update('members', $update_data)) {
-            // Debug: Update successful
-            log_message('debug', 'Profile update successful for member ID: ' . $this->member->id);
-            
-            // Update the session member data
             $this->member = $this->Member_model->get_by_id($this->member->id);
             $this->session->set_userdata('member_data', $this->member);
             
             $this->session->set_flashdata('success', 'Profile updated successfully.');
             redirect('member/profile');
         } else {
-            $error = $this->db->error();
-            log_message('error', 'Profile update failed for member ID: ' . $this->member->id . ' - Error: ' . $error['message']);
-            $this->session->set_flashdata('error', 'Failed to update profile: ' . $error['message']);
+            $this->session->set_flashdata('error', 'Your profile changes could not be saved. Please check your inputs and try again, or contact support if the problem persists.');
             redirect('member/profile/edit');
         }
     }

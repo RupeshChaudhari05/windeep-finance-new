@@ -40,6 +40,20 @@
                             </span>
                         </span>
                     </li>
+                    <?php if (!empty($member->member_level)): ?>
+                    <li class="list-group-item">
+                        <b><i class="fas fa-layer-group mr-1"></i> Member Level</b>
+                        <span class="float-right">
+                            <?php
+                            $level_labels = ['founding_member' => 'Founding Member', 'level2' => 'Level 2 Member', 'level3' => 'Level 3 Member'];
+                            $level_badges = ['founding_member' => 'danger', 'level2' => 'warning', 'level3' => 'info'];
+                            ?>
+                            <span class="badge badge-<?= $level_badges[$member->member_level] ?? 'secondary' ?>">
+                                <?= $level_labels[$member->member_level] ?? $member->member_level ?>
+                            </span>
+                        </span>
+                    </li>
+                    <?php endif; ?>
                     <li class="list-group-item">
                         <b><i class="fas fa-id-card mr-1"></i> KYC</b>
                         <span class="float-right">

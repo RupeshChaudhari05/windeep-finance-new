@@ -107,11 +107,21 @@ class MY_Controller extends CI_Controller {
      * Log Activity
      */
     protected function log_activity($activity, $description = null, $module = null) {
-        $user_id = isset($this->admin_data) ? $this->admin_data->id : null;
+        $user_type = 'system';
+        $user_id = null;
+        
+        if (isset($this->admin_data) && $this->admin_data) {
+            $user_type = 'admin';
+            $user_id = $this->admin_data->id;
+        } elseif (isset($this->member) && $this->member) {
+            $user_type = 'member';
+            $user_id = $this->member->id;
+        }
+        
         $this->load->model('Activity_model');
         
         $this->Activity_model->create([
-            'user_type' => 'admin',
+            'user_type' => $user_type,
             'user_id' => $user_id,
             'activity' => $activity,
             'description' => $description,
@@ -119,6 +129,65 @@ class MY_Controller extends CI_Controller {
             'ip_address' => $this->input->ip_address(),
             'user_agent' => $this->input->user_agent()
         ]);
+    }
+    
+    /**
+     * Log Audit Trail
+     * Available to both Admin and Member controllers
+     */
+    protected function log_audit($action, $module, $table_name, $record_id, $old_values = null, $new_values = null, $remarks = null) {
+        $this->load->model('Audit_model');
+        
+        // Determine user type and ID
+        $user_type = 'system';
+        $user_id = null;
+        
+        if (isset($this->admin_data) && $this->admin_data) {
+            $user_type = 'admin';
+            $user_id = $this->admin_data->id;
+        } elseif (isset($this->member) && $this->member) {
+            $user_type = 'member';
+            $user_id = $this->member->id;
+        }
+        
+        if (!$user_id) {
+            return;
+        }
+        
+        // Ensure record_id is not null
+        if ($record_id === null || $record_id === '') {
+            $record_id = 0;
+        }
+        
+        $data = [
+            'user_type' => $user_type,
+            'user_id' => $user_id,
+            'action' => $action,
+            'module' => $module,
+            'table_name' => $table_name,
+            'record_id' => (int) $record_id,
+            'old_values' => $old_values ? json_encode($old_values) : null,
+            'new_values' => $new_values ? json_encode($new_values) : null,
+            'ip_address' => $this->input->ip_address(),
+            'user_agent' => $this->input->user_agent(),
+            'session_id' => session_id(),
+            'remarks' => $remarks
+        ];
+
+        // Determine changed fields
+        if ($old_values && $new_values) {
+            $changed_fields = [];
+            $old_arr = is_array($old_values) ? $old_values : (array) $old_values;
+            $new_arr = is_array($new_values) ? $new_values : (array) $new_values;
+            foreach ($new_arr as $key => $value) {
+                if (!isset($old_arr[$key]) || $old_arr[$key] != $value) {
+                    $changed_fields[] = $key;
+                }
+            }
+            $data['changed_fields'] = json_encode($changed_fields);
+        }
+        
+        $this->Audit_model->create($data);
     }
 }
 
@@ -160,6 +229,19 @@ class Admin_Controller extends MY_Controller {
             redirect('auth/login');
         }
         
+        // Enforce session timeout (default 30 minutes)
+        $timeout = (int) ($this->settings['session_timeout'] ?? 1800);
+        $last_activity = $this->session->userdata('last_activity');
+        if ($last_activity && (time() - $last_activity) > $timeout) {
+            $this->session->sess_destroy();
+            if ($this->is_ajax()) {
+                $this->error_response('Your session has expired due to inactivity. Please login again.', [], 401);
+                exit;
+            }
+            $this->session->set_flashdata('error', 'Your session has expired due to inactivity. Please login again.');
+            redirect('auth/login');
+        }
+        
         $this->admin_data = $this->Admin_model->get_by_id($admin_id);
         
         if (!$this->admin_data || $this->admin_data->is_active != 1) {
@@ -195,94 +277,6 @@ class Admin_Controller extends MY_Controller {
         }
         
         return true;
-    }
-    
-    /**
-     * Log Audit Trail
-     */
-    protected function log_audit($action, $module, $table_name, $record_id, $old_values = null, $new_values = null, $remarks = null) {
-        // Determine user type and ID
-        $user_type = 'admin';
-        $user_id = null;
-        
-        if (isset($this->admin_data) && $this->admin_data) {
-            $user_type = 'admin';
-            $user_id = $this->admin_data->id;
-        } elseif (isset($this->member) && $this->member) {
-            $user_type = 'member';
-            $user_id = $this->member->id;
-        }
-        
-        if (!$user_id) {
-            // Fallback - shouldn't happen but prevents errors
-            return;
-        }
-        
-        // Ensure record_id is not null (use 0 for non-record actions)
-        if ($record_id === null || $record_id === '') {
-            $record_id = 0;
-        }
-        
-        $data = [
-            'user_type' => $user_type,
-            'user_id' => $user_id,
-            'action' => $action,
-            'module' => $module,
-            'table_name' => $table_name,
-            'record_id' => (int) $record_id, // Ensure integer
-            'old_values' => $old_values ? json_encode($old_values) : null,
-            'new_values' => $new_values ? json_encode($new_values) : null,
-            'ip_address' => $this->input->ip_address(),
-            'user_agent' => $this->input->user_agent(),
-            'session_id' => session_id(),
-            'remarks' => $remarks
-        ];
-
-        // Determine changed fields
-        if ($old_values && $new_values) {
-            $changed_fields = [];
-            foreach ($new_values as $key => $value) {
-                if (!isset($old_values[$key]) || $old_values[$key] != $value) {
-                    $changed_fields[] = $key;
-                }
-            }
-            $data['changed_fields'] = json_encode($changed_fields);
-        }
-        
-        $this->Audit_model->create($data);
-    }
-    
-    /**
-     * Log Activity
-     */
-    protected function log_activity($activity, $description = null, $module = null) {
-        $this->load->model('Activity_model');
-        
-        // Determine user type and ID
-        $user_type = 'admin';
-        $user_id = null;
-        
-        if (isset($this->admin_data) && $this->admin_data) {
-            $user_type = 'admin';
-            $user_id = $this->admin_data->id;
-        } elseif (isset($this->member) && $this->member) {
-            $user_type = 'member';
-            $user_id = $this->member->id;
-        }
-        
-        if (!$user_id) {
-            return;
-        }
-        
-        $this->Activity_model->create([
-            'user_type' => $user_type,
-            'user_id' => $user_id,
-            'activity' => $activity,
-            'description' => $description,
-            'module' => $module,
-            'ip_address' => $this->input->ip_address(),
-            'user_agent' => $this->input->user_agent()
-        ]);
     }
     
     /**

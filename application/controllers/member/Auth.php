@@ -69,19 +69,16 @@ class Auth extends CI_Controller {
                            ->row();
         
         if (!$member) {
-            $this->session->set_flashdata('error', 'Invalid credentials.');
+            $this->session->set_flashdata('error', 'No account found with that member code. Please check your member code and try again.');
             redirect('member/login');
             return;
         }
         
-        // Check password (assuming password_hash is used)
+        // Check password (bcrypt verified)
         if (!password_verify($password, $member->password ?? '')) {
-            // Fallback: Check if password matches member_code (default password)
-            if ($password !== $member->member_code) {
-                $this->session->set_flashdata('error', 'Invalid credentials.');
-                redirect('member/login');
-                return;
-            }
+            $this->session->set_flashdata('error', 'Invalid credentials. Please check your member code and password.');
+            redirect('member/login');
+            return;
         }
         
         // Check if account is active
@@ -94,11 +91,13 @@ class Auth extends CI_Controller {
         // Age check: member must be at least 18
         $this->load->helper('age_helper');
         if (!is_age_at_least($member->date_of_birth, 18)) {
-            // Keep the message exact as requested
             $this->session->set_flashdata('error', 'the age of the member should be greater than 18 years.');
             redirect('member/login');
             return;
         }
+        
+        // Regenerate session ID to prevent session fixation
+        session_regenerate_id(true);
         
         // Set session data
         $this->session->set_userdata([
@@ -111,6 +110,13 @@ class Auth extends CI_Controller {
         // Update last login
         $this->db->where('id', $member->id)
                  ->update('members', ['last_login' => date('Y-m-d H:i:s')]);
+        
+        // Check if password needs to be changed (first login or admin-reset)
+        if (!empty($member->must_change_password) && $member->must_change_password == 1) {
+            $this->session->set_flashdata('info', 'Please change your password for security.');
+            redirect('member/profile/change_password');
+            return;
+        }
         
         redirect('member/dashboard');
     }

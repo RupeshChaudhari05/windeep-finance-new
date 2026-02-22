@@ -119,6 +119,20 @@
                                         </span>
                                     </td>
                                 </tr>
+                                <?php if (!empty($member->member_level)): ?>
+                                <tr>
+                                    <td class="text-muted">Member Level:</td>
+                                    <td>
+                                        <?php
+                                        $level_labels = ['founding_member' => 'Founding Member', 'level2' => 'Level 2 Member', 'level3' => 'Level 3 Member'];
+                                        $level_badges = ['founding_member' => 'danger', 'level2' => 'warning', 'level3' => 'info'];
+                                        ?>
+                                        <span class="badge badge-<?= $level_badges[$member->member_level] ?? 'secondary' ?>">
+                                            <?= $level_labels[$member->member_level] ?? $member->member_level ?>
+                                        </span>
+                                    </td>
+                                </tr>
+                                <?php endif; ?>
                             </table>
                         </div>
                     </div>

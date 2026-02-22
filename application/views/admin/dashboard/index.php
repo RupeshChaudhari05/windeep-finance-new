@@ -2,7 +2,7 @@
 <div class="row">
     <!-- Quick Stats Cards -->
     <div class="col-lg-3 col-6">
-        <div class="small-box bg-info">
+        <div class="small-box bg-info" data-toggle="tooltip" data-placement="top" title="Total number of members with 'active' status">
             <div class="inner">
                 <h3><?= number_format($stats['total_members']) ?></h3>
                 <p>Active Members</p>
@@ -17,7 +17,7 @@
     </div>
     
     <div class="col-lg-3 col-6">
-        <div class="small-box bg-success">
+        <div class="small-box bg-success" data-toggle="tooltip" data-placement="top" title="Total savings deposited across all member accounts">
             <div class="inner">
                 <h3>₹<?= number_format($stats['total_savings']) ?></h3>
                 <p>Total Savings</p>
@@ -32,7 +32,7 @@
     </div>
     
     <div class="col-lg-3 col-6">
-        <div class="small-box bg-warning">
+        <div class="small-box bg-warning" data-toggle="tooltip" data-placement="top" title="Total remaining principal + interest on all disbursed loans">
             <div class="inner">
                 <h3>₹<?= number_format($stats['total_outstanding']) ?></h3>
                 <p>Loan Outstanding</p>
@@ -47,7 +47,7 @@
     </div>
     
     <div class="col-lg-3 col-6">
-        <div class="small-box bg-danger">
+        <div class="small-box bg-danger" data-toggle="tooltip" data-placement="top" title="Total amount past due date across all loans. Needs immediate attention.">
             <div class="inner">
                 <h3>₹<?= number_format($stats['overdue_amount']) ?></h3>
                 <p>Overdue Amount</p>
@@ -65,7 +65,7 @@
 <!-- Second Row Stats -->
 <div class="row">
     <div class="col-lg-3 col-6">
-        <div class="info-box">
+        <div class="info-box" data-toggle="tooltip" title="Loan applications awaiting review and approval">
             <span class="info-box-icon bg-primary"><i class="fas fa-file-alt"></i></span>
             <div class="info-box-content">
                 <span class="info-box-text">Pending Applications</span>
@@ -75,7 +75,7 @@
     </div>
     
     <div class="col-lg-3 col-6">
-        <div class="info-box">
+        <div class="info-box" data-toggle="tooltip" title="Total loan repayments + savings deposits collected this month">
             <span class="info-box-icon bg-success"><i class="fas fa-rupee-sign"></i></span>
             <div class="info-box-content">
                 <span class="info-box-text">This Month Collection</span>

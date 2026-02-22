@@ -29,6 +29,7 @@ class Ledger_model extends MY_Model {
     
     /**
      * Create Journal Entry
+     * Inserts two rows (debit leg + credit leg) into general_ledger.
      */
     public function create_entry($data) {
         $this->db->trans_begin();
@@ -38,19 +39,43 @@ class Ledger_model extends MY_Model {
                 $data['voucher_number'] = $this->generate_voucher_number($data['voucher_type']);
             }
             
-            // Validate debit = credit
-            if (round($data['debit_amount'], 2) != round($data['credit_amount'], 2)) {
-                throw new Exception('Debit and credit amounts must be equal');
-            }
+            $amount        = $data['debit_amount'] ?? ($data['credit_amount'] ?? 0);
+            $voucher_date  = $data['voucher_date'] ?? ($data['transaction_date'] ?? date('Y-m-d'));
+            $debit_acct    = $data['debit_account_id']  ?? null;
+            $credit_acct   = $data['credit_account_id'] ?? null;
+            $common = [
+                'voucher_number'    => $data['voucher_number'],
+                'voucher_date'      => $voucher_date,
+                'voucher_type'      => $data['voucher_type'],
+                'narration'         => $data['narration'] ?? null,
+                'reference_type'    => $data['reference_type'] ?? null,
+                'reference_id'      => $data['reference_id'] ?? null,
+                'member_id'         => $data['member_id'] ?? null,
+                'financial_year_id' => $data['financial_year_id'] ?? null,
+                'is_posted'         => 1,
+                'created_by'        => $data['created_by'] ?? null,
+            ];
             
-            $data['created_at'] = date('Y-m-d H:i:s');
-            
-            $this->db->insert($this->table, $data);
+            // Debit leg
+            $debit_row = $common;
+            $debit_row['account_id']    = $debit_acct;
+            $debit_row['debit_amount']  = $amount;
+            $debit_row['credit_amount'] = 0;
+            $debit_row['balance_after'] = 0; // will be updated by update_account_balance
+            $this->db->insert($this->table, $debit_row);
             $entry_id = $this->db->insert_id();
             
+            // Credit leg
+            $credit_row = $common;
+            $credit_row['account_id']    = $credit_acct;
+            $credit_row['debit_amount']  = 0;
+            $credit_row['credit_amount'] = $amount;
+            $credit_row['balance_after'] = 0;
+            $this->db->insert($this->table, $credit_row);
+            
             // Update chart of accounts balances
-            $this->update_account_balance($data['debit_account_id'], 'debit', $data['debit_amount']);
-            $this->update_account_balance($data['credit_account_id'], 'credit', $data['credit_amount']);
+            $this->update_account_balance($debit_acct,  'debit',  $amount);
+            $this->update_account_balance($credit_acct, 'credit', $amount);
             
             if ($this->db->trans_status() === FALSE) {
                 $this->db->trans_rollback();
@@ -82,18 +107,18 @@ class Ledger_model extends MY_Model {
         $fy = $this->Financial_year_model->get_active();
         
         $data = [
-            'voucher_type' => $this->get_voucher_type($transaction_type),
-            'transaction_date' => date('Y-m-d'),
+            'voucher_type'      => $this->get_voucher_type($transaction_type),
+            'voucher_date'      => date('Y-m-d'),
             'financial_year_id' => $fy ? $fy->id : null,
-            'debit_account_id' => $accounts['debit'],
+            'debit_account_id'  => $accounts['debit'],
             'credit_account_id' => $accounts['credit'],
-            'debit_amount' => $amount,
-            'credit_amount' => $amount,
-            'member_id' => $member_id,
-            'reference_type' => $transaction_type,
-            'reference_id' => $transaction_id,
-            'narration' => $narration ?? $this->generate_narration($transaction_type, $transaction_id),
-            'created_by' => $created_by
+            'debit_amount'      => $amount,
+            'credit_amount'     => $amount,
+            'member_id'         => $member_id,
+            'reference_type'    => $transaction_type,
+            'reference_id'      => $transaction_id,
+            'narration'         => $narration ?? $this->generate_narration($transaction_type, $transaction_id),
+            'created_by'        => $created_by
         ];
         
         $entry_id = $this->create_entry($data);
@@ -231,59 +256,39 @@ class Ledger_model extends MY_Model {
      * Bug #13 Fix: Use database locking to prevent race conditions
      */
     private function create_member_ledger_entry($member_id, $transaction_type, $transaction_id, $amount, $gl_entry_id) {
-        // Lock the member ledger table for this member to prevent race conditions
-        $this->db->query("SELECT id FROM member_ledger WHERE member_id = ? ORDER BY id DESC LIMIT 1 FOR UPDATE", [$member_id]);
-        
-        // Get current balance (now safe because we have a lock)
+        // Get current balance
         $last_entry = $this->db->where('member_id', $member_id)
                                ->order_by('id', 'DESC')
                                ->limit(1)
                                ->get('member_ledger')
                                ->row();
         
-        $current_balance = $last_entry ? $last_entry->running_balance : 0;
+        $current_balance = $last_entry ? $last_entry->balance_after : 0;
         
         // Determine debit/credit based on transaction type
-        $debit = 0;
+        $debit  = 0;
         $credit = 0;
-        $entry_type = '';
         
         switch ($transaction_type) {
-            case 'loan_disbursement':
-                $debit = $amount;
-                $entry_type = 'loan';
-                break;
-            case 'loan_payment':
-                $credit = $amount;
-                $entry_type = 'loan_payment';
-                break;
-            case 'savings_deposit':
-                $credit = $amount;
-                $entry_type = 'savings';
-                break;
-            case 'savings_withdrawal':
-                $debit = $amount;
-                $entry_type = 'savings_withdrawal';
-                break;
-            case 'fine_income':
-                $credit = $amount;
-                $entry_type = 'fine';
-                break;
+            case 'loan_disbursement':   $debit  = $amount; break;
+            case 'loan_payment':        $credit = $amount; break;
+            case 'savings_deposit':     $credit = $amount; break;
+            case 'savings_withdrawal':  $debit  = $amount; break;
+            case 'fine_income':         $credit = $amount; break;
         }
         
-        $new_balance = $current_balance + $debit - $credit;
+        $balance_after = $current_balance + $debit - $credit;
         
         return $this->db->insert('member_ledger', [
-            'member_id' => $member_id,
+            'member_id'        => $member_id,
             'transaction_date' => date('Y-m-d'),
-            'entry_type' => $entry_type,
-            'reference_type' => $transaction_type,
-            'reference_id' => $transaction_id,
-            'debit_amount' => $debit,
-            'credit_amount' => $credit,
-            'running_balance' => $new_balance,
-            'general_ledger_id' => $gl_entry_id,
-            'created_at' => date('Y-m-d H:i:s')
+            'transaction_type' => $transaction_type,
+            'reference_type'   => $transaction_type,
+            'reference_id'     => $transaction_id,
+            'debit_amount'     => $debit,
+            'credit_amount'    => $credit,
+            'balance_after'    => $balance_after,
+            'narration'        => $this->generate_narration($transaction_type, $transaction_id),
         ]);
     }
     
@@ -316,7 +321,7 @@ class Ledger_model extends MY_Model {
                          ->get('member_ledger')
                          ->row();
         
-        return $last ? $last->running_balance : 0;
+        return $last ? $last->balance_after : 0;
     }
     
     /**
@@ -341,32 +346,28 @@ class Ledger_model extends MY_Model {
      * Get General Ledger Entries
      */
     public function get_ledger_entries($filters = []) {
-        $this->db->select('gl.*, da.account_name as debit_account_name, ca.account_name as credit_account_name, m.member_code, m.first_name, m.last_name');
+        $this->db->select('gl.*, coa.account_name, coa.account_code, m.member_code, m.first_name, m.last_name');
         $this->db->from('general_ledger gl');
-        $this->db->join('chart_of_accounts da', 'da.id = gl.debit_account_id');
-        $this->db->join('chart_of_accounts ca', 'ca.id = gl.credit_account_id');
+        $this->db->join('chart_of_accounts coa', 'coa.id = gl.account_id', 'left');
         $this->db->join('members m', 'm.id = gl.member_id', 'left');
         
         if (!empty($filters['from_date'])) {
-            $this->db->where('gl.transaction_date >=', $filters['from_date']);
+            $this->db->where('gl.voucher_date >=', $filters['from_date']);
         }
         
         if (!empty($filters['to_date'])) {
-            $this->db->where('gl.transaction_date <=', $filters['to_date']);
+            $this->db->where('gl.voucher_date <=', $filters['to_date']);
         }
         
         if (!empty($filters['account_id'])) {
-            $this->db->group_start();
-            $this->db->where('gl.debit_account_id', $filters['account_id']);
-            $this->db->or_where('gl.credit_account_id', $filters['account_id']);
-            $this->db->group_end();
+            $this->db->where('gl.account_id', $filters['account_id']);
         }
         
         if (!empty($filters['voucher_type'])) {
             $this->db->where('gl.voucher_type', $filters['voucher_type']);
         }
         
-        return $this->db->order_by('gl.transaction_date', 'DESC')
+        return $this->db->order_by('gl.voucher_date', 'DESC')
                         ->order_by('gl.id', 'DESC')
                         ->get()
                         ->result();
@@ -376,36 +377,27 @@ class Ledger_model extends MY_Model {
      * Get Account Statement
      */
     public function get_account_statement($account_id, $from_date, $to_date) {
-        $entries = [];
+        $account_id = (int) $account_id;
         
-        // Opening balance
-        $opening = $this->db->select('
-            SUM(CASE WHEN account_id = ' . $account_id . ' THEN debit_amount ELSE 0 END) as total_debit,
-            SUM(CASE WHEN account_id = ' . $account_id . ' THEN credit_amount ELSE 0 END) as total_credit
-        ')
-        ->where('voucher_date <', $from_date)
-        ->get($this->table)
-        ->row();
+        $opening_sql = "SELECT 
+            COALESCE(SUM(debit_amount), 0) as total_debit,
+            COALESCE(SUM(credit_amount), 0) as total_credit
+            FROM {$this->table}
+            WHERE account_id = ? AND voucher_date < ?";
         
+        $opening = $this->db->query($opening_sql, [$account_id, $from_date])->row();
         $opening_balance = ($opening->total_debit ?? 0) - ($opening->total_credit ?? 0);
         
-        // Transactions
-        $this->db->select('gl.*, 
-            CASE WHEN account_id = ' . $account_id . ' THEN debit_amount ELSE 0 END as debit,
-            CASE WHEN account_id = ' . $account_id . ' THEN credit_amount ELSE 0 END as credit
-        ');
-        $this->db->from($this->table . ' gl');
-        $this->db->where('voucher_date >=', $from_date);
-        $this->db->where('voucher_date <=', $to_date);
-        $this->db->where('account_id', $account_id);
-        $this->db->order_by('voucher_date', 'ASC');
-        $this->db->order_by('id', 'ASC');
+        $txn_sql = "SELECT gl.*, debit_amount as debit, credit_amount as credit
+            FROM {$this->table} gl
+            WHERE account_id = ? AND voucher_date >= ? AND voucher_date <= ?
+            ORDER BY voucher_date ASC, id ASC";
         
-        $transactions = $this->db->get()->result();
+        $transactions = $this->db->query($txn_sql, [$account_id, $from_date, $to_date])->result();
         
         return [
             'opening_balance' => $opening_balance,
-            'transactions' => $transactions
+            'transactions'    => $transactions
         ];
     }
     
@@ -417,16 +409,14 @@ class Ledger_model extends MY_Model {
             $as_on_date = date('Y-m-d');
         }
         
-        return $this->db->select('
-            coa.*,
-            (SELECT COALESCE(SUM(debit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date <= "' . $as_on_date . '") as total_debit,
-            (SELECT COALESCE(SUM(credit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date <= "' . $as_on_date . '") as total_credit
-        ')
-        ->from('chart_of_accounts coa')
-        ->where('coa.is_active', 1)
-        ->order_by('coa.account_code', 'ASC')
-        ->get()
-        ->result();
+        $sql = "SELECT coa.*,
+            (SELECT COALESCE(SUM(debit_amount), 0)  FROM general_ledger WHERE account_id = coa.id AND voucher_date <= ?) as total_debit,
+            (SELECT COALESCE(SUM(credit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date <= ?) as total_credit
+            FROM chart_of_accounts coa
+            WHERE coa.is_active = 1
+            ORDER BY coa.account_code ASC";
+        
+        return $this->db->query($sql, [$as_on_date, $as_on_date])->result();
     }
     
     /**
@@ -441,33 +431,25 @@ class Ledger_model extends MY_Model {
             'net_profit' => 0
         ];
         
-        // Income accounts
-        $result['income'] = $this->db->select('
-            coa.account_name,
-            (SELECT COALESCE(SUM(credit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date BETWEEN "' . $from_date . '" AND "' . $to_date . '") -
-            (SELECT COALESCE(SUM(debit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date BETWEEN "' . $from_date . '" AND "' . $to_date . '") as amount
-        ')
-        ->from('chart_of_accounts coa')
-        ->where('coa.account_type', 'income')
-        ->where('coa.is_active', 1)
-        ->get()
-        ->result();
+        $income_sql = "SELECT coa.account_name,
+            (SELECT COALESCE(SUM(credit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date BETWEEN ? AND ?) -
+            (SELECT COALESCE(SUM(debit_amount), 0)  FROM general_ledger WHERE account_id = coa.id AND voucher_date BETWEEN ? AND ?) as amount
+            FROM chart_of_accounts coa
+            WHERE coa.account_type = 'income' AND coa.is_active = 1";
+        
+        $result['income'] = $this->db->query($income_sql, [$from_date, $to_date, $from_date, $to_date])->result();
         
         foreach ($result['income'] as $income) {
             $result['total_income'] += $income->amount;
         }
         
-        // Expense accounts
-        $result['expenses'] = $this->db->select('
-            coa.account_name,
-            (SELECT COALESCE(SUM(debit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date BETWEEN "' . $from_date . '" AND "' . $to_date . '") -
-            (SELECT COALESCE(SUM(credit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date BETWEEN "' . $from_date . '" AND "' . $to_date . '") as amount
-        ')
-        ->from('chart_of_accounts coa')
-        ->where('coa.account_type', 'expense')
-        ->where('coa.is_active', 1)
-        ->get()
-        ->result();
+        $expense_sql = "SELECT coa.account_name,
+            (SELECT COALESCE(SUM(debit_amount), 0)  FROM general_ledger WHERE account_id = coa.id AND voucher_date BETWEEN ? AND ?) -
+            (SELECT COALESCE(SUM(credit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date BETWEEN ? AND ?) as amount
+            FROM chart_of_accounts coa
+            WHERE coa.account_type = 'expense' AND coa.is_active = 1";
+        
+        $result['expenses'] = $this->db->query($expense_sql, [$from_date, $to_date, $from_date, $to_date])->result();
         
         foreach ($result['expenses'] as $expense) {
             $result['total_expenses'] += $expense->amount;
@@ -495,49 +477,40 @@ class Ledger_model extends MY_Model {
             'total_equity' => 0
         ];
         
-        // Assets
-        $result['assets'] = $this->db->select('
-            coa.account_name,
-            (SELECT COALESCE(SUM(debit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date <= "' . $as_on_date . '") -
-            (SELECT COALESCE(SUM(credit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date <= "' . $as_on_date . '") as amount
-        ')
-        ->from('chart_of_accounts coa')
-        ->where('coa.account_type', 'asset')
-        ->where('coa.is_active', 1)
-        ->get()
-        ->result();
+        // Assets (debit-normal)
+        $asset_sql = "SELECT coa.account_name,
+            (SELECT COALESCE(SUM(debit_amount), 0)  FROM general_ledger WHERE account_id = coa.id AND voucher_date <= ?) -
+            (SELECT COALESCE(SUM(credit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date <= ?) as amount
+            FROM chart_of_accounts coa
+            WHERE coa.account_type = 'asset' AND coa.is_active = 1";
+        
+        $result['assets'] = $this->db->query($asset_sql, [$as_on_date, $as_on_date])->result();
         
         foreach ($result['assets'] as $asset) {
             $result['total_assets'] += $asset->amount;
         }
         
-        // Liabilities
-        $result['liabilities'] = $this->db->select('
-            coa.account_name,
-            (SELECT COALESCE(SUM(credit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date <= "' . $as_on_date . '") -
-            (SELECT COALESCE(SUM(debit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date <= "' . $as_on_date . '") as amount
-        ')
-        ->from('chart_of_accounts coa')
-        ->where('coa.account_type', 'liability')
-        ->where('coa.is_active', 1)
-        ->get()
-        ->result();
+        // Liabilities (credit-normal)
+        $liability_sql = "SELECT coa.account_name,
+            (SELECT COALESCE(SUM(credit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date <= ?) -
+            (SELECT COALESCE(SUM(debit_amount), 0)  FROM general_ledger WHERE account_id = coa.id AND voucher_date <= ?) as amount
+            FROM chart_of_accounts coa
+            WHERE coa.account_type = 'liability' AND coa.is_active = 1";
+        
+        $result['liabilities'] = $this->db->query($liability_sql, [$as_on_date, $as_on_date])->result();
         
         foreach ($result['liabilities'] as $liability) {
             $result['total_liabilities'] += $liability->amount;
         }
         
-        // Equity
-        $result['equity'] = $this->db->select('
-            coa.account_name,
-            (SELECT COALESCE(SUM(credit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date <= "' . $as_on_date . '") -
-            (SELECT COALESCE(SUM(debit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date <= "' . $as_on_date . '") as amount
-        ')
-        ->from('chart_of_accounts coa')
-        ->where('coa.account_type', 'equity')
-        ->where('coa.is_active', 1)
-        ->get()
-        ->result();
+        // Equity (credit-normal)
+        $equity_sql = "SELECT coa.account_name,
+            (SELECT COALESCE(SUM(credit_amount), 0) FROM general_ledger WHERE account_id = coa.id AND voucher_date <= ?) -
+            (SELECT COALESCE(SUM(debit_amount), 0)  FROM general_ledger WHERE account_id = coa.id AND voucher_date <= ?) as amount
+            FROM chart_of_accounts coa
+            WHERE coa.account_type = 'equity' AND coa.is_active = 1";
+        
+        $result['equity'] = $this->db->query($equity_sql, [$as_on_date, $as_on_date])->result();
         
         foreach ($result['equity'] as $eq) {
             $result['total_equity'] += $eq->amount;

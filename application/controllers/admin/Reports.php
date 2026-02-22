@@ -376,31 +376,170 @@ class Reports extends Admin_Controller {
      * Export CSV
      */
     private function export_csv($data, $filename, $type) {
-        header('Content-Type: text/csv');
+        header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="' . $filename . '.csv"');
+        header('Cache-Control: must-revalidate, post-check=0, pre-check=0');
+        header('Pragma: public');
         
         $output = fopen('php://output', 'w');
+        // BOM for Excel UTF-8
+        fprintf($output, chr(0xEF).chr(0xBB).chr(0xBF));
         
-        // Headers based on type
         switch ($type) {
             case 'outstanding':
                 fputcsv($output, ['Loan No', 'Member Code', 'Member Name', 'Product', 'Principal', 'Outstanding Principal', 'Outstanding Interest', 'Overdue Amount']);
-                foreach ($data as $row) {
-                    fputcsv($output, [
-                        $row->loan_number,
-                        $row->member_code,
-                        $row->first_name . ' ' . $row->last_name,
-                        $row->product_name,
-                        $row->principal_amount,
-                        $row->outstanding_principal,
-                        $row->outstanding_interest,
-                        $row->overdue_amount
-                    ]);
+                if (is_array($data) || is_object($data)) {
+                    foreach ($data as $row) {
+                        fputcsv($output, [
+                            $row->loan_number ?? '',
+                            $row->member_code ?? '',
+                            ($row->first_name ?? '') . ' ' . ($row->last_name ?? ''),
+                            $row->product_name ?? '',
+                            $row->principal_amount ?? 0,
+                            $row->outstanding_principal ?? 0,
+                            $row->outstanding_interest ?? 0,
+                            $row->overdue_amount ?? 0
+                        ]);
+                    }
+                }
+                break;
+                
+            case 'collection':
+                fputcsv($output, ['Date', 'Member Code', 'Member Name', 'Type', 'Amount', 'Payment Mode', 'Reference']);
+                if (is_array($data) || is_object($data)) {
+                    foreach ($data as $row) {
+                        fputcsv($output, [
+                            $row->payment_date ?? $row->date ?? '',
+                            $row->member_code ?? '',
+                            ($row->first_name ?? '') . ' ' . ($row->last_name ?? ''),
+                            $row->payment_type ?? $row->type ?? '',
+                            $row->total_amount ?? $row->amount ?? 0,
+                            $row->payment_mode ?? '',
+                            $row->reference_number ?? ''
+                        ]);
+                    }
+                }
+                break;
+                
+            case 'demand':
+                fputcsv($output, ['Loan No', 'Member Code', 'Member Name', 'Due Date', 'EMI Amount', 'Days Overdue', 'Phone']);
+                if (is_array($data) || is_object($data)) {
+                    foreach ($data as $row) {
+                        fputcsv($output, [
+                            $row->loan_number ?? '',
+                            $row->member_code ?? '',
+                            ($row->first_name ?? '') . ' ' . ($row->last_name ?? ''),
+                            $row->due_date ?? '',
+                            $row->emi_amount ?? 0,
+                            $row->days_overdue ?? 0,
+                            $row->phone ?? ''
+                        ]);
+                    }
+                }
+                break;
+                
+            case 'npa':
+                fputcsv($output, ['Loan No', 'Member Code', 'Member Name', 'Principal', 'Outstanding', 'Days Overdue', 'NPA Category']);
+                if (is_array($data) || is_object($data)) {
+                    foreach ($data as $row) {
+                        fputcsv($output, [
+                            $row->loan_number ?? '',
+                            $row->member_code ?? '',
+                            ($row->first_name ?? '') . ' ' . ($row->last_name ?? ''),
+                            $row->principal_amount ?? 0,
+                            $row->outstanding_amount ?? 0,
+                            $row->days_overdue ?? 0,
+                            $row->npa_category ?? ''
+                        ]);
+                    }
+                }
+                break;
+                
+            default:
+                // Generic CSV export for any data
+                if (is_array($data) && !empty($data)) {
+                    $first = reset($data);
+                    if (is_object($first)) {
+                        fputcsv($output, array_keys((array) $first));
+                        foreach ($data as $row) {
+                            fputcsv($output, array_values((array) $row));
+                        }
+                    }
                 }
                 break;
         }
         
         fclose($output);
+        exit;
+    }
+    
+    /**
+     * Export Excel (XLSX) using PHPSpreadsheet
+     */
+    private function export_excel($data, $filename, $type) {
+        // Check if PhpSpreadsheet is available
+        if (!class_exists('\PhpOffice\PhpSpreadsheet\Spreadsheet')) {
+            // Fallback to CSV if PhpSpreadsheet not available
+            $this->export_csv($data, $filename, $type);
+            return;
+        }
+        
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle(ucfirst(str_replace('_', ' ', $type)));
+        
+        $row = 1;
+        $headers = [];
+        
+        switch ($type) {
+            case 'outstanding':
+                $headers = ['Loan No', 'Member Code', 'Member Name', 'Product', 'Principal', 'Outstanding Principal', 'Outstanding Interest', 'Overdue Amount'];
+                break;
+            case 'collection':
+                $headers = ['Date', 'Member Code', 'Member Name', 'Type', 'Amount', 'Payment Mode', 'Reference'];
+                break;
+            case 'demand':
+                $headers = ['Loan No', 'Member Code', 'Member Name', 'Due Date', 'EMI Amount', 'Days Overdue', 'Phone'];
+                break;
+            case 'npa':
+                $headers = ['Loan No', 'Member Code', 'Member Name', 'Principal', 'Outstanding', 'Days Overdue', 'NPA Category'];
+                break;
+            default:
+                if (is_array($data) && !empty($data)) {
+                    $first = reset($data);
+                    $headers = array_keys((array) $first);
+                }
+                break;
+        }
+        
+        // Write headers with styling
+        foreach ($headers as $col => $header) {
+            $cell = $sheet->getCellByColumnAndRow($col + 1, $row);
+            $cell->setValue($header);
+            $cell->getStyle()->getFont()->setBold(true);
+            $sheet->getColumnDimensionByColumn($col + 1)->setAutoSize(true);
+        }
+        
+        // Write data rows
+        $row = 2;
+        if (is_array($data) || is_object($data)) {
+            foreach ($data as $item) {
+                $arr = (array) $item;
+                $values = array_values($arr);
+                foreach ($values as $col => $value) {
+                    $sheet->setCellValueByColumnAndRow($col + 1, $row, $value);
+                }
+                $row++;
+            }
+        }
+        
+        // Output
+        header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        header('Content-Disposition: attachment; filename="' . $filename . '.xlsx"');
+        header('Cache-Control: max-age=0');
+        
+        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+        $writer->save('php://output');
         exit;
     }
     
@@ -608,6 +747,281 @@ class Reports extends Admin_Controller {
                 return $this->Report_model->get_audit_log_report();
             default:
                 return false;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // ONE-CLICK EXPORTS
+    // -------------------------------------------------------------------------
+
+    /**
+     * Export All Members → CSV (one click)
+     * URL: admin/reports/export_members
+     */
+    public function export_members() {
+        $members = $this->db
+            ->select('m.member_code, m.first_name, m.middle_name, m.last_name,
+                      m.gender, m.date_of_birth, m.phone, m.alternate_phone, m.email,
+                      m.occupation, m.monthly_income,
+                      m.address_line1, m.address_line2, m.city, m.state, m.pincode,
+                      m.id_proof_type, m.id_proof_number,
+                      m.aadhaar_number, m.pan_number,
+                      m.bank_name, m.bank_ifsc, m.bank_account_number,
+                      m.nominee_name, m.nominee_relation, m.nominee_phone,
+                      m.membership_type, m.member_level,
+                      m.join_date, m.status, m.kyc_verified, m.created_at')
+            ->from('members m')
+            ->where('m.deleted_at IS NULL', null, false)
+            ->order_by('m.member_code', 'ASC')
+            ->get()->result();
+
+        $filename = 'members_export_' . date('Y-m-d');
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '.csv"');
+        header('Cache-Control: must-revalidate, post-check=0, pre-check=0');
+        header('Pragma: public');
+        $out = fopen('php://output', 'w');
+        fprintf($out, chr(0xEF).chr(0xBB).chr(0xBF)); // BOM
+        fputcsv($out, [
+            'Member Code','First Name','Middle Name','Last Name',
+            'Gender','Date of Birth','Phone','Alt Phone','Email',
+            'Occupation','Monthly Income',
+            'Address','Address 2','City','State','Pincode',
+            'ID Type','ID Number','Aadhaar','PAN',
+            'Bank Name','IFSC','Bank Account No',
+            'Nominee Name','Nominee Relation','Nominee Phone',
+            'Membership Type','Member Level',
+            'Join Date','Status','KYC Verified','Created At'
+        ]);
+        foreach ($members as $m) {
+            fputcsv($out, [
+                $m->member_code, $m->first_name, $m->middle_name, $m->last_name,
+                $m->gender, $m->date_of_birth, $m->phone, $m->alternate_phone, $m->email,
+                $m->occupation, $m->monthly_income,
+                $m->address_line1, $m->address_line2, $m->city, $m->state, $m->pincode,
+                $m->id_proof_type, $m->id_proof_number, $m->aadhaar_number, $m->pan_number,
+                $m->bank_name, $m->bank_ifsc, $m->bank_account_number,
+                $m->nominee_name, $m->nominee_relation, $m->nominee_phone,
+                $m->membership_type, $m->member_level,
+                $m->join_date, $m->status, $m->kyc_verified ? 'Yes' : 'No', $m->created_at
+            ]);
+        }
+        fclose($out);
+        exit;
+    }
+
+    /**
+     * Export All Loans + Installments + Fines → CSV (one click)
+     * URL: admin/reports/export_loans_full
+     */
+    public function export_loans_full() {
+        // Sheet 1 – Loans
+        $loans = $this->db
+            ->select('l.loan_number, m.member_code,
+                      CONCAT(m.first_name," ",m.last_name) as member_name, m.phone,
+                      lp.product_name,
+                      l.principal_amount, l.interest_rate, l.interest_type,
+                      l.tenure_months, l.emi_amount, l.total_interest, l.total_payable,
+                      l.net_disbursement, l.outstanding_principal,
+                      l.total_amount_paid, l.outstanding_fine,
+                      l.disbursement_date, l.first_emi_date, l.last_emi_date,
+                      l.status, l.is_npa, l.npa_category, l.days_overdue')
+            ->from('loans l')
+            ->join('members m', 'm.id = l.member_id')
+            ->join('loan_products lp', 'lp.id = l.loan_product_id', 'left')
+            ->order_by('l.disbursement_date', 'DESC')
+            ->get()->result();
+
+        // Sheet 2 – Installments
+        $installments = $this->db
+            ->select('l.loan_number, m.member_code,
+                      li.installment_number, li.due_date,
+                      li.principal_amount, li.interest_amount, li.emi_amount,
+                      li.principal_paid, li.interest_paid, li.fine_amount, li.fine_paid,
+                      li.total_paid, li.status, li.paid_date, li.days_late')
+            ->from('loan_installments li')
+            ->join('loans l', 'l.id = li.loan_id')
+            ->join('members m', 'm.id = l.member_id')
+            ->order_by('l.loan_number', 'ASC')
+            ->order_by('li.installment_number', 'ASC')
+            ->get()->result();
+
+        // Sheet 3 – Fines
+        $fines = $this->db
+            ->select('f.fine_code, m.member_code,
+                      CONCAT(m.first_name," ",m.last_name) as member_name,
+                      f.fine_type, f.related_type, f.fine_date, f.due_date,
+                      f.days_late, f.fine_amount, f.paid_amount, f.waived_amount,
+                      f.balance_amount, f.status, f.payment_date, f.payment_mode,
+                      f.remarks')
+            ->from('fines f')
+            ->join('members m', 'm.id = f.member_id')
+            ->order_by('f.fine_date', 'DESC')
+            ->get()->result();
+
+        if (!class_exists('\PhpOffice\PhpSpreadsheet\Spreadsheet')) {
+            // Fallback: single CSV with all loans
+            $filename = 'loans_full_export_' . date('Y-m-d');
+            header('Content-Type: text/csv; charset=utf-8');
+            header('Content-Disposition: attachment; filename="' . $filename . '.csv"');
+            header('Pragma: public');
+            $out = fopen('php://output', 'w');
+            fprintf($out, chr(0xEF).chr(0xBB).chr(0xBF));
+            fputcsv($out, ['--- LOANS ---']);
+            if (!empty($loans)) {
+                fputcsv($out, array_keys((array)$loans[0]));
+                foreach ($loans as $r) fputcsv($out, array_values((array)$r));
+            }
+            fputcsv($out, []);
+            fputcsv($out, ['--- INSTALLMENTS ---']);
+            if (!empty($installments)) {
+                fputcsv($out, array_keys((array)$installments[0]));
+                foreach ($installments as $r) fputcsv($out, array_values((array)$r));
+            }
+            fputcsv($out, []);
+            fputcsv($out, ['--- FINES ---']);
+            if (!empty($fines)) {
+                fputcsv($out, array_keys((array)$fines[0]));
+                foreach ($fines as $r) fputcsv($out, array_values((array)$r));
+            }
+            fclose($out);
+            exit;
+        }
+
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $this->_write_sheet($spreadsheet, 0, 'Loans', $loans, [
+            'Loan No','Member Code','Member Name','Phone','Product',
+            'Principal','Rate','Interest Type','Tenure','EMI',
+            'Total Interest','Total Payable','Net Disbursed',
+            'Outstanding Principal','Amt Paid','Outstanding Fine',
+            'Disbursement Date','First EMI','Last EMI',
+            'Status','NPA','NPA Category','Days Overdue'
+        ]);
+        $this->_write_sheet($spreadsheet, 1, 'Installments', $installments, [
+            'Loan No','Member Code','EMI #','Due Date',
+            'Principal','Interest','EMI Amt',
+            'Principal Paid','Interest Paid','Fine Amt','Fine Paid',
+            'Total Paid','Status','Paid Date','Days Late'
+        ]);
+        $this->_write_sheet($spreadsheet, 2, 'Fines', $fines, [
+            'Fine Code','Member Code','Member Name',
+            'Fine Type','Related Type','Fine Date','Due Date',
+            'Days Late','Fine Amt','Paid','Waived','Balance','Status',
+            'Payment Date','Payment Mode','Remarks'
+        ]);
+
+        header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        header('Content-Disposition: attachment; filename="loans_full_export_' . date('Y-m-d') . '.xlsx"');
+        header('Cache-Control: max-age=0');
+        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+        $writer->save('php://output');
+        exit;
+    }
+
+    /**
+     * Export All Savings Accounts + Transactions → CSV / Excel (one click)
+     * URL: admin/reports/export_savings_full
+     */
+    public function export_savings_full() {
+        // Savings Accounts
+        $accounts = $this->db
+            ->select('sa.account_number, m.member_code,
+                      CONCAT(m.first_name," ",m.last_name) as member_name, m.phone,
+                      sc.scheme_name,
+                      sa.monthly_amount, sa.start_date, sa.maturity_date,
+                      sa.total_deposited, sa.total_interest_earned,
+                      sa.total_fines_paid, sa.current_balance,
+                      sa.status, sa.closed_at, sa.created_at')
+            ->from('savings_accounts sa')
+            ->join('members m', 'm.id = sa.member_id')
+            ->join('savings_schemes sc', 'sc.id = sa.scheme_id', 'left')
+            ->order_by('sa.account_number', 'ASC')
+            ->get()->result();
+
+        // Savings Transactions
+        $txns = $this->db
+            ->select('sa.account_number, m.member_code,
+                      CONCAT(m.first_name," ",m.last_name) as member_name,
+                      st.transaction_code, st.transaction_type, st.amount,
+                      st.balance_after, st.payment_mode, st.transaction_date,
+                      st.for_month, st.narration, st.receipt_number')
+            ->from('savings_transactions st')
+            ->join('savings_accounts sa', 'sa.id = st.savings_account_id')
+            ->join('members m', 'm.id = sa.member_id')
+            ->order_by('st.transaction_date', 'DESC')
+            ->order_by('st.id', 'DESC')
+            ->get()->result();
+
+        if (!class_exists('\PhpOffice\PhpSpreadsheet\Spreadsheet')) {
+            $filename = 'savings_full_export_' . date('Y-m-d');
+            header('Content-Type: text/csv; charset=utf-8');
+            header('Content-Disposition: attachment; filename="' . $filename . '.csv"');
+            header('Pragma: public');
+            $out = fopen('php://output', 'w');
+            fprintf($out, chr(0xEF).chr(0xBB).chr(0xBF));
+            fputcsv($out, ['--- SAVINGS ACCOUNTS ---']);
+            if (!empty($accounts)) {
+                fputcsv($out, array_keys((array)$accounts[0]));
+                foreach ($accounts as $r) fputcsv($out, array_values((array)$r));
+            }
+            fputcsv($out, []);
+            fputcsv($out, ['--- TRANSACTIONS ---']);
+            if (!empty($txns)) {
+                fputcsv($out, array_keys((array)$txns[0]));
+                foreach ($txns as $r) fputcsv($out, array_values((array)$r));
+            }
+            fclose($out);
+            exit;
+        }
+
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $this->_write_sheet($spreadsheet, 0, 'Accounts', $accounts, [
+            'Account No','Member Code','Member Name','Phone','Scheme',
+            'Monthly Amt','Start Date','Maturity Date',
+            'Total Deposited','Interest Earned','Fines Paid','Balance',
+            'Status','Closed At','Created At'
+        ]);
+        $this->_write_sheet($spreadsheet, 1, 'Transactions', $txns, [
+            'Account No','Member Code','Member Name',
+            'Txn Code','Type','Amount','Balance After',
+            'Payment Mode','Date','For Month','Narration','Receipt No'
+        ]);
+
+        header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        header('Content-Disposition: attachment; filename="savings_full_export_' . date('Y-m-d') . '.xlsx"');
+        header('Cache-Control: max-age=0');
+        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+        $writer->save('php://output');
+        exit;
+    }
+
+    /**
+     * Helper: write a sheet into a Spreadsheet object
+     */
+    private function _write_sheet($spreadsheet, $index, $title, $data, $headers) {
+        if ($index === 0) {
+            $sheet = $spreadsheet->getActiveSheet();
+        } else {
+            $sheet = $spreadsheet->createSheet($index);
+        }
+        $sheet->setTitle($title);
+
+        // Header row
+        foreach ($headers as $col => $h) {
+            $cell = $sheet->getCellByColumnAndRow($col + 1, 1);
+            $cell->setValue($h);
+            $cell->getStyle()->getFont()->setBold(true);
+            $sheet->getColumnDimensionByColumn($col + 1)->setAutoSize(true);
+        }
+
+        // Data rows
+        $row = 2;
+        foreach ($data as $item) {
+            $values = array_values((array) $item);
+            foreach ($values as $col => $val) {
+                $sheet->setCellValueByColumnAndRow($col + 1, $row, $val);
+            }
+            $row++;
         }
     }
 }

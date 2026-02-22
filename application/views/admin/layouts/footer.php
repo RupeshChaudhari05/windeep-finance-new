@@ -97,6 +97,20 @@ $(document).ready(function() {
         "tapToDismiss": false
     };
     
+    // Show flash messages as toastr notifications
+    <?php if ($this->session->flashdata('success')): ?>
+        toastr.success('<?= addslashes($this->session->flashdata('success')) ?>');
+    <?php endif; ?>
+    <?php if ($this->session->flashdata('error')): ?>
+        toastr.error('<?= addslashes($this->session->flashdata('error')) ?>');
+    <?php endif; ?>
+    <?php if ($this->session->flashdata('warning')): ?>
+        toastr.warning('<?= addslashes($this->session->flashdata('warning')) ?>');
+    <?php endif; ?>
+    <?php if ($this->session->flashdata('info')): ?>
+        toastr.info('<?= addslashes($this->session->flashdata('info')) ?>');
+    <?php endif; ?>
+
     // Auto-hide alerts after 5 seconds
     setTimeout(function() {
         $('.alert').not('.alert-permanent').fadeOut('slow');

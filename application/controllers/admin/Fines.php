@@ -163,7 +163,7 @@ class Fines extends Admin_Controller {
             $this->session->set_flashdata('success', 'Fine created successfully.');
             redirect('admin/fines/view/' . $fine_id);
         } else {
-            $this->session->set_flashdata('error', 'Failed to create fine.');
+            $this->session->set_flashdata('error', 'The fine could not be recorded. Please verify the member and amount, then try again.');
             redirect('admin/fines/create');
         }
     }
@@ -207,7 +207,7 @@ class Fines extends Admin_Controller {
                 $this->log_audit('payment', 'fines', 'fines', $id, null, ['amount' => $amount]);
                 $this->session->set_flashdata('success', 'Payment recorded successfully.');
             } else {
-                $this->session->set_flashdata('error', 'Failed to record payment.');
+                $this->session->set_flashdata('error', 'Fine payment could not be recorded. Please check the payment amount and try again.');
             }
             
             redirect('admin/fines/view/' . $id);
@@ -359,8 +359,8 @@ class Fines extends Admin_Controller {
         $result = $this->Fine_model->approve_waiver($id, $amount, $approved_by);
 
         if ($result) {
-            $this->log_audit('fines', $id, 'waiver_approved', null, ['amount' => $amount]);
-            $this->json_response(['success' => true, 'message' => 'Waiver approved']);
+            $this->log_audit('waiver_approved', 'fines', 'fines', $id, null, ['amount' => $amount]);
+            $this->json_response(['success' => true, 'message' => 'Waiver approved successfully.']);
         } else {
             $this->json_response(['success' => false, 'message' => 'Failed to approve waiver']);
         }
@@ -386,8 +386,8 @@ class Fines extends Admin_Controller {
         $result = $this->Fine_model->deny_waiver($id, $denied_by, $reason);
 
         if ($result) {
-            $this->log_audit('fines', $id, 'waiver_denied', null, ['reason' => $reason]);
-            $this->json_response(['success' => true, 'message' => 'Waiver denied']);
+            $this->log_audit('waiver_denied', 'fines', 'fines', $id, null, ['reason' => $reason]);
+            $this->json_response(['success' => true, 'message' => 'Waiver denied successfully.']);
         } else {
             $this->json_response(['success' => false, 'message' => 'Failed to deny waiver']);
         }
@@ -399,7 +399,7 @@ class Fines extends Admin_Controller {
     public function run_auto_fines() {
         $applied = $this->Fine_model->run_late_fine_job($this->session->userdata('admin_id'));
         
-        $this->log_activity('admin', $this->session->userdata('admin_id'), 'Ran auto-fine job', 'Applied ' . $applied . ' fines');
+        $this->log_activity('Ran auto-fine job', 'Applied ' . $applied . ' fines', 'fines');
         
         $this->session->set_flashdata('success', $applied . ' fines applied automatically.');
         redirect('admin/fines');
@@ -418,22 +418,18 @@ class Fines extends Admin_Controller {
         $admin_id = $this->session->userdata('admin_id');
 
         // Map incoming form fields to schema-compatible columns
+        $fine_type = $this->input->post('fine_type') ?: 'fixed';
         $rule_data = [
             'rule_name' => $this->input->post('rule_name'),
             'applies_to' => $this->input->post('applies_to') ?: 'both',
-            'fine_type' => $this->input->post('fine_type') ?: 'loan_late',
-            'calculation_type' => $this->input->post('calculation_type') ?: 'fixed',
-            // Accept both fine_amount and amount_value for backward compatibility
-            // For percentage type, fine_value stores the percentage (e.g., 2.5 for 2.5%)
-            'fine_value' => $this->input->post('fine_amount') ?: ($this->input->post('fine_rate') ?: ($this->input->post('amount_value') ?: 0)),
-            // Per day amount for per_day calculation type
+            'fine_type' => $fine_type,
+            'calculation_type' => $fine_type, // Always keep in sync with fine_type
+            'fine_value' => $this->input->post('amount_value') ?: ($this->input->post('fine_amount') ?: 0),
             'per_day_amount' => $this->input->post('per_day_amount') ?: 0,
-            // Grace period days - accept both field names
-            'grace_period_days' => $this->input->post('grace_period') ?: ($this->input->post('grace_days') ?: 0),
-            // Max fine amount - accept both field names
-            'max_fine_amount' => $this->input->post('max_fine') ?: ($this->input->post('max_fine_amount') ?: null),
+            'grace_period_days' => $this->input->post('grace_days') ?: ($this->input->post('grace_period') ?: 0),
+            'max_fine_amount' => $this->input->post('max_fine_amount') ?: null,
+            'description' => $this->input->post('description'),
             'is_active' => $this->input->post('is_active') ? 1 : 0,
-            'effective_from' => date('Y-m-d')
         ];
 
         if (empty($rule_data['rule_name'])) {
@@ -442,20 +438,28 @@ class Fines extends Admin_Controller {
         }
 
         if ($id) {
+            // Editing existing rule: changes apply from 1st of next month
+            $effective_from = date('Y-m-01', strtotime('first day of next month'));
+            $rule_data['effective_from'] = $effective_from;
+            $rule_data['updated_by'] = $admin_id;
+            $rule_data['updated_at'] = date('Y-m-d H:i:s');
             $old = $this->db->where('id', $id)->get('fine_rules')->row();
             $this->db->where('id', $id)->update('fine_rules', $rule_data);
-            // Log audit: action, module, table_name, record_id, old_values, new_values
             $this->log_audit('update', 'fine_rules', 'fine_rules', $id, (array)$old, $rule_data);
+            $this->json_response([
+                'success' => true, 
+                'message' => 'Rule updated. Changes effective from ' . date('d M Y', strtotime($effective_from))
+            ]);
         } else {
-            // Generate rule_code for new rules
+            // New rule: effective immediately
+            $rule_data['effective_from'] = date('Y-m-d');
             $rule_data['rule_code'] = $this->generate_rule_code();
             $rule_data['created_by'] = $admin_id;
             $this->db->insert('fine_rules', $rule_data);
             $id = $this->db->insert_id();
             $this->log_audit('create', 'fine_rules', 'fine_rules', $id, null, $rule_data);
+            $this->json_response(['success' => true, 'message' => 'Rule created and active immediately']);
         }
-
-        $this->json_response(['success' => true, 'message' => 'Rule saved successfully']);
     }
     
     /**     * Generate unique rule code

@@ -19,15 +19,25 @@ class Financial_year_model extends MY_Model {
     }
     
     /**
-     * Set Active Financial Year
+     * Set Active Financial Year (with transaction to prevent data inconsistency)
      */
     public function set_active($id) {
+        $this->db->trans_begin();
+        
         // Deactivate all
         $this->db->update($this->table, ['is_active' => 0]);
         
         // Activate selected
-        return $this->db->where('id', $id)
-                        ->update($this->table, ['is_active' => 1]);
+        $this->db->where('id', $id)
+                 ->update($this->table, ['is_active' => 1]);
+        
+        if ($this->db->trans_status() === FALSE) {
+            $this->db->trans_rollback();
+            return false;
+        }
+        
+        $this->db->trans_commit();
+        return true;
     }
     
     /**

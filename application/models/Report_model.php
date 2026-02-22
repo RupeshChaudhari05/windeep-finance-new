@@ -545,61 +545,44 @@ class Report_model extends MY_Model {
     public function get_cash_book($from_date, $to_date) {
         $report = [];
         
-        // Cash receipts
-        $report['receipts'] = $this->db->select('
-            DATE(created_at) as date, 
-            "Receipt" as type,
-            description,
-            amount as debit,
-            0 as credit
-        ')
-        ->from('savings_transactions')
-        ->where('transaction_type', 'deposit')
-        ->where('DATE(created_at) >=', $from_date)
-        ->where('DATE(created_at) <=', $to_date)
-        ->union_all(
-            $this->db->select('
-                DATE(payment_date) as date,
-                "Receipt" as type,
-                CONCAT("Loan Payment - ", l.loan_number) as description,
-                total_amount as debit,
-                0 as credit
-            ')
-            ->from('loan_payments lp')
-            ->join('loans l', 'l.id = lp.loan_id')
-            ->where('lp.payment_date >=', $from_date)
-            ->where('lp.payment_date <=', $to_date)
-            ->where('lp.is_reversed', 0)
-        )
-        ->get()
-        ->result();
+        // Cash receipts - using raw SQL since CI3 doesn't support union_all()
+        $receipts_sql = "
+            (SELECT DATE(st.created_at) as date, 'Receipt' as type,
+                    COALESCE(st.description, 'Savings Deposit') as description,
+                    st.amount as debit, 0 as credit
+             FROM savings_transactions st
+             WHERE st.transaction_type = 'deposit'
+               AND DATE(st.created_at) >= ? AND DATE(st.created_at) <= ?)
+            UNION ALL
+            (SELECT DATE(lp.payment_date) as date, 'Receipt' as type,
+                    CONCAT('Loan Payment - ', l.loan_number) as description,
+                    lp.total_amount as debit, 0 as credit
+             FROM loan_payments lp
+             JOIN loans l ON l.id = lp.loan_id
+             WHERE lp.payment_date >= ? AND lp.payment_date <= ?
+               AND lp.is_reversed = 0)
+            ORDER BY date ASC";
+        
+        $report['receipts'] = $this->db->query($receipts_sql, [$from_date, $to_date, $from_date, $to_date])->result();
         
         // Cash payments
-        $report['payments'] = $this->db->select('
-            DATE(created_at) as date,
-            "Payment" as type,
-            description,
-            0 as debit,
-            amount as credit
-        ')
-        ->from('savings_transactions')
-        ->where('transaction_type', 'withdrawal')
-        ->where('DATE(created_at) >=', $from_date)
-        ->where('DATE(created_at) <=', $to_date)
-        ->union_all(
-            $this->db->select('
-                DATE(disbursement_date) as date,
-                "Payment" as type,
-                CONCAT("Loan Disbursement - ", loan_number) as description,
-                0 as debit,
-                principal_amount as credit
-            ')
-            ->from('loans')
-            ->where('disbursement_date >=', $from_date)
-            ->where('disbursement_date <=', $to_date)
-        )
-        ->get()
-        ->result();
+        $payments_sql = "
+            (SELECT DATE(st.created_at) as date, 'Payment' as type,
+                    COALESCE(st.description, 'Savings Withdrawal') as description,
+                    0 as debit, st.amount as credit
+             FROM savings_transactions st
+             WHERE st.transaction_type = 'withdrawal'
+               AND DATE(st.created_at) >= ? AND DATE(st.created_at) <= ?)
+            UNION ALL
+            (SELECT DATE(l.disbursement_date) as date, 'Payment' as type,
+                    CONCAT('Loan Disbursement - ', l.loan_number) as description,
+                    0 as debit, l.principal_amount as credit
+             FROM loans l
+             WHERE l.disbursement_date >= ? AND l.disbursement_date <= ?
+               AND l.disbursement_date IS NOT NULL)
+            ORDER BY date ASC";
+        
+        $report['payments'] = $this->db->query($payments_sql, [$from_date, $to_date, $from_date, $to_date])->result();
         
         return $report;
     }
@@ -666,26 +649,26 @@ class Report_model extends MY_Model {
         ];
 
         // Loan repayments this week
+        $repay_row = $this->db->select_sum('total_amount')
+                               ->where('payment_date >=', $start_date)
+                               ->where('payment_date <=', $end_date)
+                               ->where('is_reversed', 0)
+                               ->get('loan_payments')
+                               ->row();
         $summary[] = [
             'metric' => 'Loan Repayments',
-            'value' => $this->db->select_sum('amount')
-                               ->where('payment_type', 'loan_repayment')
-                               ->where('DATE(created_at) >=', $start_date)
-                               ->where('DATE(created_at) <=', $end_date)
-                               ->get('payments')
-                               ->row()
-                               ->amount ?? 0,
+            'value' => $repay_row->total_amount ?? 0,
             'type' => 'currency'
         ];
 
         // Pending fines
-        $summary[] = [
-            'metric' => 'Pending Fines',
-            'value' => $this->db->select_sum('amount')
+        $fines_row = $this->db->select_sum('balance_amount')
                                ->where('status', 'pending')
                                ->get('fines')
-                               ->row()
-                               ->amount ?? 0,
+                               ->row();
+        $summary[] = [
+            'metric' => 'Pending Fines',
+            'value' => $fines_row->balance_amount ?? 0,
             'type' => 'currency'
         ];
 

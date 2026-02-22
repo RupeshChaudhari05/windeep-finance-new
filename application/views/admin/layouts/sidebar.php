@@ -296,7 +296,27 @@
                             </p>
                         </a>
                         <ul class="nav nav-treeview">
+                            <!-- One-Click Exports -->
                             <li class="nav-item">
+                                <a href="<?= base_url('admin/reports/export_members') ?>" class="nav-link">
+                                     <i class="far fa-circle nav-icon"></i>
+                                    <p>Export Members <i class="fas fa-download ml-1 text-warning"></i></p>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="<?= base_url('admin/reports/export_loans_full') ?>" class="nav-link">
+                                    <i class="far fa-circle nav-icon"></i>
+                                    <p>Export Loans & Fines <i class="fas fa-download ml-1 text-warning"></i></p>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="<?= base_url('admin/reports/export_savings_full') ?>" class="nav-link">
+                                    <i class="far fa-circle nav-icon"></i>
+                                    <p>Export Savings <i class="fas fa-download ml-1 text-warning"></i></p>
+                                </a>
+                            </li>
+                            <!-- Legacy Reports -->
+                            <!-- <li class="nav-item">
                                 <a href="<?= base_url('admin/reports/collection') ?>" class="nav-link">
                                     <i class="far fa-circle nav-icon"></i>
                                     <p>Collection Report</p>
@@ -321,17 +341,11 @@
                                 </a>
                             </li>
                             <li class="nav-item">
-                                <a href="<?= base_url('admin/reports/guarantor-exposure') ?>" class="nav-link">
-                                    <i class="far fa-circle nav-icon"></i>
-                                    <p>Guarantor Exposure</p>
-                                </a>
-                            </li>
-                            <li class="nav-item">
                                 <a href="<?= base_url('admin/reports/trial-balance') ?>" class="nav-link">
                                     <i class="far fa-circle nav-icon"></i>
                                     <p>Trial Balance</p>
                                 </a>
-                            </li>
+                            </li> -->
                         </ul>
                     </li>
 
@@ -373,12 +387,12 @@
                     </li> -->
 
                     <!-- Audit Logs -->
-                    <li class="nav-item">
+                    <!-- <li class="nav-item">
                         <a href="<?= base_url('admin/settings/audit_logs') ?>" class="nav-link <?= ($this->uri->segment(2) == 'settings' && $this->uri->segment(3) == 'audit_logs') ? 'active' : '' ?>">
                             <i class="nav-icon fas fa-history"></i>
                             <p>Audit Logs</p>
                         </a>
-                    </li>
+                    </li> -->
 
                     <li class="nav-header">ADMINISTRATION</li>
 

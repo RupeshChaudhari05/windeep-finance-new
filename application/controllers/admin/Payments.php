@@ -297,7 +297,8 @@ class Payments extends Admin_Controller {
             }
             
         } catch (Exception $e) {
-            $this->session->set_flashdata('error', 'Error: ' . $e->getMessage());
+            log_message('error', 'Payment recording failed: ' . $e->getMessage());
+            $this->session->set_flashdata('error', 'Payment could not be recorded. Please verify the payment details and try again. Contact support if the problem persists.');
             redirect('admin/payments/receive');
         }
     }

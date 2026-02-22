@@ -934,14 +934,23 @@ class Loan_model extends MY_Model {
      * Get Overdue Loans
      */
     public function get_overdue_loans() {
-        return $this->db->select('
+        $overdue = $this->db->select('
             l.*, 
             m.member_code, m.first_name, m.last_name, m.phone,
-            li.due_date, li.emi_amount, li.installment_number
+            li.id as installment_id, li.due_date, li.emi_amount, li.installment_number,
+            IFNULL(f_sum.total_fine, 0) as fine_amount,
+            IFNULL(f_sum.total_paid, 0) as fine_paid
         ')
         ->from('loans l')
         ->join('members m', 'm.id = l.member_id')
         ->join('loan_installments li', 'li.loan_id = l.id')
+        ->join('(SELECT related_id, 
+                    SUM(fine_amount) as total_fine, 
+                    SUM(IFNULL(paid_amount,0)) as total_paid 
+                 FROM fines 
+                 WHERE related_type = "loan_installment" 
+                   AND status NOT IN ("cancelled","waived")
+                 GROUP BY related_id) f_sum', 'f_sum.related_id = li.id', 'left')
         ->where('l.status', 'active')
         ->where('li.status', 'pending')
         ->where('li.due_date <', date('Y-m-d'))
@@ -949,6 +958,47 @@ class Loan_model extends MY_Model {
         ->order_by('li.due_date', 'ASC')
         ->get()
         ->result();
+
+        // If no fine record exists yet, calculate estimated fine from active rules
+        if (!empty($overdue)) {
+            $rule = $this->db->where_in('applies_to', ['loan', 'both'])
+                             ->where('is_active', 1)
+                             ->where('effective_from <=', date('Y-m-d'))
+                             ->get('fine_rules')
+                             ->row();
+
+            if ($rule) {
+                foreach ($overdue as &$loan) {
+                    if ($loan->fine_amount <= 0) {
+                        $days_late = floor((time() - safe_timestamp($loan->due_date)) / 86400);
+                        $grace = $rule->grace_period_days ?? 0;
+                        $effective_days = max(0, $days_late - $grace);
+
+                        if ($effective_days > 0) {
+                            $calc_type = $rule->calculation_type ?? ($rule->fine_type ?? 'fixed');
+                            $estimated = 0;
+
+                            if ($calc_type === 'fixed') {
+                                $estimated = $rule->fine_value;
+                            } elseif ($calc_type === 'percentage') {
+                                $estimated = $loan->emi_amount * ($rule->fine_value / 100);
+                            } elseif ($calc_type === 'per_day') {
+                                $estimated = $rule->fine_value + ($rule->per_day_amount * max(0, $effective_days - 1));
+                            }
+
+                            if ($rule->max_fine_amount > 0 && $estimated > $rule->max_fine_amount) {
+                                $estimated = $rule->max_fine_amount;
+                            }
+
+                            $loan->fine_amount = round($estimated, 2);
+                            $loan->fine_estimated = true; // flag for view
+                        }
+                    }
+                }
+            }
+        }
+
+        return $overdue;
     }
     
     /**

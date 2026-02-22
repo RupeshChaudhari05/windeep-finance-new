@@ -15,7 +15,7 @@ class Member_model extends MY_Model {
         'city', 'state', 'pincode', 'photo', 'aadhaar_number', 'pan_number', 'voter_id',
         'aadhaar_doc', 'pan_doc', 'address_proof_doc', 'kyc_verified', 'kyc_verified_at',
         'kyc_verified_by', 'bank_name', 'bank_branch', 'account_number', 'ifsc_code',
-        'account_holder_name', 'join_date', 'membership_type', 'opening_balance',
+        'account_holder_name', 'join_date', 'membership_type', 'member_level', 'opening_balance',
         'opening_balance_type', 'status', 'status_reason', 'status_changed_at',
         'status_changed_by', 'nominee_name', 'nominee_relation', 'nominee_phone',
         'nominee_aadhaar', 'max_guarantee_amount', 'max_guarantee_count', 'password',

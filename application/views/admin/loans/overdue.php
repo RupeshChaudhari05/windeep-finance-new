@@ -3,6 +3,10 @@
     <div class="card-header bg-danger text-white">
         <h3 class="card-title"><i class="fas fa-exclamation-triangle mr-1"></i> Overdue Loans</h3>
         <div class="card-tools">
+            <a href="<?= site_url('admin/fines/run_auto_fines') ?>" class="btn btn-warning btn-sm mr-1"
+               onclick="return confirm('Apply fines to all overdue loans/savings? This will create fine records based on your active rules.')">
+                <i class="fas fa-gavel"></i> Apply Fines
+            </a>
             <a href="<?= site_url('admin/loans') ?>" class="btn btn-light btn-sm">
                 <i class="fas fa-arrow-left"></i> Back to Loans
             </a>
@@ -72,7 +76,12 @@
                                 </span>
                             </td>
                             <td class="text-right font-weight-bold text-danger">₹<?= number_format($overdue_amount, 2) ?></td>
-                            <td class="text-right text-warning">₹<?= number_format($fine_amount, 2) ?></td>
+                            <td class="text-right text-warning">
+                                ₹<?= number_format($fine_amount, 2) ?>
+                                <?php if (!empty($loan->fine_estimated)): ?>
+                                <br><small class="text-muted"><i class="fas fa-calculator"></i> estimated</small>
+                                <?php endif; ?>
+                            </td>
                             <td>
                                 <div class="btn-group">
                                     <a href="<?= site_url('admin/loans/collect/' . $loan->id) ?>" class="btn btn-success btn-sm" title="Collect Payment">

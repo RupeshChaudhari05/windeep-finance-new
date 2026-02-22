@@ -10,12 +10,12 @@ defined('BASEPATH') or exit('No direct script access allowed');
  * - System health monitoring
  * - Cache management
  */
-class System extends MY_Controller
+class System extends Admin_Controller
 {
     public function __construct()
     {
         parent::__construct();
-        $this->check_permission('manage_settings'); // Require admin access
+        $this->check_permission('manage_settings');
         $this->load->helper('file');
     }
 
@@ -27,8 +27,8 @@ class System extends MY_Controller
         $data = [
             'title' => 'System Management',
             'page' => 'system/index',
-            'disk_free' => disk_free_space('/'),
-            'disk_total' => disk_total_space('/'),
+            'disk_free' => disk_free_space(FCPATH),
+            'disk_total' => disk_total_space(FCPATH),
             'php_version' => phpversion(),
             'ci_version' => CI_VERSION,
             'db_version' => $this->db->version(),
@@ -42,7 +42,7 @@ class System extends MY_Controller
             'db_stats' => $this->_get_db_stats()
         ];
 
-        $this->load->view('layouts/main', $data);
+        $this->load_view('admin/system/index', $data);
     }
 
     // =========================================
@@ -79,7 +79,7 @@ class System extends MY_Controller
             'log_files' => array_slice($log_files, 0, 30) // Last 30 log files
         ];
 
-        $this->load->view('layouts/main', $data);
+        $this->load_view('admin/system/logs', $data);
     }
 
     /**
@@ -117,7 +117,7 @@ class System extends MY_Controller
             'raw_content' => $content
         ];
 
-        $this->load->view('layouts/main', $data);
+        $this->load_view('admin/system/view_log', $data);
     }
 
     /**
@@ -136,7 +136,7 @@ class System extends MY_Controller
         if (file_exists($log_path) && unlink($log_path)) {
             $this->session->set_flashdata('success', 'Log file deleted.');
         } else {
-            $this->session->set_flashdata('error', 'Failed to delete log file.');
+            $this->session->set_flashdata('error', 'The log file could not be deleted. It may be locked or you may not have sufficient permissions.');
         }
 
         redirect('admin/system/logs');
@@ -220,7 +220,7 @@ class System extends MY_Controller
             ]
         ];
 
-        $this->load->view('layouts/main', $data);
+        $this->load_view('admin/system/audit_logs', $data);
     }
 
     /**
@@ -267,7 +267,7 @@ class System extends MY_Controller
             'total_pages' => ceil($total / $per_page)
         ];
 
-        $this->load->view('layouts/main', $data);
+        $this->load_view('admin/system/cron_logs', $data);
     }
 
     // =========================================
@@ -290,7 +290,7 @@ class System extends MY_Controller
             'backup_path' => FCPATH . 'uploads/backups/'
         ];
 
-        $this->load->view('layouts/main', $data);
+        $this->load_view('admin/system/backups', $data);
     }
 
     /**
@@ -313,7 +313,7 @@ class System extends MY_Controller
         $backup = $this->dbutil->backup($prefs);
 
         if (!$backup) {
-            $this->session->set_flashdata('error', 'Failed to create backup.');
+            $this->session->set_flashdata('error', 'Database backup could not be generated. Please check disk space and database connectivity.');
             redirect('admin/system/backups');
             return;
         }
@@ -342,7 +342,7 @@ class System extends MY_Controller
 
             $this->session->set_flashdata('success', 'Backup created successfully.');
         } else {
-            $this->session->set_flashdata('error', 'Failed to save backup file.');
+            $this->session->set_flashdata('error', 'The backup file could not be written to disk. Please check the backup directory permissions.');
         }
 
         redirect('admin/system/backups');
@@ -404,7 +404,7 @@ class System extends MY_Controller
             'backup' => $backup
         ];
 
-        $this->load->view('layouts/main', $data);
+        $this->load_view('admin/system/restore_confirm', $data);
     }
 
     /**
@@ -453,7 +453,7 @@ class System extends MY_Controller
                 $this->session->set_flashdata('error', 'Restore failed: ' . implode(', ', $errors));
             }
         } else {
-            $this->session->set_flashdata('error', 'Failed to open backup file.');
+            $this->session->set_flashdata('error', 'The selected backup file could not be read. It may have been deleted or corrupted.');
         }
 
         redirect('admin/system/backups');
@@ -604,9 +604,13 @@ class System extends MY_Controller
     {
         $stats = [];
         
-        $tables = ['members', 'loans', 'savings_accounts', 'installments', 'transactions'];
+        $tables = ['members', 'loans', 'savings_accounts', 'loan_installments', 'loan_payments', 'fines', 'general_ledger'];
         foreach ($tables as $table) {
-            $stats[$table] = $this->db->count_all($table);
+            try {
+                $stats[$table] = $this->db->count_all($table);
+            } catch (Exception $e) {
+                $stats[$table] = 'N/A';
+            }
         }
 
         return $stats;
@@ -649,8 +653,8 @@ class System extends MY_Controller
 
     private function _check_disk_space()
     {
-        $free = disk_free_space('/');
-        $total = disk_total_space('/');
+        $free = disk_free_space(FCPATH);
+        $total = disk_total_space(FCPATH);
         $percent_free = ($free / $total) * 100;
 
         if ($percent_free > 20) {

@@ -224,7 +224,7 @@ class Savings extends Admin_Controller {
             $this->session->set_flashdata('success', 'Savings account created successfully.');
             redirect('admin/savings/view/' . $account_id);
         } else {
-            $this->session->set_flashdata('error', 'Failed to create savings account.');
+            $this->session->set_flashdata('error', 'Savings account could not be created. Please check for duplicate accounts or missing required fields and try again.');
             redirect('admin/savings/create');
         }
     }
@@ -246,6 +246,19 @@ class Savings extends Admin_Controller {
         $data['member'] = null;
         $data['scheme'] = null;
         $data['pending_dues'] = [];
+
+        // Load all active savings accounts for the search selector
+        $data['active_accounts'] = $this->db
+            ->select('sa.id, sa.account_number, sa.monthly_amount, sa.current_balance, sa.status, m.first_name, m.last_name, m.phone, ss.scheme_name')
+            ->from('savings_accounts sa')
+            ->join('members m', 'm.id = sa.member_id')
+            ->join('savings_schemes ss', 'ss.id = sa.scheme_id', 'left')
+            ->where('sa.status', 'active')
+            ->where('m.status', 'active')
+            ->where('m.deleted_at', null)
+            ->order_by('m.first_name', 'ASC')
+            ->get()
+            ->result();
 
         // If account ID provided, pre-fill
         if ($id) {
@@ -344,7 +357,7 @@ class Savings extends Admin_Controller {
         ];
         
         if (!$id) {
-            $this->session->set_flashdata('error', 'Invalid account');
+            $this->session->set_flashdata('error', 'No savings account ID was provided. Please select a valid account to edit.');
             redirect('admin/savings');
         }
         
@@ -438,6 +451,22 @@ class Savings extends Admin_Controller {
         $this->load_view('admin/savings/overdue', $data);
     }
     
+    /**
+     * Set a scheme as the default for new member auto-enrollment
+     */
+    public function set_default_scheme($id) {
+        $scheme = $this->db->where('id', $id)->get('savings_schemes')->row();
+        if (!$scheme) {
+            $this->session->set_flashdata('error', 'Scheme not found.');
+            redirect('admin/savings/schemes');
+        }
+        // Clear existing default then set new one
+        $this->db->update('savings_schemes', ['is_default' => 0]);
+        $this->db->where('id', $id)->update('savings_schemes', ['is_default' => 1]);
+        $this->session->set_flashdata('success', '"' . $scheme->scheme_name . '" is now the default scheme for new members.');
+        redirect('admin/savings/schemes');
+    }
+
     /**
      * Manage Schemes
      */
@@ -666,7 +695,7 @@ class Savings extends Admin_Controller {
         if (!$account_id) {
             $response = [
                 'success' => false, 
-                'message' => 'Invalid account ID',
+                'message' => 'The specified savings account could not be found. Please verify the account ID.',
                 'debug' => [
                     'post_data' => $this->input->post(),
                     'account_id' => $account_id

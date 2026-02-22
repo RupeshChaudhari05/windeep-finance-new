@@ -18,6 +18,16 @@ class Member_Controller extends MY_Controller {
             redirect('member/auth/login');
         }
         
+        // Enforce session timeout (default 30 minutes)
+        $timeout = (int) ($this->settings['session_timeout'] ?? 1800);
+        $last_activity = $this->session->userdata('member_last_activity');
+        if ($last_activity && (time() - $last_activity) > $timeout) {
+            $this->session->sess_destroy();
+            $this->session->set_flashdata('error', 'Your session has expired due to inactivity. Please login again.');
+            redirect('member/auth/login');
+        }
+        $this->session->set_userdata('member_last_activity', time());
+        
         // Load member data
         $member_id = $this->session->userdata('member_id');
         $this->load->model('Member_model');

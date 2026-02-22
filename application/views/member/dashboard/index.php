@@ -7,7 +7,7 @@
             <div class="card-body">
                 <div class="row">
                     <div class="col-md-4">
-                        <div class="small-box bg-primary">
+                        <div class="small-box bg-primary" data-toggle="tooltip" data-placement="top" title="Total number of your currently active (disbursed) loans">
                             <div class="inner">
                                 <h3><?= number_format($loans_summary->total_loans ?? 0) ?></h3>
                                 <p>Active Loans</p>
@@ -17,7 +17,7 @@
                         </div>
                     </div>
                     <div class="col-md-4">
-                        <div class="small-box bg-success">
+                        <div class="small-box bg-success" data-toggle="tooltip" data-placement="top" title="Total remaining principal + interest amount across all your active loans">
                             <div class="inner">
                                 <h3>₹<?= number_format($loans_summary->total_outstanding ?? 0, 2) ?></h3>
                                 <p>Outstanding</p>
@@ -26,7 +26,7 @@
                         </div>
                     </div>
                     <div class="col-md-4">
-                        <div class="small-box bg-warning">
+                        <div class="small-box bg-warning" data-toggle="tooltip" data-placement="top" title="Total unpaid fines/penalties. Pay these to avoid further charges.">
                             <div class="inner">
                                 <h3>₹<?= number_format($pending_fines->total_fines ?? 0, 2) ?></h3>
                                 <p>Pending Fines</p>
@@ -44,10 +44,10 @@
                         <table class="table table-sm">
                             <thead>
                                 <tr>
-                                    <th>Due Date</th>
-                                    <th>Loan</th>
-                                    <th class="text-right">EMI</th>
-                                    <th>Status</th>
+                                    <th data-toggle="tooltip" title="The date by which this installment should be paid">Due Date</th>
+                                    <th data-toggle="tooltip" title="Your loan reference number - click to view details">Loan</th>
+                                    <th class="text-right" data-toggle="tooltip" title="Equated Monthly Installment - the fixed amount due each month">EMI</th>
+                                    <th data-toggle="tooltip" title="Pending = not yet paid, Partial = partially paid, Paid = fully paid">Status</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -130,9 +130,15 @@
         <div class="card">
             <div class="card-header"><h3 class="card-title">Quick Actions</h3></div>
             <div class="card-body">
-                <a href="<?= site_url('member/loans/apply') ?>" class="btn btn-primary btn-block mb-2">Apply for Loan</a>
-                <a href="<?= site_url('member/savings') ?>" class="btn btn-success btn-block mb-2">View Savings</a>
-                <a href="<?= site_url('member/installments') ?>" class="btn btn-warning btn-block">View Installments</a>
+                <a href="<?= site_url('member/loans/apply') ?>" class="btn btn-primary btn-block mb-2" data-toggle="tooltip" title="Submit a new loan application. You can track its status here.">
+                    <i class="fas fa-plus-circle mr-1"></i> Apply for Loan
+                </a>
+                <a href="<?= site_url('member/savings') ?>" class="btn btn-success btn-block mb-2" data-toggle="tooltip" title="View your savings accounts, balances, and transaction history">
+                    <i class="fas fa-piggy-bank mr-1"></i> View Savings
+                </a>
+                <a href="<?= site_url('member/installments') ?>" class="btn btn-warning btn-block" data-toggle="tooltip" title="View all your upcoming and past installment payments">
+                    <i class="fas fa-calendar-check mr-1"></i> View Installments
+                </a>
             </div>
         </div>
     </div>

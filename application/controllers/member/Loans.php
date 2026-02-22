@@ -207,7 +207,7 @@ class Loans extends Member_Controller {
             $this->session->set_flashdata('success', 'Loan application submitted successfully. Application Number: ' . $this->Loan_model->get_application($application_id)->application_number);
             redirect('member/loans/applications');
         } else {
-            $this->session->set_flashdata('error', 'Failed to submit application.');
+            $this->session->set_flashdata('error', 'Your loan application could not be saved due to a system error. Please try again or contact support.');
             redirect('member/loans/apply');
         }
     }
@@ -480,7 +480,7 @@ class Loans extends Member_Controller {
             $this->log_audit('member_approved', 'loan_applications', 'loan_applications', $application_id, null, ['status' => 'member_approved']);
             $this->session->set_flashdata('success', 'Application approved successfully. Awaiting disbursement.');
         } else {
-            $this->session->set_flashdata('error', 'Failed to approve application.');
+            $this->session->set_flashdata('error', 'Unable to approve this loan application. The record may have been modified. Please refresh and try again.');
         }
 
         redirect('member/loans/application/' . $application_id);
@@ -518,7 +518,7 @@ class Loans extends Member_Controller {
             $this->log_audit('rejected', 'loan_applications', 'loan_applications', $application_id, null, ['reason' => $reason]);
             $this->session->set_flashdata('success', 'Application rejected successfully.');
         } else {
-            $this->session->set_flashdata('error', 'Failed to reject application.');
+            $this->session->set_flashdata('error', 'Unable to reject this loan application. Please try again or contact an administrator.');
         }
 
         redirect('member/loans/application/' . $application_id);

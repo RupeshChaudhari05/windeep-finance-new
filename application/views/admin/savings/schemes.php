@@ -12,10 +12,13 @@
         <div class="row">
             <?php foreach ($schemes as $scheme): ?>
             <div class="col-md-4 mb-4">
-                <div class="card h-100 <?= $scheme->is_active ? 'card-outline card-success' : 'card-outline card-secondary' ?>">
+                <div class="card h-100 <?= $scheme->is_active ? 'card-outline card-success' : 'card-outline card-secondary' ?> <?= !empty($scheme->is_default) ? 'border-warning' : '' ?>">
                     <div class="card-header">
                         <h5 class="card-title mb-0">
                             <?= $scheme->scheme_name ?>
+                            <?php if (!empty($scheme->is_default)): ?>
+                            <span class="badge badge-warning ml-2"><i class="fas fa-star"></i> Default</span>
+                            <?php endif; ?>
                             <?php if (!$scheme->is_active): ?>
                             <span class="badge badge-secondary ml-2">Inactive</span>
                             <?php endif; ?>
@@ -72,10 +75,23 @@
                             <a href="<?= site_url('admin/savings?scheme_id=' . $scheme->id) ?>" class="btn btn-primary">
                                 <i class="fas fa-users"></i> Members
                             </a>
+                            <?php if (empty($scheme->is_default)): ?>
+                            <a href="<?= site_url('admin/savings/set_default_scheme/' . $scheme->id) ?>"
+                               class="btn btn-warning"
+                               onclick="return confirm('Set &quot;<?= addslashes($scheme->scheme_name) ?>&quot; as the default scheme for new members?')">
+                                <i class="fas fa-star"></i> Set Default
+                            </a>
+                            <?php endif; ?>
+                            <?php if (empty($scheme->is_default)): ?>
                             <button class="btn btn-<?= $scheme->is_active ? 'warning' : 'success' ?> btn-toggle" 
                                     data-id="<?= $scheme->id ?>" data-status="<?= $scheme->is_active ?>">
                                 <i class="fas fa-<?= $scheme->is_active ? 'ban' : 'check' ?>"></i>
                             </button>
+                            <?php else: ?>
+                            <button class="btn btn-secondary" disabled title="Default scheme cannot be deactivated">
+                                <i class="fas fa-lock"></i>
+                            </button>
+                            <?php endif; ?>
                         </div> 
                     </div>
                 </div>

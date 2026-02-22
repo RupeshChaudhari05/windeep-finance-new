@@ -276,11 +276,11 @@ class Installments extends Admin_Controller {
         $installment_id = $this->input->post('installment_id');
         
         if (!$installment_id) {
-            $this->json_response(['success' => false, 'message' => 'Invalid installment']);
+            $this->json_response(['success' => false, 'message' => 'Please select a valid installment.']);
             return;
         }
         
-        $installment = $this->db->select('li.*, l.loan_number, m.phone, m.first_name')
+        $installment = $this->db->select('li.*, l.loan_number, l.member_id, m.phone, m.first_name, m.last_name, m.email')
                                 ->from('loan_installments li')
                                 ->join('loans l', 'l.id = li.loan_id')
                                 ->join('members m', 'm.id = l.member_id')
@@ -289,17 +289,63 @@ class Installments extends Admin_Controller {
                                 ->row();
         
         if (!$installment) {
-            $this->json_response(['success' => false, 'message' => 'Installment not found']);
+            $this->json_response(['success' => false, 'message' => 'Installment not found.']);
             return;
         }
         
-        // TODO: Implement SMS/WhatsApp reminder
+        $channels = [];
+        
+        // Send email if available
+        if (!empty($installment->email)) {
+            try {
+                $this->load->library('email');
+                $from_email = $this->get_setting('smtp_user', 'noreply@windeepfinance.com');
+                $org_name = $this->get_setting('organization_name', 'Windeep Finance');
+                $cs = $this->get_setting('currency_symbol', '₹');
+                
+                $this->email->from($from_email, $org_name);
+                $this->email->to($installment->email);
+                $this->email->subject('Installment Due Reminder - ' . $installment->loan_number);
+                
+                $message = "Dear " . $installment->first_name . ",\n\n";
+                $message .= "This is a reminder for your upcoming/overdue installment.\n\n";
+                $message .= "Loan: " . $installment->loan_number . "\n";
+                $message .= "Due Date: " . date('d-M-Y', strtotime($installment->due_date)) . "\n";
+                $message .= "EMI Amount: " . $cs . number_format($installment->emi_amount, 2) . "\n\n";
+                $message .= "Please make your payment at the earliest to avoid penalties.\n\n";
+                $message .= "Thank you,\n" . $org_name;
+                
+                $this->email->message($message);
+                if ($this->email->send()) {
+                    $channels[] = 'email';
+                }
+            } catch (Exception $e) {
+                log_message('error', 'Installment reminder email failed: ' . $e->getMessage());
+            }
+        }
+        
+        // In-app notification
+        $this->load->model('Notification_model');
+        $this->Notification_model->create([
+            'target_type' => 'member',
+            'target_id' => $installment->member_id,
+            'title' => 'Installment Due Reminder',
+            'message' => 'Reminder: EMI of ' . $this->get_setting('currency_symbol', '₹') . number_format($installment->emi_amount, 2) . ' for loan ' . $installment->loan_number . ' is due on ' . date('d-M-Y', strtotime($installment->due_date)) . '.',
+            'type' => 'reminder',
+            'reference_type' => 'loan_installment',
+            'reference_id' => $installment_id,
+            'is_read' => 0,
+            'created_at' => date('Y-m-d H:i:s')
+        ]);
+        $channels[] = 'notification';
+        
         $this->log_audit('reminder_sent', 'loan_installments', 'loan_installments', $installment_id, null, [
             'loan_number' => $installment->loan_number,
-            'phone' => $installment->phone
+            'phone' => $installment->phone,
+            'channels' => implode(', ', $channels)
         ]);
         
-        $this->json_response(['success' => true, 'message' => 'Reminder sent successfully']);
+        $this->json_response(['success' => true, 'message' => 'Reminder sent via: ' . implode(', ', $channels)]);
     }
     
     /**

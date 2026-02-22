@@ -26,6 +26,48 @@ class Savings_model extends MY_Model {
     }
     
     /**
+     * Auto-enroll a new member in the default savings scheme
+     */
+    public function enroll_in_default_scheme($member_id, $created_by = null) {
+        // Find the default scheme
+        $scheme = $this->db->where('is_default', 1)
+                           ->where('is_active', 1)
+                           ->get('savings_schemes')
+                           ->row();
+
+        if (!$scheme) {
+            return false; // No default scheme configured
+        }
+
+        // Check if member already has an account in this scheme
+        $existing = $this->db->where('member_id', $member_id)
+                             ->where('scheme_id', $scheme->id)
+                             ->where_in('status', ['active', 'matured'])
+                             ->get($this->table)
+                             ->row();
+
+        if ($existing) {
+            return $existing->id; // Already enrolled
+        }
+
+        $start_date = date('Y-m-d');
+        $maturity_date = null;
+        if (!empty($scheme->duration_months)) {
+            $maturity_date = date('Y-m-d', strtotime("+{$scheme->duration_months} months"));
+        }
+
+        return $this->create_account([
+            'member_id'      => $member_id,
+            'scheme_id'      => $scheme->id,
+            'monthly_amount' => $scheme->monthly_amount,
+            'start_date'     => $start_date,
+            'maturity_date'  => $maturity_date,
+            'status'         => 'active',
+            'created_by'     => $created_by,
+        ]);
+    }
+
+    /**
      * Create Savings Account
      */
     public function create_account($data) {
@@ -152,8 +194,25 @@ class Savings_model extends MY_Model {
             $data['balance_after'] = $new_balance;
             $data['created_at'] = date('Y-m-d H:i:s');
             
+            // Map controller field names to actual DB column names
+            if (isset($data['remarks'])) {
+                $data['narration'] = $data['remarks'];
+                unset($data['remarks']);
+            }
+            if (isset($data['received_by'])) {
+                $data['created_by'] = $data['received_by'];
+                unset($data['received_by']);
+            }
+
+            // Whitelist only columns that exist in savings_transactions
+            $allowed = ['transaction_code', 'savings_account_id', 'schedule_id', 'transaction_type',
+                        'amount', 'balance_after', 'payment_mode', 'reference_number',
+                        'transaction_date', 'for_month', 'narration', 'receipt_number',
+                        'bank_transaction_id', 'created_by', 'created_at'];
+            $insert = array_intersect_key($data, array_flip($allowed));
+
             // Insert transaction
-            $this->db->insert('savings_transactions', $data);
+            $this->db->insert('savings_transactions', $insert);
             $transaction_id = $this->db->insert_id();
             
             // Update account balance

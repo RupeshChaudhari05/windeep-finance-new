@@ -1,3 +1,95 @@
+<!-- Account Search Panel (shown when no account pre-selected) -->
+<?php if (!$account): ?>
+<div class="card card-primary">
+    <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-search mr-1"></i> Find Savings Account</h3>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-8 mx-auto">
+                <div class="form-group">
+                    <label for="account_search">Search by Member Name, Phone or Account Number</label>
+                    <select class="form-control select2" id="account_search" style="width:100%"
+                            data-placeholder="Type to search...">
+                        <option value=""></option>
+                        <?php foreach ($active_accounts as $acc): ?>
+                        <option value="<?= site_url('admin/savings/collection/' . $acc->id) ?>">
+                            <?= $acc->first_name ?> <?= $acc->last_name ?> &mdash; <?= $acc->phone ?> &mdash; <?= $acc->account_number ?> (<?= $acc->scheme_name ?? 'N/A' ?>) &mdash; Bal: ₹<?= number_format($acc->current_balance) ?>
+                        </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="text-center mt-3">
+                    <button type="button" class="btn btn-primary btn-lg" id="goToAccount" disabled>
+                        <i class="fas fa-arrow-right mr-1"></i> Load Account &amp; Collect
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <?php if (!empty($active_accounts)): ?>
+        <hr>
+        <h6 class="text-muted mb-2">Recent Active Accounts</h6>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover">
+                <thead class="thead-light">
+                    <tr>
+                        <th>Member</th>
+                        <th>Phone</th>
+                        <th>Account No</th>
+                        <th>Scheme</th>
+                        <th class="text-right">Monthly</th>
+                        <th class="text-right">Balance</th>
+                        <th class="text-center">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach (array_slice($active_accounts, 0, 15) as $acc): ?>
+                    <tr>
+                        <td><?= $acc->first_name ?> <?= $acc->last_name ?></td>
+                        <td><?= $acc->phone ?></td>
+                        <td><code><?= $acc->account_number ?></code></td>
+                        <td><span class="badge badge-info"><?= $acc->scheme_name ?? '-' ?></span></td>
+                        <td class="text-right">₹<?= number_format($acc->monthly_amount) ?></td>
+                        <td class="text-right text-success">₹<?= number_format($acc->current_balance) ?></td>
+                        <td class="text-center">
+                            <a href="<?= site_url('admin/savings/collection/' . $acc->id) ?>" class="btn btn-sm btn-success">
+                                <i class="fas fa-hand-holding-usd mr-1"></i> Collect
+                            </a>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                    <?php if (count($active_accounts) > 15): ?>
+                    <tr>
+                        <td colspan="7" class="text-center text-muted">
+                            <small><?= count($active_accounts) - 15 ?> more accounts — use the search above to find them</small>
+                        </td>
+                    </tr>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php else: ?>
+        <div class="alert alert-info mt-3 mb-0"><i class="fas fa-info-circle mr-1"></i> No active savings accounts found. <a href="<?= site_url('admin/savings/create') ?>">Create one</a>.</div>
+        <?php endif; ?>
+    </div>
+</div>
+
+<script>
+$(document).ready(function() {
+    $('#account_search').select2({ theme: 'bootstrap4', width: '100%' });
+    $('#account_search').on('change', function() {
+        var url = $(this).val();
+        $('#goToAccount').prop('disabled', !url);
+        $('#goToAccount').off('click').on('click', function() {
+            window.location.href = url;
+        });
+    });
+});
+</script>
+
+<?php else: ?>
+
 <div class="row">
     <!-- Account Info -->
     <div class="col-md-4">
@@ -128,6 +220,7 @@
             <?php if ($account): ?>
             <form action="<?= site_url('admin/savings/record_payment/' . $account->id) ?>" method="post" id="collectionForm">
                 <?= form_hidden($this->security->get_csrf_token_name(), $this->security->get_csrf_hash()) ?>
+                <input type="hidden" name="savings_account_id" value="<?= $account->id ?>">
                 
                 <div class="card-body">
                     <div class="row">
@@ -333,4 +426,6 @@ $(document).ready(function() {
     });
 });
 </script>
-<?php endif; ?>
+<?php endif; // end if ($account) for script block ?>
+
+<?php endif; // end else (account found) ?>

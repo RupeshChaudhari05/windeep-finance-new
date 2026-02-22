@@ -278,14 +278,18 @@ class Whatsapp {
         // Remove all non-numeric characters
         $phone = preg_replace('/[^0-9]/', '', $phone);
         
-        // If number starts with 0, assume India (+91)
+        // Get country code from settings, default to India (+91)
+        $CI =& get_instance();
+        $country_code = isset($CI->settings['country_code']) ? $CI->settings['country_code'] : '91';
+        
+        // If number starts with 0, replace leading 0 with country code
         if (substr($phone, 0, 1) === '0') {
-            $phone = '91' . substr($phone, 1);
+            $phone = $country_code . substr($phone, 1);
         }
         
-        // If number is 10 digits, add India code
+        // If number is 10 digits, add country code
         if (strlen($phone) === 10) {
-            $phone = '91' . $phone;
+            $phone = $country_code . $phone;
         }
         
         return $phone;

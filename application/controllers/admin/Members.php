@@ -49,7 +49,11 @@ class Members extends Admin_Controller {
     /**
      * View Member
      */
-    public function view($id) {
+    public function view($id = null) {
+        if (!$id) {
+            redirect('admin/members');
+        }
+
         $member = $this->Member_model->get_member_details($id);
         
         if (!$member) {
@@ -101,6 +105,9 @@ class Members extends Admin_Controller {
         // Generate member code for display
         $data['member_code'] = $this->Member_model->generate_member_code();
         
+        // Load existing members for referral dropdown
+        $data['existing_members'] = $this->Member_model->get_active_members_dropdown();
+        
         $this->load_view('admin/members/create', $data);
     }
     
@@ -127,8 +134,8 @@ class Members extends Admin_Controller {
         $this->form_validation->set_rules('last_name', 'Last Name', 'required|max_length[100]');
         $this->form_validation->set_rules('phone', 'Phone', 'required|numeric|min_length[10]|max_length[15]|is_unique[members.phone]');
         $this->form_validation->set_rules('email', 'Email', 'valid_email|is_unique[members.email]');
-        $this->form_validation->set_rules('date_of_birth', 'Date of Birth', 'required|callback_validate_age');
-        $this->form_validation->set_rules('gender', 'Gender', 'required|in_list[male,female,other]');
+        $this->form_validation->set_rules('date_of_birth', 'Date of Birth', 'callback_validate_age');
+        $this->form_validation->set_rules('gender', 'Gender', 'in_list[male,female,other]');
         
         if ($this->form_validation->run() === FALSE) {
             $this->session->set_flashdata('error', validation_errors());
@@ -162,6 +169,7 @@ class Members extends Admin_Controller {
             'nominee_name' => $this->input->post('nominee_name', TRUE),
             'nominee_relationship' => $this->input->post('nominee_relationship', TRUE),
             'nominee_phone' => normalize_phone($this->input->post('nominee_phone', TRUE)),
+            'member_level' => $this->input->post('member_level') ?: NULL,
             'created_by' => $this->session->userdata('admin_id')
         ];
         
@@ -220,10 +228,15 @@ class Members extends Admin_Controller {
             }
             
             $this->log_audit('create', 'members', 'members', $member_id, null, $member_data);
+
+            // Auto-enroll in default savings scheme
+            $this->load->model('Savings_model');
+            $this->Savings_model->enroll_in_default_scheme($member_id, $this->session->userdata('admin_id'));
+
             $this->session->set_flashdata('success', 'Member created successfully.');
             redirect('admin/members/view/' . $member_id);
         } else {
-            $this->session->set_flashdata('error', 'Failed to create member.');
+            $this->session->set_flashdata('error', 'Member registration failed. Please check for duplicate member codes or missing required fields and try again.');
             redirect('admin/members/create');
         }
     }
@@ -231,7 +244,8 @@ class Members extends Admin_Controller {
     /**
      * Edit Member Form
      */
-    public function edit($id) {
+    public function edit($id = null) {
+        if (!$id) { redirect('admin/members'); }
         $member = $this->Member_model->get_by_id($id);
         
         if (!$member) {
@@ -256,7 +270,8 @@ class Members extends Admin_Controller {
     /**
      * Update Member
      */
-    public function update($id) {
+    public function update($id = null) {
+        if (!$id) { redirect('admin/members'); }
         if ($this->input->method() !== 'post') {
             redirect('admin/members/edit/' . $id);
         }
@@ -314,7 +329,7 @@ class Members extends Admin_Controller {
             'first_name' => $this->input->post('first_name', TRUE),
             'middle_name' => $this->input->post('middle_name', TRUE),
             'last_name' => $this->input->post('last_name', TRUE),
-            'phone' => $phone,
+            'phone' => $normalized_phone,
             'alternate_phone' => $this->input->post('alternate_phone', TRUE),
             'email' => $this->input->post('email', TRUE),
             'date_of_birth' => $this->input->post('date_of_birth'),
@@ -336,7 +351,8 @@ class Members extends Admin_Controller {
             'bank_ifsc' => strtoupper($this->input->post('bank_ifsc', TRUE)),
             'nominee_name' => $this->input->post('nominee_name', TRUE),
             'nominee_relationship' => $this->input->post('nominee_relationship', TRUE),
-            'nominee_phone' => $this->input->post('nominee_phone', TRUE)
+            'nominee_phone' => $this->input->post('nominee_phone', TRUE),
+            'member_level' => $this->input->post('member_level') ?: NULL
         ];
         
         // Handle profile image upload
@@ -374,7 +390,8 @@ class Members extends Admin_Controller {
                 $config['max_size'] = 4096;
                 $config['file_name'] = $field . '_' . $id . '_' . time();
 
-                $this->load->library('upload', $config);
+                $this->load->library('upload');
+                $this->upload->initialize($config);
                 if ($this->upload->do_upload($input_name)) {
                     // delete old
                     if (!empty($member->{$field}) && file_exists($upload_base . $member->{$field})) {
@@ -396,7 +413,7 @@ class Members extends Admin_Controller {
             $this->log_audit('update', 'members', 'members', $id, $old_data, $member_data);
             $this->session->set_flashdata('success', 'Member updated successfully.');
         } else {
-            $this->session->set_flashdata('error', 'Failed to update member.');
+            $this->session->set_flashdata('error', 'Member details could not be saved. Please verify the information and try again.');
         }
         
         redirect('admin/members/view/' . $id);
@@ -407,8 +424,7 @@ class Members extends Admin_Controller {
      */
     public function validate_age($dob) {
         if (empty($dob)) {
-            $this->form_validation->set_message('validate_age', 'the age of the member should be greater than 18 years.');
-            return FALSE;
+            return TRUE; // DOB is optional
         }
 
         // Use DateTime to compute precise age
@@ -437,7 +453,8 @@ class Members extends Admin_Controller {
     /**
      * Update Status
      */
-    public function update_status($id) {
+    public function update_status($id = null) {
+        if (!$id) { $this->json_response(['success' => false, 'message' => 'Invalid member.']); return; }
         $member = $this->Member_model->get_by_id($id);
         
         if (!$member) {
@@ -461,7 +478,8 @@ class Members extends Admin_Controller {
     /**
      * Verify KYC
      */
-    public function verify_kyc($id) {
+    public function verify_kyc($id = null) {
+        if (!$id) { redirect('admin/members'); }
         $member = $this->Member_model->get_by_id($id);
         
         if (!$member) {
@@ -475,7 +493,7 @@ class Members extends Admin_Controller {
             $this->log_audit('kyc_verified', 'members', 'members', $id);
             $this->session->set_flashdata('success', 'KYC verified successfully.');
         } else {
-            $this->session->set_flashdata('error', 'Failed to verify KYC.');
+            $this->session->set_flashdata('error', 'KYC verification could not be completed. The member record may have been modified. Please refresh and try again.');
         }
         
         redirect('admin/members/view/' . $id);
@@ -563,7 +581,8 @@ class Members extends Admin_Controller {
     /**
      * Print Member Card
      */
-    public function print_card($id) {
+    public function print_card($id = null) {
+        if (!$id) { redirect('admin/members'); }
         $member = $this->Member_model->get_member_details($id);
         
         if (!$member) {

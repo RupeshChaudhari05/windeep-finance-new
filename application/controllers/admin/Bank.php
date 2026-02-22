@@ -847,7 +847,7 @@ class Bank extends Admin_Controller {
                     $this->session->set_flashdata('success', 'Bank account created successfully!');
                     redirect('admin/bank/accounts');
                 } else {
-                    $this->session->set_flashdata('error', 'Failed to create bank account.');
+                    $this->session->set_flashdata('error', 'Bank account could not be created. Please verify the account details and check for duplicates.');
                 }
             }
         }
@@ -904,7 +904,7 @@ class Bank extends Admin_Controller {
                     $this->session->set_flashdata('success', 'Bank account updated successfully!');
                     redirect('admin/bank/accounts');
                 } else {
-                    $this->session->set_flashdata('error', 'Failed to update bank account.');
+                    $this->session->set_flashdata('error', 'Bank account details could not be saved. Please verify your changes and try again.');
                 }
             }
         }

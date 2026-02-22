@@ -14,16 +14,34 @@ class Notifications extends Member_Controller {
     }
 
     public function mark_read($id) {
-        $this->db->where('id', $id)->update('notifications', ['is_read' => 1, 'read_at' => date('Y-m-d H:i:s')]);
-        $this->session->set_flashdata('success', 'Notification marked read.');
+        $member_id = $this->member->id;
+        $this->db->where('id', $id)
+                 ->where('target_type', 'member')
+                 ->where('target_id', $member_id)
+                 ->update('notifications', ['is_read' => 1, 'read_at' => date('Y-m-d H:i:s')]);
+        
+        if ($this->db->affected_rows() > 0) {
+            $this->session->set_flashdata('success', 'Notification marked as read.');
+        } else {
+            $this->session->set_flashdata('error', 'Notification not found.');
+        }
         redirect('member/notifications');
     }
 
     /**
-     * Mark notification read (AJAX)
+     * Mark notification read (AJAX - with ownership check)
      */
     public function mark_read_ajax($id) {
-        $this->db->where('id', $id)->update('notifications', ['is_read' => 1, 'read_at' => date('Y-m-d H:i:s')]);
-        $this->json_response(['success' => true]);
+        $member_id = $this->member->id;
+        $this->db->where('id', $id)
+                 ->where('target_type', 'member')
+                 ->where('target_id', $member_id)
+                 ->update('notifications', ['is_read' => 1, 'read_at' => date('Y-m-d H:i:s')]);
+        
+        if ($this->db->affected_rows() > 0) {
+            $this->json_response(['success' => true, 'message' => 'Notification marked as read.']);
+        } else {
+            $this->json_response(['success' => false, 'message' => 'Notification not found.']);
+        }
     }
 }

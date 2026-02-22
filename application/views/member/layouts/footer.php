@@ -19,6 +19,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.6.0/js/bootstrap.bundle.min.js"></script>
 <!-- AdminLTE App -->
 <script src="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/js/adminlte.min.js"></script>
+<!-- Toastr Notifications -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.js"></script>
+<!-- SweetAlert2 -->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
 <?php if (isset($extra_js)): ?>
     <?= $extra_js ?>
@@ -29,6 +33,38 @@
     window.BASE_URL = '<?= base_url() ?>';
     window.CSRF_TOKEN = '<?= $this->security->get_csrf_hash() ?>';
     window.CSRF_NAME = '<?= $this->security->get_csrf_token_name() ?>';
+
+    // Initialize Bootstrap tooltips globally
+    $(function() {
+        $('[data-toggle="tooltip"]').tooltip();
+    });
+
+    // Toastr configuration
+    toastr.options = {
+        closeButton: true,
+        progressBar: true,
+        positionClass: "toast-top-right",
+        timeOut: 4000,
+        extendedTimeOut: 2000,
+        showEasing: "swing",
+        hideEasing: "linear",
+        showMethod: "fadeIn",
+        hideMethod: "fadeOut"
+    };
+
+    // Show flash messages as toastr notifications
+    <?php if ($this->session->flashdata('success')): ?>
+        toastr.success('<?= addslashes($this->session->flashdata('success')) ?>');
+    <?php endif; ?>
+    <?php if ($this->session->flashdata('error')): ?>
+        toastr.error('<?= addslashes($this->session->flashdata('error')) ?>');
+    <?php endif; ?>
+    <?php if ($this->session->flashdata('warning')): ?>
+        toastr.warning('<?= addslashes($this->session->flashdata('warning')) ?>');
+    <?php endif; ?>
+    <?php if ($this->session->flashdata('info')): ?>
+        toastr.info('<?= addslashes($this->session->flashdata('info')) ?>');
+    <?php endif; ?>
 
     // CSRF token for all AJAX requests
     $.ajaxSetup({
