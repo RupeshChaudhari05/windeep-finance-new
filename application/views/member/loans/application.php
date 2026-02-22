@@ -8,7 +8,7 @@
         </div>
     </div>
     <div class="card-body">
-        <p><strong>Product:</strong> <?= $application->product_name ?></p>
+        <p><strong>Product:</strong> <?= !empty($application->product_name) ? $application->product_name : '<span class="text-muted">Not assigned yet (admin will assign during approval)</span>' ?></p>
         <p><strong>Amount:</strong> ₹<?= number_format($application->requested_amount, 2) ?></p>
         <p><strong>Tenure:</strong> <?= $application->requested_tenure_months ?> months</p>
         <p><strong>Purpose:</strong> <?= nl2br(htmlspecialchars($application->purpose)) ?></p>

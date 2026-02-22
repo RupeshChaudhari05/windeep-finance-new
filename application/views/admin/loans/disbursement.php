@@ -50,7 +50,7 @@
                                 </a>
                                 <br><small class="text-muted"><?= $app->phone ?></small>
                             </td>
-                            <td><?= $app->product_name ?></td>
+                            <td><?= $app->product_name ?? 'N/A' ?></td>
                             <td class="text-right font-weight-bold text-success">₹<?= number_format($app->approved_amount, 2) ?></td>
                             <td><?= $app->approved_tenure_months ?> months</td>
                             <td><?= number_format($app->approved_interest_rate, 2) ?>% p.a.</td>

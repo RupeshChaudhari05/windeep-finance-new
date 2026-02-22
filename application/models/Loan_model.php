@@ -147,11 +147,17 @@ class Loan_model extends MY_Model {
         if (!$application) {
             throw new Exception('Application not found');
         }
+
+        // Use the product selected by admin (may differ from what was on the application)
+        $product_id = !empty($data['loan_product_id']) ? $data['loan_product_id'] : $application->loan_product_id;
         
         // Get product requirements
-        $product = $this->db->where('id', $application->loan_product_id)
-                            ->get('loan_products')
-                            ->row();
+        $product = null;
+        if ($product_id) {
+            $product = $this->db->where('id', $product_id)
+                                ->get('loan_products')
+                                ->row();
+        }
         
         // Savings checks — skipped when admin explicitly overrides
         if (!$force_savings) {
@@ -181,6 +187,7 @@ class Loan_model extends MY_Model {
         }
         
         $update = [
+            'loan_product_id' => $product_id,
             'approved_amount' => $data['approved_amount'],
             'approved_tenure_months' => $data['approved_tenure_months'],
             'approved_interest_rate' => $data['approved_interest_rate'],
@@ -786,7 +793,7 @@ class Loan_model extends MY_Model {
         $application = $this->db->select('la.*, lp.product_name, lp.interest_type, m.member_code, m.first_name, m.last_name, m.phone, 
                                          au.full_name as approver_name')
                                ->from('loan_applications la')
-                               ->join('loan_products lp', 'lp.id = la.loan_product_id')
+                               ->join('loan_products lp', 'lp.id = la.loan_product_id', 'left')
                                ->join('members m', 'm.id = la.member_id')
                                ->join('admin_users au', 'au.id = la.admin_approved_by', 'left')
                                ->where('la.id', $id)
@@ -928,7 +935,7 @@ class Loan_model extends MY_Model {
         return $this->db->select('la.*, m.member_code, m.first_name, m.last_name, m.phone, lp.product_name')
                         ->from('loan_applications la')
                         ->join('members m', 'm.id = la.member_id')
-                        ->join('loan_products lp', 'lp.id = la.loan_product_id')
+                        ->join('loan_products lp', 'lp.id = la.loan_product_id', 'left')
                         ->where_in('la.status', ['pending', 'under_review', 'guarantor_pending'])
                         ->order_by('la.application_date', 'ASC')
                         ->get()

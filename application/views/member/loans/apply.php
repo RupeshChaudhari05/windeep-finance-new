@@ -1,6 +1,9 @@
+<?php
+$min_guarantors = isset($min_guarantors) ? (int)$min_guarantors : 0;
+?>
 <div class="card card-primary">
     <div class="card-header"><h3 class="card-title">Apply for Loan</h3></div>
-    <form method="post" action="<?= site_url('member/loans/apply') ?>">
+    <form method="post" action="<?= site_url('member/loans/apply') ?>" id="loanApplyForm">
         <div class="card-body">
             <?php if ($this->session->flashdata('error')): ?>
             <div class="alert alert-danger alert-dismissible">
@@ -15,51 +18,28 @@
                 <?= $this->session->flashdata('success') ?>
             </div>
             <?php endif; ?>
-            
-            <div class="form-group">
-                <label>Loan Product</label>
-                <select name="loan_product_id" id="loan_product_id" class="form-control" required>
-                    <?php foreach ($loan_products as $p): ?>
-                    <option value="<?= $p->id ?>" data-min="<?= $p->min_tenure_months ?>" data-max="<?= $p->max_tenure_months ?>"><?= $p->product_name ?> - <?= $p->interest_rate ?>%</option>
-                    <?php endforeach; ?>
-                </select>
+
+            <div class="alert alert-info py-2">
+                <i class="fas fa-info-circle mr-1"></i>
+                Enter the loan amount and tenure you need. The loan scheme will be assigned by admin during approval.
+                <?php if ($min_guarantors > 0): ?>
+                    <br><strong>Minimum <?= $min_guarantors ?> guarantor(s) required.</strong>
+                <?php endif; ?>
             </div>
+            
             <div class="form-row">
                 <div class="form-group col-md-6">
-                    <label>Amount Requested</label>
-                    <input type="number" name="amount_requested" class="form-control" step="0.01" required>
+                    <label>Amount Requested <span class="text-danger">*</span></label>
+                    <div class="input-group">
+                        <div class="input-group-prepend"><span class="input-group-text">₹</span></div>
+                        <input type="number" name="amount_requested" id="amount_requested" class="form-control" step="0.01" min="1" value="<?= set_value('amount_requested') ?>" required>
+                    </div>
                 </div>
                 <div class="form-group col-md-6">
-                    <label>Tenure (Months)</label>
-                    <input type="number" name="requested_tenure_months" id="requested_tenure_months" class="form-control" value="12" min="1" required>
-                    <small class="form-text text-muted" id="tenure_help">Choose tenure between product min and max.</small>
+                    <label>Tenure (Months) <span class="text-danger">*</span></label>
+                    <input type="number" name="requested_tenure_months" id="requested_tenure_months" class="form-control" value="<?= set_value('requested_tenure_months', 12) ?>" min="1" max="360" required>
+                    <small class="form-text text-muted">Number of months for repayment</small>
                 </div>
-            </div>
-            <!-- Guarantors -->
-            <hr>
-            <h5>Guarantors <small class="text-muted">(optional)</small></h5>
-            <div id="guarantors_area">
-                <div class="form-row guarantor-row">
-                    <div class="form-group col-md-6">
-                        <label>Guarantor Member</label>
-                        <select name="guarantor_member_id[]" class="form-control guarantor-select">
-                            <option value="">-- Select Member --</option>
-                            <?php foreach ($this->db->where('status','active')->get('members')->result() as $m): ?>
-                                <option value="<?= $m->id ?>"><?= $m->member_code ?> - <?= htmlspecialchars($m->first_name . ' ' . $m->last_name) ?> (<?= $m->phone ?>)</option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div class="form-group col-md-4">
-                        <label>Guarantee Amount</label>
-                        <input type="number" name="guarantee_amount[]" class="form-control" step="0.01">
-                    </div>
-                    <div class="form-group col-md-2 d-flex align-items-end">
-                        <button type="button" class="btn btn-danger btn-remove-guarantor">Remove</button>
-                    </div>
-                </div>
-            </div>
-            <div class="form-group">
-                <button type="button" id="addGuarantor" class="btn btn-sm btn-outline-primary">Add Guarantor</button>
             </div>
 
             <div class="form-group">
@@ -68,45 +48,75 @@
                 <small class="form-text text-muted">Please describe the purpose of this loan</small>
             </div>
 
-            <script>
-                (function(){
-                    var prod = document.getElementById('loan_product_id');
-                    var tenure = document.getElementById('requested_tenure_months');
-                    var help = document.getElementById('tenure_help');
-                    function updateTenureLimits(){
-                        var opt = prod.options[prod.selectedIndex];
-                        var min = parseInt(opt.getAttribute('data-min')) || 1;
-                        var max = parseInt(opt.getAttribute('data-max')) || 240;
-                        tenure.min = min;
-                        tenure.max = max;
-                        if (parseInt(tenure.value) < min) tenure.value = min;
-                        if (parseInt(tenure.value) > max) tenure.value = max;
-                        help.textContent = 'Choose tenure between ' + min + ' and ' + max + ' months.';
-                    }
-                    prod.addEventListener('change', updateTenureLimits);
-                    updateTenureLimits();
+            <!-- Guarantors -->
+            <hr>
+            <h5>Guarantors <?php if ($min_guarantors > 0): ?><span class="text-danger">*</span> <small class="text-muted">(minimum <?= $min_guarantors ?> required)</small><?php else: ?><small class="text-muted">(optional)</small><?php endif; ?></h5>
+            <div id="guarantors_area">
+                <?php
+                // Pre-create rows for min required guarantors (at least 1 row always)
+                $rows_to_show = max(1, $min_guarantors);
+                for ($gi = 0; $gi < $rows_to_show; $gi++):
+                ?>
+                <div class="form-row guarantor-row">
+                    <div class="form-group col-md-8">
+                        <label>Guarantor Member</label>
+                        <select name="guarantor_member_id[]" class="form-control guarantor-select" <?= $gi < $min_guarantors ? 'required' : '' ?>>
+                            <option value="">-- Select Member --</option>
+                            <?php foreach ($members_list as $m): ?>
+                                <option value="<?= $m->id ?>"><?= $m->member_code ?> - <?= htmlspecialchars($m->first_name . ' ' . $m->last_name) ?> (<?= $m->phone ?>)</option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="form-group col-md-2 d-flex align-items-end">
+                        <button type="button" class="btn btn-danger btn-sm btn-remove-guarantor"><i class="fas fa-times"></i></button>
+                    </div>
+                </div>
+                <?php endfor; ?>
+            </div>
+            <div class="form-group">
+                <button type="button" id="addGuarantor" class="btn btn-sm btn-outline-primary"><i class="fas fa-plus mr-1"></i>Add Guarantor</button>
+            </div>
 
-                    // Guarantor add/remove
-                    document.getElementById('addGuarantor').addEventListener('click', function(){
-                        var container = document.getElementById('guarantors_area');
-                        var template = document.querySelector('.guarantor-row');
-                        var clone = template.cloneNode(true);
-                        clone.querySelector('select').value = '';
-                        var amount = clone.querySelector('input[name="guarantee_amount[]"]');
-                        if (amount) amount.value = '';
-                        container.appendChild(clone);
-                    });
-                    document.getElementById('guarantors_area').addEventListener('click', function(e){
-                        if (e.target && e.target.matches('.btn-remove-guarantor')) {
+            <script>
+            (function(){
+                var minGuarantors = <?= $min_guarantors ?>;
+
+                // Guarantor add/remove
+                document.getElementById('addGuarantor').addEventListener('click', function(){
+                    var container = document.getElementById('guarantors_area');
+                    var template = document.querySelector('.guarantor-row');
+                    var clone = template.cloneNode(true);
+                    clone.querySelector('select').value = '';
+                    clone.querySelector('select').removeAttribute('required');
+                    container.appendChild(clone);
+                });
+                document.getElementById('guarantors_area').addEventListener('click', function(e){
+                    if (e.target && (e.target.matches('.btn-remove-guarantor') || e.target.closest('.btn-remove-guarantor'))) {
+                        var rows = document.querySelectorAll('.guarantor-row');
+                        if (rows.length > minGuarantors && rows.length > 1) {
                             var row = e.target.closest('.guarantor-row');
                             if (row) row.remove();
                         }
-                    });
-                })();
+                    }
+                });
+
+                // Form validation
+                document.getElementById('loanApplyForm').addEventListener('submit', function(e){
+                    if (minGuarantors > 0) {
+                        var selects = document.querySelectorAll('.guarantor-select');
+                        var filled = 0;
+                        selects.forEach(function(s){ if (s.value) filled++; });
+                        if (filled < minGuarantors) {
+                            e.preventDefault();
+                            alert('Please select at least ' + minGuarantors + ' guarantor(s).');
+                        }
+                    }
+                });
+            })();
             </script>
         </div>
         <div class="card-footer">
-            <button class="btn btn-success">Submit Application</button>
+            <button class="btn btn-success"><i class="fas fa-paper-plane mr-1"></i>Submit Application</button>
             <a href="<?= site_url('member/loans') ?>" class="btn btn-default">Cancel</a>
         </div>
     </form>

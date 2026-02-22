@@ -170,7 +170,7 @@ class Loans extends Admin_Controller {
         
         $this->db->select('la.*, lp.product_name, m.member_code, m.first_name, m.last_name, m.phone');
         $this->db->from('loan_applications la');
-        $this->db->join('loan_products lp', 'lp.id = la.loan_product_id');
+        $this->db->join('loan_products lp', 'lp.id = la.loan_product_id', 'left');
         $this->db->join('members m', 'm.id = la.member_id');
         
         if ($status !== 'all') {
@@ -347,8 +347,16 @@ class Loans extends Admin_Controller {
                 'approved_amount' => $this->input->post('approved_amount'),
                 'approved_tenure_months' => $this->input->post('approved_tenure_months'),
                 'approved_interest_rate' => $this->input->post('approved_interest_rate'),
-                'remarks' => $this->input->post('remarks')
+                'remarks' => $this->input->post('remarks'),
+                'loan_product_id' => $this->input->post('loan_product_id') ?: null
             ];
+
+            // Loan product is required at approval time
+            if (empty($approval_data['loan_product_id'])) {
+                $this->session->set_flashdata('error', 'Please select a Loan Scheme/Product before approving.');
+                redirect('admin/loans/approve/' . $id);
+                return;
+            }
 
             // Guarantor acceptance requirement
             $guarantor_count = $this->db->where('loan_application_id', $id)->count_all_results('loan_guarantors');
@@ -417,16 +425,25 @@ class Loans extends Admin_Controller {
         $data['application'] = $application;
         $data['member'] = $this->Member_model->get_member_details($application->member_id);
         
-        // Get product details for interest rate
-        $data['product'] = $this->db->where('id', $application->loan_product_id)
-                                    ->get('loan_products')
-                                    ->row();
+        // Get product details (may be null if member applied without scheme)
+        $data['product'] = null;
+        if (!empty($application->loan_product_id)) {
+            $data['product'] = $this->db->where('id', $application->loan_product_id)
+                                        ->get('loan_products')
+                                        ->row();
+        }
+
+        // All active loan products for admin to select/change
+        $data['loan_products'] = $this->db->where('is_active', 1)
+                                          ->order_by('product_name', 'ASC')
+                                          ->get('loan_products')
+                                          ->result();
 
         // Savings constraint data for the approval view
         $savings_balance = $data['member']->savings_summary->current_balance ?? 0;
         $data['savings_balance'] = $savings_balance;
-        $data['min_savings_required'] = $data['product']->min_savings_balance ?? 0;
-        $data['savings_ratio']        = $data['product']->max_loan_to_savings_ratio ?? 0;
+        $data['min_savings_required'] = !empty($data['product']) ? ($data['product']->min_savings_balance ?? 0) : 0;
+        $data['savings_ratio']        = !empty($data['product']) ? ($data['product']->max_loan_to_savings_ratio ?? 0) : 0;
         $data['max_loan_by_savings']  = $data['savings_ratio'] > 0
             ? $savings_balance * $data['savings_ratio']
             : null; // null means no ratio restriction

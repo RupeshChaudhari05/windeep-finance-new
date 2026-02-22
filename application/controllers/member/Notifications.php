@@ -16,8 +16,8 @@ class Notifications extends Member_Controller {
     public function mark_read($id) {
         $member_id = $this->member->id;
         $this->db->where('id', $id)
-                 ->where('target_type', 'member')
-                 ->where('target_id', $member_id)
+                 ->where('recipient_type', 'member')
+                 ->where('recipient_id', $member_id)
                  ->update('notifications', ['is_read' => 1, 'read_at' => date('Y-m-d H:i:s')]);
         
         if ($this->db->affected_rows() > 0) {
@@ -34,8 +34,8 @@ class Notifications extends Member_Controller {
     public function mark_read_ajax($id) {
         $member_id = $this->member->id;
         $this->db->where('id', $id)
-                 ->where('target_type', 'member')
-                 ->where('target_id', $member_id)
+                 ->where('recipient_type', 'member')
+                 ->where('recipient_id', $member_id)
                  ->update('notifications', ['is_read' => 1, 'read_at' => date('Y-m-d H:i:s')]);
         
         if ($this->db->affected_rows() > 0) {

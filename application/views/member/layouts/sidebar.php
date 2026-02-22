@@ -63,6 +63,31 @@
                         </a>
                     </li>
 
+                    <li class="nav-item">
+                        <a href="<?= site_url('member/notifications') ?>" class="nav-link <?= strpos(uri_string(), 'member/notifications') === 0 ? 'active' : '' ?>">
+                            <i class="nav-icon fas fa-bell"></i>
+                            <p>Notifications
+                                <?php
+                                    $unread_count = 0;
+                                    if (isset($member->id)) {
+                                        $CI =& get_instance();
+                                        $CI->load->model('Notification_model');
+                                        $all_notifs = $CI->Notification_model->get_for('member', $member->id, 100);
+                                        $unread_count = 0;
+                                        if ($all_notifs) {
+                                            foreach ($all_notifs as $_n) {
+                                                if (empty($_n->is_read)) $unread_count++;
+                                            }
+                                        }
+                                    }
+                                ?>
+                                <?php if ($unread_count > 0): ?>
+                                    <span class="badge badge-danger right"><?= $unread_count ?></span>
+                                <?php endif; ?>
+                            </p>
+                        </a>
+                    </li>
+
                     <li class="nav-item mt-3">
                         <a href="<?= site_url('member/logout') ?>" class="nav-link text-danger">
                             <i class="nav-icon fas fa-sign-out-alt"></i>

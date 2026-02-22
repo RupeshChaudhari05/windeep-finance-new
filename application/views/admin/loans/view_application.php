@@ -22,7 +22,7 @@
                         <table class="table table-borderless table-sm">
                             <tr>
                                 <td class="text-muted">Loan Product:</td>
-                                <td><strong><?= $application->product_name ?></strong></td>
+                                <td><strong><?= $application->product_name ?? '<span class="text-muted">Not yet assigned</span>' ?></strong></td>
                             </tr>
                             <tr>
                                 <td class="text-muted">Requested Amount:</td>

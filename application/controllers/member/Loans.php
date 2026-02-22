@@ -43,8 +43,15 @@ class Loans extends Member_Controller {
             return;
         }
         
-        // Get loan products
-        $data['loan_products'] = $this->db->where('is_active', 1)->order_by('product_name', 'ASC')->get('loan_products')->result();
+        // Min guarantors from settings
+        $data['min_guarantors'] = (int) $this->get_setting('min_guarantors', 0);
+
+        // Active members list for guarantor selection (exclude self)
+        $data['members_list'] = $this->db->where('status', 'active')
+                                         ->where('id !=', $this->member->id)
+                                         ->order_by('first_name', 'ASC')
+                                         ->get('members')
+                                         ->result();
         
         $this->load_member_view('member/loans/apply', $data);
     }
@@ -107,43 +114,38 @@ class Loans extends Member_Controller {
      */
     private function _process_application() {
         $this->load->library('form_validation');
-        $this->form_validation->set_rules('loan_product_id', 'Loan Product', 'required|numeric');
         $this->form_validation->set_rules('amount_requested', 'Amount', 'required|numeric|greater_than[0]');
         $this->form_validation->set_rules('requested_tenure_months', 'Tenure', 'required|numeric|greater_than[0]');
         $this->form_validation->set_rules('purpose', 'Purpose', 'required');
         
         if ($this->form_validation->run() === FALSE) {
-            // Log validation errors and input for debugging
             log_message('error', 'Member Loans::apply validation failed: ' . validation_errors());
             log_message('debug', 'Member Loans::apply POST data: ' . json_encode($this->input->post()));
-
             $this->session->set_flashdata('error', validation_errors());
             redirect('member/loans/apply');
             return;
         }
 
-        // Validate tenure against selected product's min/max
-        $product_id = (int) $this->input->post('loan_product_id');
-        $product = $this->db->where('id', $product_id)->get('loan_products')->row();
+        // Check minimum guarantors requirement
+        $min_guarantors = (int) $this->get_setting('min_guarantors', 0);
+        $g_ids = $this->input->post('guarantor_member_id') ?: [];
+        $valid_guarantor_count = 0;
+        foreach ($g_ids as $gid) {
+            if ((int)$gid > 0) $valid_guarantor_count++;
+        }
+        if ($min_guarantors > 0 && $valid_guarantor_count < $min_guarantors) {
+            $this->session->set_flashdata('error', 'At least ' . $min_guarantors . ' guarantor(s) are required.');
+            redirect('member/loans/apply');
+            return;
+        }
+
+        $requested_amount = (float) $this->input->post('amount_requested');
         $requested_tenure = (int) $this->input->post('requested_tenure_months');
 
-        if (!$product) {
-            $this->session->set_flashdata('error', 'Selected loan product not found.');
-            redirect('member/loans/apply');
-            return;
-        }
-        $min = isset($product->min_tenure_months) ? (int) $product->min_tenure_months : 1;
-        $max = isset($product->max_tenure_months) ? (int) $product->max_tenure_months : 240;
-        if ($requested_tenure < $min || $requested_tenure > $max) {
-            $this->session->set_flashdata('error', 'Tenure must be between ' . $min . ' and ' . $max . ' months for the selected product.');
-            redirect('member/loans/apply');
-            return;
-        }
-        
         $application_data = [
             'member_id' => $this->member->id,
-            'loan_product_id' => $product_id,
-            'requested_amount' => $this->input->post('amount_requested'),
+            'loan_product_id' => null,  // Admin will assign scheme during approval
+            'requested_amount' => $requested_amount,
             'requested_tenure_months' => $requested_tenure,
             'purpose' => $this->input->post('purpose'),
             'application_date' => date('Y-m-d'),
@@ -156,23 +158,25 @@ class Loans extends Member_Controller {
         $application_id = $this->Loan_model->create_application($application_data);
 
         if ($application_id) {
-            // Save guarantors if provided
-            $g_ids = $this->input->post('guarantor_member_id') ?: [];
+            // Save guarantors — guarantee_amount = requested loan amount
             $g_amounts = $this->input->post('guarantee_amount') ?: [];
             $any_guarantors = false;
             foreach ($g_ids as $idx => $gmember_id) {
                 $gmember_id = (int) $gmember_id;
-                $gamount = isset($g_amounts[$idx]) ? (float) $g_amounts[$idx] : 0;
                 if ($gmember_id > 0) {
+                    // Default guarantee amount to full requested amount
+                    $gamount = (!empty($g_amounts[$idx]) && (float)$g_amounts[$idx] > 0)
+                        ? (float)$g_amounts[$idx]
+                        : $requested_amount;
                     $any_guarantors = true;
                     $res = $this->Loan_model->add_guarantor($application_id, $gmember_id, $gamount);
                     if ($res && isset($res['id'])) {
                         // Create notification and send email to guarantor
                         $this->load->model('Notification_model');
                         $app = $this->Loan_model->get_application($application_id);
-                        $url = site_url('public/guarantor_consent/' . $res['id'] . '/' . $res['token']);
+                        $url = site_url('member/loans/guarantor_consent/' . $res['id'] . '/' . $res['token']);
                         $title = 'Guarantor Request: ' . $app->application_number;
-                        $message = "You have been requested to act as a guarantor for loan application " . $app->application_number . " by " . ($this->member->first_name ?? '') . " " . ($this->member->last_name ?? '') . ". Please review and accept or reject: " . $url;
+                        $message = "You have been requested to act as a guarantor for loan application " . $app->application_number . " by " . ($this->member->first_name ?? '') . " " . ($this->member->last_name ?? '') . ". Loan Amount: ₹" . number_format($requested_amount, 2) . ". Please review and accept or reject: " . $url;
                         $this->Notification_model->create('member', $gmember_id, 'guarantor_request', $title, $message, ['application_id' => $application_id, 'guarantor_id' => $res['id'], 'url' => $url]);
 
                         // Send email (best-effort)
@@ -182,6 +186,7 @@ class Loans extends Member_Controller {
                             $subject = 'You have been requested as guarantor';
                             $html = '<p>Dear ' . htmlspecialchars($gmember->first_name . ' ' . $gmember->last_name) . ',</p>';
                             $html .= '<p>You have been requested to act as a guarantor for loan application <strong>' . $app->application_number . '</strong> by <strong>' . htmlspecialchars($this->member->first_name . ' ' . $this->member->last_name) . '</strong>.</p>';
+                            $html .= '<p><strong>Loan Amount: ₹' . number_format($requested_amount, 2) . '</strong></p>';
                             $html .= '<p>Please <a href="' . $url . '">click here to review and respond</a>.</p>';
                             send_email($gmember->email, $subject, $html);
                         }
@@ -359,9 +364,20 @@ class Loans extends Member_Controller {
             return;
         }
 
-        $data['loan_products'] = $this->db->where('is_active',1)->order_by('product_name','ASC')->get('loan_products')->result();
+        // Get min guarantors from settings
+        $min_guarantors = (int) $this->get_setting('min_guarantors', 1);
+        if ($min_guarantors < 1) $min_guarantors = 1;
+
+        // Get members list (exclude self)
+        $members_list = $this->db->where('status', 'active')
+                                 ->where('id !=', $this->member->id)
+                                 ->order_by('first_name', 'ASC')
+                                 ->get('members')->result();
+
         $data['application'] = $app;
         $data['guarantors'] = $this->Loan_model->get_application_guarantors($application_id);
+        $data['min_guarantors'] = $min_guarantors;
+        $data['members_list'] = $members_list;
         $data['title'] = 'Edit Application';
         $data['page_title'] = 'Edit Loan Application';
 
@@ -386,7 +402,6 @@ class Loans extends Member_Controller {
         }
 
         $this->load->library('form_validation');
-        $this->form_validation->set_rules('loan_product_id', 'Loan Product', 'required|numeric');
         $this->form_validation->set_rules('amount_requested', 'Amount', 'required|numeric|greater_than[0]');
         $this->form_validation->set_rules('requested_tenure_months', 'Tenure', 'required|numeric|greater_than[0]');
         $this->form_validation->set_rules('purpose', 'Purpose', 'required');
@@ -397,22 +412,24 @@ class Loans extends Member_Controller {
             return;
         }
 
-        $product_id = (int) $this->input->post('loan_product_id');
-        $product = $this->db->where('id', $product_id)->get('loan_products')->row();
-        $requested_tenure = (int) $this->input->post('requested_tenure_months');
-        $min = isset($product->min_tenure_months) ? (int) $product->min_tenure_months : 1;
-        $max = isset($product->max_tenure_months) ? (int) $product->max_tenure_months : 240;
-        if ($requested_tenure < $min || $requested_tenure > $max) {
-            $this->session->set_flashdata('error', 'Tenure must be between ' . $min . ' and ' . $max . ' months for the selected product.');
+        // Enforce minimum guarantors
+        $min_guarantors = (int) $this->get_setting('min_guarantors', 1);
+        if ($min_guarantors < 1) $min_guarantors = 1;
+        $g_ids = $this->input->post('guarantor_member_id') ?: [];
+        $valid_guarantors = array_filter($g_ids, function($id) { return (int)$id > 0; });
+        if (count($valid_guarantors) < $min_guarantors) {
+            $this->session->set_flashdata('error', 'At least ' . $min_guarantors . ' guarantor(s) required.');
             redirect('member/loans/edit_application/' . $application_id);
             return;
         }
 
+        $requested_amount = (float) $this->input->post('amount_requested');
+
         $update = [
-            'loan_product_id' => $product_id,
-            'requested_amount' => $this->input->post('amount_requested'),
-            'requested_tenure_months' => $requested_tenure,
+            'requested_amount' => $requested_amount,
+            'requested_tenure_months' => (int) $this->input->post('requested_tenure_months'),
             'purpose' => $this->input->post('purpose'),
+            'loan_product_id' => null,
             'status' => 'pending',
             'updated_at' => date('Y-m-d H:i:s')
         ];
@@ -422,20 +439,17 @@ class Loans extends Member_Controller {
 
         // replace guarantors
         $this->db->where('loan_application_id', $application_id)->delete('loan_guarantors');
-        $g_ids = $this->input->post('guarantor_member_id') ?: [];
-        $g_amounts = $this->input->post('guarantee_amount') ?: [];
         foreach ($g_ids as $idx => $gmember_id) {
             $gmember_id = (int) $gmember_id;
-            $gamount = isset($g_amounts[$idx]) ? (float) $g_amounts[$idx] : 0;
             if ($gmember_id > 0) {
-                $res = $this->Loan_model->add_guarantor($application_id, $gmember_id, $gamount);
+                $res = $this->Loan_model->add_guarantor($application_id, $gmember_id, $requested_amount);
                 if ($res && isset($res['id'])) {
                     // Create notification and send email to guarantor for updated assignment
                     $this->load->model('Notification_model');
                     $app = $this->Loan_model->get_application($application_id);
-                    $url = site_url('public/guarantor_consent/' . $res['id'] . '/' . $res['token']);
+                    $url = site_url('member/loans/guarantor_consent/' . $res['id'] . '/' . $res['token']);
                     $title = 'Guarantor Request: ' . $app->application_number;
-                    $message = "You have been requested to act as a guarantor for loan application " . $app->application_number . " by " . ($this->member->first_name ?? '') . " " . ($this->member->last_name ?? '') . ". Please review and accept or reject: " . $url;
+                    $message = "You have been requested to act as a guarantor for loan application " . $app->application_number . " by " . ($this->member->first_name ?? '') . " " . ($this->member->last_name ?? '') . ". Loan Amount: ₹" . number_format($requested_amount, 2) . ". Please review and accept or reject: " . $url;
                     $this->Notification_model->create('member', $gmember_id, 'guarantor_request', $title, $message, ['application_id' => $application_id, 'guarantor_id' => $res['id'], 'url' => $url]);
 
                     $this->load->model('Member_model');

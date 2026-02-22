@@ -23,10 +23,6 @@
                                     <td><?= format_date($application->application_date) ?></td>
                                 </tr>
                                 <tr>
-                                    <td class="text-muted">Loan Product:</td>
-                                    <td><?= $product->product_name ?></td>
-                                </tr>
-                                <tr>
                                     <td class="text-muted">Requested Amount:</td>
                                     <td><span class="text-primary font-weight-bold">₹<?= number_format($application->requested_amount) ?></span></td>
                                 </tr>
@@ -42,22 +38,17 @@
                                     <td class="text-muted">Purpose:</td>
                                     <td><?= $application->purpose ?></td>
                                 </tr>
+                                <?php if ($product): ?>
                                 <tr>
-                                    <td class="text-muted">Product Rate:</td>
-                                    <td><?= $product->interest_rate ?>% p.a.</td>
+                                    <td class="text-muted">Current Scheme:</td>
+                                    <td><?= $product->product_name ?> (<?= $product->interest_rate ?>%)</td>
                                 </tr>
+                                <?php else: ?>
                                 <tr>
-                                    <td class="text-muted">Rate Type:</td>
-                                    <td><?= ucfirst($product->interest_type ?? 'Reducing') ?> Balance</td>
+                                    <td class="text-muted">Scheme:</td>
+                                    <td><span class="badge badge-secondary">Not selected yet</span></td>
                                 </tr>
-                                <tr>
-                                    <td class="text-muted">Min Amount:</td>
-                                    <td>₹<?= number_format($product->min_amount) ?></td>
-                                </tr>
-                                <tr>
-                                    <td class="text-muted">Max Amount:</td>
-                                    <td>₹<?= number_format($product->max_amount) ?></td>
-                                </tr>
+                                <?php endif; ?>
                             </table>
                         </div>
                     </div>
@@ -160,33 +151,66 @@
                     <h3 class="card-title"><i class="fas fa-check mr-1"></i> Approval Details</h3>
                 </div>
                 <div class="card-body">
+                    <!-- Loan Scheme Selection -->
+                    <div class="form-group">
+                        <label>Loan Scheme / Product <span class="text-danger">*</span></label>
+                        <select name="loan_product_id" id="loan_product_id" class="form-control" required>
+                            <option value="">-- Select Loan Scheme --</option>
+                            <?php foreach ($loan_products as $lp): ?>
+                            <option value="<?= $lp->id ?>"
+                                data-rate="<?= $lp->interest_rate ?>"
+                                data-type="<?= $lp->interest_type ?? 'reducing' ?>"
+                                data-min-amount="<?= $lp->min_amount ?>"
+                                data-max-amount="<?= $lp->max_amount ?>"
+                                data-min-tenure="<?= $lp->min_tenure_months ?>"
+                                data-max-tenure="<?= $lp->max_tenure_months ?>"
+                                <?= ($product && $product->id == $lp->id) ? 'selected' : '' ?>>
+                                <?= $lp->product_name ?> (<?= $lp->interest_rate ?>% <?= ucfirst($lp->interest_type ?? 'reducing') ?>)
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <?php if (!$product): ?>
+                        <small class="text-danger"><i class="fas fa-exclamation-circle"></i> Member applied without scheme. Please select one.</small>
+                        <?php endif; ?>
+                    </div>
+
+                    <!-- Product Info (updates dynamically) -->
+                    <div id="productInfo" class="alert alert-light border py-2 mb-3" style="display:<?= $product ? 'block' : 'none' ?>;">
+                        <small>
+                            <strong>Rate:</strong> <span id="piRate"><?= $product->interest_rate ?? '-' ?></span>% |
+                            <strong>Type:</strong> <span id="piType"><?= ucfirst($product->interest_type ?? '-') ?></span> |
+                            <strong>Amount:</strong> ₹<span id="piMinAmt"><?= $product ? number_format($product->min_amount) : '-' ?></span> – ₹<span id="piMaxAmt"><?= $product ? number_format($product->max_amount) : '-' ?></span> |
+                            <strong>Tenure:</strong> <span id="piMinTen"><?= $product->min_tenure_months ?? '-' ?></span> – <span id="piMaxTen"><?= $product->max_tenure_months ?? '-' ?></span> months
+                        </small>
+                    </div>
+
                     <div class="form-group">
                         <label>Approved Amount <span class="text-danger">*</span></label>
                         <div class="input-group">
                             <div class="input-group-prepend"><span class="input-group-text">₹</span></div>
                             <input type="number" name="approved_amount" id="approved_amount" class="form-control" 
                                    value="<?= $application->requested_amount ?>" required
-                                   min="<?= $product->min_amount ?>" max="<?= $product->max_amount ?>">
+                                   min="<?= $product->min_amount ?? 0 ?>" max="<?= $product->max_amount ?? 99999999 ?>">
                         </div>
-                        <small class="text-muted">Range: ₹<?= number_format($product->min_amount) ?> - ₹<?= number_format($product->max_amount) ?></small>
+                        <small class="text-muted" id="amountHelp"><?= $product ? 'Range: ₹'.number_format($product->min_amount).' - ₹'.number_format($product->max_amount) : 'Select scheme to see range' ?></small>
                     </div>
                     
                     <div class="form-group">
                         <label>Tenure (Months) <span class="text-danger">*</span></label>
                         <input type="number" name="approved_tenure_months" id="approved_tenure_months" class="form-control" 
                                value="<?= $application->requested_tenure_months ?>" required
-                               min="<?= $product->min_tenure_months ?>" max="<?= $product->max_tenure_months ?>">
-                        <small class="text-muted">Range: <?= $product->min_tenure_months ?> - <?= $product->max_tenure_months ?> months</small>
+                               min="<?= $product->min_tenure_months ?? 1 ?>" max="<?= $product->max_tenure_months ?? 360 ?>">
+                        <small class="text-muted" id="tenureHelp"><?= $product ? 'Range: '.$product->min_tenure_months.' - '.$product->max_tenure_months.' months' : 'Select scheme to see range' ?></small>
                     </div>
                     
                     <div class="form-group">
                         <label>Interest Rate (% p.a.) <span class="text-danger">*</span></label>
                         <div class="input-group">
                             <input type="number" name="approved_interest_rate" id="approved_interest_rate" class="form-control" 
-                                   value="<?= $product->interest_rate ?>" step="0.01" min="0" max="100" required>
+                                   value="<?= $product->interest_rate ?? '' ?>" step="0.01" min="0" max="100" required>
                             <div class="input-group-append"><span class="input-group-text">%</span></div>
                         </div>
-                        <small class="text-muted">Default product rate: <?= $product->interest_rate ?>%</small>
+                        <small class="text-muted" id="rateHelp"><?= $product ? 'Default product rate: '.$product->interest_rate.'%' : 'Will auto-fill when scheme is selected' ?></small>
                     </div>
 
                     <?php
@@ -293,6 +317,42 @@
 
 <script>
 $(document).ready(function() {
+    var currentInterestType = '<?= $product->interest_type ?? 'reducing' ?>';
+
+    // When scheme changes, update rate, limits and info panel
+    $('#loan_product_id').change(function() {
+        var opt = $(this).find(':selected');
+        if (!opt.val()) {
+            $('#productInfo').hide();
+            return;
+        }
+        var rate = opt.data('rate');
+        var type = opt.data('type') || 'reducing';
+        var minAmt = parseInt(opt.data('min-amount')) || 0;
+        var maxAmt = parseInt(opt.data('max-amount')) || 99999999;
+        var minTen = parseInt(opt.data('min-tenure')) || 1;
+        var maxTen = parseInt(opt.data('max-tenure')) || 360;
+
+        currentInterestType = type;
+        $('#approved_interest_rate').val(rate);
+        $('#approved_amount').attr({min: minAmt, max: maxAmt});
+        $('#approved_tenure_months').attr({min: minTen, max: maxTen});
+
+        $('#piRate').text(rate);
+        $('#piType').text(type.charAt(0).toUpperCase() + type.slice(1));
+        $('#piMinAmt').text(minAmt.toLocaleString('en-IN'));
+        $('#piMaxAmt').text(maxAmt.toLocaleString('en-IN'));
+        $('#piMinTen').text(minTen);
+        $('#piMaxTen').text(maxTen);
+        $('#productInfo').show();
+
+        $('#amountHelp').text('Range: ₹' + minAmt.toLocaleString('en-IN') + ' - ₹' + maxAmt.toLocaleString('en-IN'));
+        $('#tenureHelp').text('Range: ' + minTen + ' - ' + maxTen + ' months');
+        $('#rateHelp').text('Default product rate: ' + rate + '%');
+
+        calculateEMI();
+    });
+
     // Calculate EMI on input change
     function calculateEMI() {
         var principal = $('#approved_amount').val();
@@ -304,7 +364,7 @@ $(document).ready(function() {
                 principal: principal,
                 rate: rate,
                 tenure: tenure,
-                type: '<?= $product->interest_type ?? 'reducing' ?>'
+                type: currentInterestType
             }, function(data) {
                 var html = '<div class="row">';
                 html += '<div class="col-6"><div class="text-center"><h4 class="text-primary">₹' + data.emi.toLocaleString('en-IN', {maximumFractionDigits: 0}) + '</h4><small class="text-muted">Monthly EMI</small></div></div>';
@@ -353,8 +413,16 @@ $(document).ready(function() {
         toastr.info('Approved amount set to ₹' + Math.floor(maxAllowed).toLocaleString('en-IN'));
     });
 
-    // Confirm Force Approve (guarantors)
+    // Confirm Force Approve (guarantors + savings)
     $('#approveForm').submit(function(e) {
+        // Ensure scheme is selected
+        if (!$('#loan_product_id').val()) {
+            e.preventDefault();
+            toastr.error('Please select a Loan Scheme first.');
+            $('#loan_product_id').focus();
+            return false;
+        }
+
         var msgs = [];
         if ($('#force_approve').is(':checked')) {
             msgs.push('Force Approve will mark all pending guarantors as accepted by admin.');

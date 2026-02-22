@@ -65,7 +65,7 @@
                                 </a>
                                 <br><small class="text-muted"><?= $app->member_code ?></small>
                             </td>
-                            <td><span class="badge badge-info"><?= $app->product_name ?></span></td>
+                            <td><span class="badge badge-info"><?= $app->product_name ?? 'Not Assigned' ?></span></td>
                             <td class="text-right font-weight-bold">₹<?= number_format($app->requested_amount) ?></td>
                             <td><?= $app->requested_tenure_months ?> months</td>
                             <td><?= format_date($app->created_at, 'd M Y') ?></td>
