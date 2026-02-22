@@ -40,13 +40,20 @@
         @media (max-width: 767px) {
             .content-wrapper { margin-left: 0 !important; }
         }
+        /* Suppress all transitions on initial load to prevent sidebar flicker */
+        body.page-loading *,
+        body.page-loading *::before,
+        body.page-loading *::after {
+            transition: none !important;
+            animation: none !important;
+        }
     </style>
     
     <?php if (isset($extra_css)): ?>
         <?= $extra_css ?>
     <?php endif; ?>
 </head>
-<body class="hold-transition sidebar-mini layout-fixed layout-navbar-fixed">
+<body class="hold-transition sidebar-mini layout-fixed layout-navbar-fixed page-loading">
 <div class="wrapper">
 
     <!-- Navbar -->

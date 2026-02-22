@@ -129,6 +129,13 @@ class Cron extends CI_Controller {
      */
     public function apply_overdue_fines() {
         $this->log("Starting: Apply overdue fines");
+
+        // Respect the admin setting: Auto-apply late payment fines
+        $auto_apply = $this->Setting_model->get_setting('auto_apply_fines', '0');
+        if (!$auto_apply || $auto_apply === '0' || $auto_apply === 'false') {
+            $this->log("Skipping fine application: Auto-apply late payment fines is DISABLED in Settings.");
+            return;
+        }
         
         try {
             // Get overdue loan installments

@@ -209,8 +209,8 @@ class Members extends Admin_Controller {
                 }
                 $member_name .= ' ' . $member_data['last_name'];
                 
-                // Generate a default password if not provided
-                $default_password = 'Welcome@' . date('Y');
+                // Default password is the member code
+                $default_password = $created_member->member_code;
                 
                 // Send welcome email (async, don't wait for response)
                 $email_result = send_welcome_email(

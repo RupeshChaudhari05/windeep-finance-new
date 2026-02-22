@@ -19,6 +19,15 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.6.0/js/bootstrap.bundle.min.js"></script>
 <!-- AdminLTE App -->
 <script src="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/js/adminlte.min.js"></script>
+<script>
+    // Remove page-loading class after AdminLTE has restored sidebar state
+    // This re-enables transitions without the initial flicker
+    $(function() {
+        setTimeout(function() {
+            $('body').removeClass('page-loading');
+        }, 50);
+    });
+</script>
 <!-- Toastr Notifications -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.js"></script>
 <!-- SweetAlert2 -->

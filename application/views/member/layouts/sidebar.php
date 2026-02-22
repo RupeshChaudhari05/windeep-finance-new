@@ -22,49 +22,49 @@
             <nav class="mt-2">
                 <ul class="nav nav-pills nav-sidebar flex-column" data-widget="treeview" role="menu" data-accordion="false">
                     <li class="nav-item">
-                        <a href="<?= site_url('member/dashboard') ?>" class="nav-link <?= uri_string() == 'member/dashboard' ? 'active' : '' ?>" data-toggle="tooltip" data-placement="right" title="Overview of your loans, savings, installments and pending fines">
+                        <a href="<?= site_url('member/dashboard') ?>" class="nav-link <?= uri_string() == 'member/dashboard' ? 'active' : '' ?>">
                             <i class="nav-icon fas fa-tachometer-alt"></i>
                             <p>Dashboard</p>
                         </a>
                     </li>
 
                     <li class="nav-item">
-                        <a href="<?= site_url('member/profile') ?>" class="nav-link <?= strpos(uri_string(), 'member/profile') === 0 ? 'active' : '' ?>" data-toggle="tooltip" data-placement="right" title="View and edit your personal information, KYC documents, and bank details">
+                        <a href="<?= site_url('member/profile') ?>" class="nav-link <?= strpos(uri_string(), 'member/profile') === 0 ? 'active' : '' ?>">
                             <i class="nav-icon fas fa-user"></i>
                             <p>Profile</p>
                         </a>
                     </li>
 
                     <li class="nav-item">
-                        <a href="<?= site_url('member/loans') ?>" class="nav-link <?= strpos(uri_string(), 'member/loans') === 0 ? 'active' : '' ?>" data-toggle="tooltip" data-placement="right" title="View active loans, apply for new loans, and track applications">
+                        <a href="<?= site_url('member/loans') ?>" class="nav-link <?= strpos(uri_string(), 'member/loans') === 0 ? 'active' : '' ?>">
                             <i class="nav-icon fas fa-file-invoice-dollar"></i>
                             <p>Loans</p>
                         </a>
                     </li>
 
                     <li class="nav-item">
-                        <a href="<?= site_url('member/fines') ?>" class="nav-link <?= strpos(uri_string(), 'member/fines') === 0 ? 'active' : '' ?>" data-toggle="tooltip" data-placement="right" title="View any penalties or fines on your account and their payment status">
+                        <a href="<?= site_url('member/fines') ?>" class="nav-link <?= strpos(uri_string(), 'member/fines') === 0 ? 'active' : '' ?>">
                             <i class="nav-icon fas fa-exclamation-triangle"></i>
                             <p>Fines</p>
                         </a>
                     </li>
 
                     <li class="nav-item">
-                        <a href="<?= site_url('member/savings') ?>" class="nav-link <?= strpos(uri_string(), 'member/savings') === 0 ? 'active' : '' ?>" data-toggle="tooltip" data-placement="right" title="View your savings accounts, balances, and deposit history">
+                        <a href="<?= site_url('member/savings') ?>" class="nav-link <?= strpos(uri_string(), 'member/savings') === 0 ? 'active' : '' ?>">
                             <i class="nav-icon fas fa-piggy-bank"></i>
                             <p>Savings</p>
                         </a>
                     </li>
 
                     <li class="nav-item">
-                        <a href="<?= site_url('member/installments') ?>" class="nav-link <?= strpos(uri_string(), 'member/installments') === 0 ? 'active' : '' ?>" data-toggle="tooltip" data-placement="right" title="View upcoming and past EMI installment payments">
+                        <a href="<?= site_url('member/installments') ?>" class="nav-link <?= strpos(uri_string(), 'member/installments') === 0 ? 'active' : '' ?>">
                             <i class="nav-icon fas fa-calendar-check"></i>
                             <p>Installments</p>
                         </a>
                     </li>
 
                     <li class="nav-item mt-3">
-                        <a href="<?= site_url('member/logout') ?>" class="nav-link text-danger" data-toggle="tooltip" data-placement="right" title="Sign out of your account securely">
+                        <a href="<?= site_url('member/logout') ?>" class="nav-link text-danger">
                             <i class="nav-icon fas fa-sign-out-alt"></i>
                             <p>Logout</p>
                         </a>

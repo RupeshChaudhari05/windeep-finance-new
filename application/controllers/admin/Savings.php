@@ -425,6 +425,10 @@ class Savings extends Admin_Controller {
         ];
         
         $month = $this->input->get('month') ?: date('Y-m-01');
+        // Normalize YYYY-MM (from <input type="month">) to YYYY-MM-01
+        if (preg_match('/^\d{4}-\d{2}$/', $month)) {
+            $month = $month . '-01';
+        }
         
         $data['pending_dues'] = $this->Savings_model->get_pending_dues($month);
         $data['month'] = $month;

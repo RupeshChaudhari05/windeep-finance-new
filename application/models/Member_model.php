@@ -62,13 +62,37 @@ class Member_model extends MY_Model {
         
         if (!empty($data['password'])) {
             $data['password'] = password_hash($data['password'], PASSWORD_DEFAULT);
+        } else {
+            // Default password = member code; force change on first login
+            $data['password'] = password_hash($data['member_code'], PASSWORD_DEFAULT);
+            $data['must_change_password'] = 1;
         }
         
+        // Remap alternate field names used by controller to actual DB column names
+        $field_map = [
+            'bank_account_number' => 'account_number',
+            'bank_ifsc'           => 'ifsc_code',
+            'nominee_relationship' => 'nominee_relation',
+            'profile_image'       => 'photo',
+        ];
+        foreach ($field_map as $from => $to) {
+            if (array_key_exists($from, $data)) {
+                // Only overwrite the target if it wasn't already set separately
+                if (!isset($data[$to]) || $data[$to] === '' || $data[$to] === null) {
+                    $data[$to] = $data[$from];
+                }
+                unset($data[$from]);
+            }
+        }
+
         // Convert empty strings to NULL for optional fields
-        $nullable_fields = ['pan_number', 'aadhaar_number', 'id_proof_number', 'email', 
-                           'alternate_phone', 'middle_name', 'address_line1', 'address_line2',
-                           'city', 'state', 'pincode', 'nominee_name', 'nominee_relationship', 
-                           'nominee_phone', 'bank_name', 'bank_account_number', 'bank_ifsc'];
+        $nullable_fields = ['pan_number', 'aadhaar_number', 'id_proof_type', 'id_proof_number',
+                           'email', 'alternate_phone', 'middle_name', 'marital_status',
+                           'occupation', 'monthly_income', 'member_level',
+                           'address_line1', 'address_line2', 'city', 'state', 'pincode',
+                           'nominee_name', 'nominee_relation', 'nominee_phone',
+                           'bank_name', 'account_number', 'ifsc_code', 'bank_branch',
+                           'account_holder_name', 'photo'];
         
         foreach ($nullable_fields as $field) {
             if (isset($data[$field]) && $data[$field] === '') {

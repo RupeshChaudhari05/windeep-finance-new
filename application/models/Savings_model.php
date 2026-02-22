@@ -310,6 +310,10 @@ class Savings_model extends MY_Model {
         $this->db->where_in('sch.status', ['pending', 'partial', 'overdue']);
         
         if ($month) {
+            // Ensure full DATE format YYYY-MM-DD (month input gives YYYY-MM)
+            if (preg_match('/^\d{4}-\d{2}$/', $month)) {
+                $month = $month . '-01';
+            }
             $this->db->where('sch.due_month', $month);
         }
         
@@ -374,6 +378,10 @@ class Savings_model extends MY_Model {
      * Get Monthly Collection Summary
      */
     public function get_monthly_collection($month) {
+        // Ensure full DATE format YYYY-MM-DD (month input gives YYYY-MM)
+        if (preg_match('/^\d{4}-\d{2}$/', $month)) {
+            $month = $month . '-01';
+        }
         return $this->db->select('
             COUNT(DISTINCT sa.member_id) as total_members,
             SUM(sch.due_amount) as total_due,
