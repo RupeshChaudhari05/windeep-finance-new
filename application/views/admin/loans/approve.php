@@ -189,6 +189,56 @@
                         <small class="text-muted">Default product rate: <?= $product->interest_rate ?>%</small>
                     </div>
 
+                    <?php
+                    // ---- Savings Constraint Panel ----------------------------------------
+                    $savings_ok   = true;
+                    $savings_msgs = [];
+
+                    if (!empty($min_savings_required) && $savings_balance < $min_savings_required) {
+                        $savings_ok     = false;
+                        $savings_msgs[] = 'Minimum savings required: <strong>₹' . number_format($min_savings_required) . '</strong> &nbsp;|&nbsp; Member has: <strong>₹' . number_format($savings_balance) . '</strong>';
+                    }
+                    if ($max_loan_by_savings !== null && $application->requested_amount > $max_loan_by_savings) {
+                        $savings_ok     = false;
+                        $savings_msgs[] = 'Max loan allowed by savings ratio (' . $savings_ratio . 'x): <strong>₹' . number_format($max_loan_by_savings) . '</strong> &nbsp;|&nbsp; Requested: <strong>₹' . number_format($application->requested_amount) . '</strong>';
+                    }
+                    ?>
+
+                    <?php if (!$savings_ok): ?>
+                    <div class="card card-warning mb-3" id="savingsWarningCard">
+                        <div class="card-header bg-warning">
+                            <h3 class="card-title"><i class="fas fa-exclamation-triangle mr-1"></i> Savings Constraint Warning</h3>
+                        </div>
+                        <div class="card-body pb-1">
+                            <?php foreach ($savings_msgs as $msg): ?>
+                            <p class="mb-1"><i class="fas fa-times-circle text-danger mr-1"></i> <?= $msg ?></p>
+                            <?php endforeach; ?>
+                            <hr class="my-2">
+                            <p class="mb-1 font-weight-bold">What would you like to do?</p>
+
+                            <?php if ($max_loan_by_savings !== null && $max_loan_by_savings > 0): ?>
+                            <button type="button" class="btn btn-sm btn-outline-primary mb-2" id="btnUseMaxAllowed">
+                                <i class="fas fa-arrow-down mr-1"></i> Set Approved Amount to Max Allowed (₹<?= number_format($max_loan_by_savings) ?>)
+                            </button><br>
+                            <?php endif; ?>
+
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" name="force_savings" id="force_savings" value="1">
+                                <label class="form-check-label text-danger" for="force_savings">
+                                    <strong>Force Approve — Override savings check</strong><br>
+                                    <small class="text-muted">Approve the amount as entered, ignoring savings balance / ratio limits. This will be logged.</small>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    <?php elseif ($max_loan_by_savings !== null): ?>
+                    <div class="alert alert-success py-2 mb-3">
+                        <i class="fas fa-check-circle mr-1"></i>
+                        Savings ratio OK — Max allowed: <strong>₹<?= number_format($max_loan_by_savings) ?></strong>
+                    </div>
+                    <?php endif; ?>
+                    <!-- ----------------------------------------------------------------- -->
+
                     <?php if (!empty($guarantor_counts) && $guarantor_counts['total'] > 0): ?>
                     <div class="alert alert-info">
                         <strong>Guarantors:</strong>
@@ -294,10 +344,26 @@ $(document).ready(function() {
         }
     });
 
-    // Confirm Force Approve
+    // Set approved amount to max allowed by savings ratio
+    $('#btnUseMaxAllowed').click(function() {
+        var maxAllowed = <?= $max_loan_by_savings !== null ? (float)$max_loan_by_savings : 0 ?>;
+        $('#approved_amount').val(Math.floor(maxAllowed)).trigger('input');
+        $('#savingsWarningCard').removeClass('card-warning').addClass('card-success');
+        $('#savingsWarningCard .card-header').removeClass('bg-warning').addClass('bg-success');
+        toastr.info('Approved amount set to ₹' + Math.floor(maxAllowed).toLocaleString('en-IN'));
+    });
+
+    // Confirm Force Approve (guarantors)
     $('#approveForm').submit(function(e) {
+        var msgs = [];
         if ($('#force_approve').is(':checked')) {
-            if (!confirm('Force Approve will mark all pending guarantors as accepted by admin. Proceed?')) {
+            msgs.push('Force Approve will mark all pending guarantors as accepted by admin.');
+        }
+        if ($('#force_savings').is(':checked')) {
+            msgs.push('Force Savings Override will bypass the savings balance / ratio check. This action will be logged.');
+        }
+        if (msgs.length > 0) {
+            if (!confirm(msgs.join('\n\n') + '\n\nProceed?')) {
                 e.preventDefault();
             }
         }

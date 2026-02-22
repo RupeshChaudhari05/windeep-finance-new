@@ -378,13 +378,20 @@ class Loans extends Admin_Controller {
                 $this->log_audit('force_approve', 'loan_applications', 'loan_applications', $id, null, ['admin_id' => $this->session->userdata('admin_id')]);
             }
 
+            // Force-savings override (admin explicitly bypasses savings checks)
+            $force_savings = ($this->input->post('force_savings') == '1');
+            log_message('debug', '[Loans::approve] force_savings POST value: ' . var_export($this->input->post('force_savings'), true) . ' | cast bool: ' . var_export($force_savings, true));
+            if ($force_savings) {
+                $this->log_audit('force_savings_override', 'loan_applications', 'loan_applications', $id, null, ['admin_id' => $this->session->userdata('admin_id'), 'approved_amount' => $approval_data['approved_amount']]);
+            }
+
             // Proceed with admin approval
             try {
-                $res = $this->Loan_model->admin_approve($id, $approval_data, $this->session->userdata('admin_id'));
+                $res = $this->Loan_model->admin_approve($id, $approval_data, $this->session->userdata('admin_id'), $force_savings);
 
                 if ($res) {
                     $this->log_audit('admin_approved', 'loan_applications', 'loan_applications', $id, null, $approval_data);
-                    $this->session->set_flashdata('success', 'Application approved. Waiting for member confirmation.');
+                    $this->session->set_flashdata('success', 'Application approved. Waiting for member confirmation.' . ($force_savings ? ' (Savings check overridden by admin.)' : ''));
                     redirect('admin/loans/view_application/' . $id);
                     return;
                 } else {
@@ -414,6 +421,16 @@ class Loans extends Admin_Controller {
         $data['product'] = $this->db->where('id', $application->loan_product_id)
                                     ->get('loan_products')
                                     ->row();
+
+        // Savings constraint data for the approval view
+        $savings_balance = $data['member']->savings_summary->current_balance ?? 0;
+        $data['savings_balance'] = $savings_balance;
+        $data['min_savings_required'] = $data['product']->min_savings_balance ?? 0;
+        $data['savings_ratio']        = $data['product']->max_loan_to_savings_ratio ?? 0;
+        $data['max_loan_by_savings']  = $data['savings_ratio'] > 0
+            ? $savings_balance * $data['savings_ratio']
+            : null; // null means no ratio restriction
+
         // Guarantor summary for view
         $data['guarantor_counts'] = [
             'total' => (int) $this->db->where('loan_application_id', $id)->count_all_results('loan_guarantors'),

@@ -136,8 +136,9 @@ class Loan_model extends MY_Model {
     /**
      * Admin Approve/Revise Application
      * Bug #2 Fix: Validate loan-to-savings ratio
+     * @param bool $force_savings  When true, admin-overrides all savings checks
      */
-    public function admin_approve($application_id, $data, $admin_id) {
+    public function admin_approve($application_id, $data, $admin_id, $force_savings = false) {
         // Bug #2 Fix: Get member savings balance and enforce ratio
         $application = $this->db->where('id', $application_id)
                                 ->get('loan_applications')
@@ -152,26 +153,30 @@ class Loan_model extends MY_Model {
                             ->get('loan_products')
                             ->row();
         
-        if ($product && !empty($product->min_savings_balance)) {
-            // Get member's current savings balance
-            $this->load->model('Member_model');
-            $member = $this->Member_model->get_member_details($application->member_id);
-            $savings_balance = $member->savings_summary->current_balance ?? 0;
-            
-            if ($savings_balance < $product->min_savings_balance) {
-                throw new Exception('Member savings balance (₹' . number_format($savings_balance, 2) . ') is below minimum requirement (₹' . number_format($product->min_savings_balance, 2) . ')');
+        // Savings checks — skipped when admin explicitly overrides
+        if (!$force_savings) {
+            if ($product && !empty($product->min_savings_balance)) {
+                // Get member's current savings balance
+                $this->load->model('Member_model');
+                $member = $this->Member_model->get_member_details($application->member_id);
+                $savings_balance = $member->savings_summary->current_balance ?? 0;
+                
+                if ($savings_balance < $product->min_savings_balance) {
+                    throw new Exception('Member savings balance (₹' . number_format($savings_balance, 2) . ') is below minimum requirement (₹' . number_format($product->min_savings_balance, 2) . ')');
+                }
             }
-        }
-        
-        // Check loan-to-savings ratio (if configured)
-        if ($product && !empty($product->max_loan_to_savings_ratio)) {
-            $member = $this->Member_model->get_member_details($application->member_id);
-            $savings_balance = $member->savings_summary->current_balance ?? 0;
             
-            $max_loan = $savings_balance * $product->max_loan_to_savings_ratio;
-            
-            if ($data['approved_amount'] > $max_loan) {
-                throw new Exception('Approved amount (₹' . number_format($data['approved_amount'], 2) . ') exceeds maximum based on savings ratio (₹' . number_format($max_loan, 2) . ')');
+            // Check loan-to-savings ratio (if configured)
+            if ($product && !empty($product->max_loan_to_savings_ratio)) {
+                $this->load->model('Member_model');
+                $member = $this->Member_model->get_member_details($application->member_id);
+                $savings_balance = $member->savings_summary->current_balance ?? 0;
+                
+                $max_loan = $savings_balance * $product->max_loan_to_savings_ratio;
+                
+                if ($data['approved_amount'] > $max_loan) {
+                    throw new Exception('Approved amount (₹' . number_format($data['approved_amount'], 2) . ') exceeds maximum based on savings ratio (₹' . number_format($max_loan, 2) . ')');
+                }
             }
         }
         
