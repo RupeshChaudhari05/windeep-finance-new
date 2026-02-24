@@ -133,7 +133,7 @@ class Members extends Admin_Controller {
         $this->form_validation->set_rules('first_name', 'First Name', 'required|max_length[100]');
         $this->form_validation->set_rules('last_name', 'Last Name', 'required|max_length[100]');
         $this->form_validation->set_rules('phone', 'Phone', 'required|numeric|min_length[10]|max_length[15]');
-        $this->form_validation->set_rules('email', 'Email', 'valid_email|is_unique[members.email]');
+        $this->form_validation->set_rules('email', 'Email', 'valid_email');
         $this->form_validation->set_rules('date_of_birth', 'Date of Birth', 'callback_validate_age');
         $this->form_validation->set_rules('gender', 'Gender', 'in_list[male,female,other]');
         
@@ -169,6 +169,7 @@ class Members extends Admin_Controller {
             'nominee_name' => $this->input->post('nominee_name', TRUE),
             'nominee_relationship' => $this->input->post('nominee_relationship', TRUE),
             'nominee_phone' => normalize_phone($this->input->post('nominee_phone', TRUE)),
+            'join_date' => $this->input->post('join_date') ?: date('Y-m-d'),
             'member_level' => $this->input->post('member_level') ?: NULL,
             'created_by' => $this->session->userdata('admin_id')
         ];

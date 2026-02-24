@@ -112,6 +112,15 @@
                 </div>
                 <div class="col-md-3">
                     <div class="form-group">
+                        <label for="join_date">Date of Joining</label>
+                        <input type="date" class="form-control" id="join_date" name="join_date"
+                               value="<?= set_value('join_date', date('Y-m-d')) ?>"
+                               title="Date when the member joined">
+                        <span class="text-danger"><?= form_error('join_date') ?></span>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-group">
                         <label for="profile_image">Profile Photo</label>
                         <div class="custom-file">
                             <input type="file" class="custom-file-input" id="profile_image" name="profile_image" accept="image/*">

@@ -100,6 +100,11 @@ class Member_model extends MY_Model {
             }
         }
         
+        // Default join_date to today if not provided
+        if (empty($data['join_date'])) {
+            $data['join_date'] = date('Y-m-d');
+        }
+
         $data['created_at'] = date('Y-m-d H:i:s');
         
         $this->db->insert($this->table, $data);
