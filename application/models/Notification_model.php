@@ -69,6 +69,23 @@ class Notification_model extends MY_Model {
     }
 
     /**
+     * Count unread notifications for a recipient.
+     */
+    public function count_unread($recipient_type, $recipient_id) {
+        if ($this->db->field_exists('recipient_type', $this->table) && $this->db->field_exists('recipient_id', $this->table)) {
+            return $this->db->where('recipient_type', $recipient_type)
+                            ->where('recipient_id', $recipient_id)
+                            ->where('is_read', 0)
+                            ->count_all_results($this->table);
+        }
+        // Fallback for legacy schema
+        return $this->db->where('user_type', $recipient_type)
+                        ->where('user_id', $recipient_id)
+                        ->where('is_read', 0)
+                        ->count_all_results($this->table);
+    }
+
+    /**
      * Get notifications for a recipient in a schema-agnostic way.
      * Prefer `recipient_type`/`recipient_id` columns if they exist, otherwise fallback to `user_type`/`user_id`.
      */
@@ -97,6 +114,7 @@ class Notification_model extends MY_Model {
                         ->result();
         foreach ($results as $r) {
             $r->is_read = isset($r->is_read) ? (int) $r->is_read : 0;
+            $r->data = !empty($r->data) ? json_decode($r->data, true) : null;
         }
         return $results;
     }

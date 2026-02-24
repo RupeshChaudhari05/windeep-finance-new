@@ -55,7 +55,7 @@
                                 <br><small class="text-muted"><?= $product->interest_type ?? 'Reducing' ?></small>
                             </td>
                             <td>
-                                <?= $product->min_tenure ?> - <?= $product->max_tenure ?> months
+                                <?= $product->min_tenure_months ?> - <?= $product->max_tenure_months ?> months
                             </td>
                             <td>
                                 <?= $product->processing_fee ?>

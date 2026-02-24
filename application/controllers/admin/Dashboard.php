@@ -43,6 +43,14 @@ class Dashboard extends Admin_Controller {
         // Get this month's summary
         $data['monthly_summary'] = $this->Report_model->get_monthly_summary(date('Y'), date('m'));
         
+        // Notification count for admin dashboard
+        $this->load->model('Notification_model');
+        $admin_id = $this->session->userdata('admin_id');
+        $data['unread_notifications_count'] = $this->Notification_model->count_unread('admin', $admin_id);
+        
+        // Fee summaries (membership fee, other member fees)
+        $data['fee_summary'] = $this->Report_model->get_fee_summary();
+        
         $this->load_view('admin/dashboard/index', $data);
     }
     

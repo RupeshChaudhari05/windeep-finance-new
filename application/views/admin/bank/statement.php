@@ -417,17 +417,21 @@
         </div>
         <div class="card-body py-2">
             <div class="row">
-                <div class="col-md-4">
+                <div class="col-md-3">
                     <label class="small font-weight-bold"><i class="fas fa-hand-holding-usd"></i> Loans/EMI</label>
                     <div class="loans-list" style="max-height: 150px; overflow-y: auto;"></div>
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-3">
                     <label class="small font-weight-bold"><i class="fas fa-piggy-bank"></i> Savings</label>
                     <div class="savings-list" style="max-height: 150px; overflow-y: auto;"></div>
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-3">
                     <label class="small font-weight-bold"><i class="fas fa-exclamation-circle"></i> Fines</label>
                     <div class="fines-list" style="max-height: 150px; overflow-y: auto;"></div>
+                </div>
+                <div class="col-md-3">
+                    <label class="small font-weight-bold"><i class="fas fa-receipt"></i> Other Fees</label>
+                    <div class="other-fees-list" style="max-height: 150px; overflow-y: auto;"></div>
                 </div>
             </div>
         </div>
@@ -604,6 +608,7 @@ $(document).ready(function() {
                 renderLoans($card.find('.loans-list'), data.loans, memberId);
                 renderSavings($card.find('.savings-list'), data.savings, memberId);
                 renderFines($card.find('.fines-list'), data.fines, memberId);
+                renderOtherFees($card.find('.other-fees-list'), memberId);
             }
         }, 'json');
     }
@@ -660,6 +665,27 @@ $(document).ready(function() {
             html += '<div class="d-flex justify-content-between"><small>' + fine.fine_type + '</small><span class="badge badge-danger">₹' + parseFloat(fine.pending_amount).toLocaleString('en-IN') + '</span></div>';
             html += '<div class="input-group input-group-sm mt-1">';
             html += '<input type="number" class="form-control allocation-input" data-type="fine" data-member="' + memberId + '" data-related="fine_' + fine.id + '" data-label="Fine: ' + fine.fine_type + '" placeholder="Pay amount" step="0.01" min="0" max="' + fine.pending_amount + '">';
+            html += '</div></div>';
+        });
+        $container.html(html);
+    }
+
+    function renderOtherFees($container, memberId) {
+        var feeTypes = [
+            { value: 'membership_fee', label: 'Membership Fee' },
+            { value: 'joining_fee', label: 'Joining Fee' },
+            { value: 'processing_fee', label: 'Processing Fee' },
+            { value: 'admission_fee', label: 'Admission Fee' },
+            { value: 'share_capital', label: 'Share Capital' },
+            { value: 'penalty', label: 'Penalty' },
+            { value: 'other', label: 'Other Fee' }
+        ];
+        var html = '';
+        feeTypes.forEach(function(fee) {
+            html += '<div class="border rounded p-1 mb-1">';
+            html += '<small class="d-block">' + fee.label + '</small>';
+            html += '<div class="input-group input-group-sm">';
+            html += '<input type="number" class="form-control allocation-input" data-type="other_fee_' + fee.value + '" data-member="' + memberId + '" data-related="" data-label="' + fee.label + '" placeholder="₹" step="0.01" min="0">';
             html += '</div></div>';
         });
         $container.html(html);
@@ -746,7 +772,9 @@ $(document).ready(function() {
             case 'savings': return 'success';
             case 'fine': return 'danger';
             case 'expense': return 'warning';
-            default: return 'secondary';
+            default:
+                if (type && type.indexOf('other_fee_') === 0) return 'info';
+                return 'secondary';
         }
     }
 

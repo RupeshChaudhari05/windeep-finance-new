@@ -279,7 +279,8 @@ class Loans extends Admin_Controller {
             'requested_amount' => $this->input->post('requested_amount'),
             'requested_tenure_months' => $this->input->post('requested_tenure_months'),
             'purpose' => $this->input->post('purpose'),
-            'remarks' => $this->input->post('remarks'),
+            'purpose_details' => $this->input->post('purpose_details'),
+            'status_remarks' => $this->input->post('remarks'),
             'created_by' => $this->session->userdata('admin_id')
         ];
         
@@ -399,7 +400,37 @@ class Loans extends Admin_Controller {
 
                 if ($res) {
                     $this->log_audit('admin_approved', 'loan_applications', 'loan_applications', $id, null, $approval_data);
-                    $this->session->set_flashdata('success', 'Application approved. Waiting for member confirmation.' . ($force_savings ? ' (Savings check overridden by admin.)' : ''));
+
+                    // Notify the member so they can review and accept terms
+                    $this->load->model('Notification_model');
+                    $this->load->model('Member_model');
+                    $approved_app = $this->Loan_model->get_application($id);
+                    $applicant    = $this->Member_model->get_by_id($approved_app->member_id);
+                    $review_url   = site_url('member/loans/application/' . $id);
+                    $n_title      = 'Loan Approved – Action Required: ' . $approved_app->application_number;
+                    $n_message    = 'Your loan application ' . $approved_app->application_number
+                        . ' has been approved by the admin.'
+                        . ' Approved Amount: ₹' . number_format($approval_data['approved_amount'], 2)
+                        . ', Tenure: ' . $approval_data['approved_tenure_months'] . ' months'
+                        . ', Rate: ' . $approval_data['approved_interest_rate'] . '% p.a.'
+                        . ' Please log in and review/accept the terms to proceed to disbursement.';
+                    $this->Notification_model->create('member', $approved_app->member_id, 'loan_admin_approved', $n_title, $n_message, [
+                        'application_id' => $id,
+                        'review_url'     => $review_url,
+                    ]);
+                    if ($applicant && !empty($applicant->email)) {
+                        $html = '<p>Dear ' . htmlspecialchars($applicant->first_name . ' ' . $applicant->last_name) . ',</p>'
+                            . '<p>Your loan application <strong>' . $approved_app->application_number . '</strong> has been approved.</p>'
+                            . '<ul>'
+                            . '<li><strong>Approved Amount:</strong> ₹' . number_format($approval_data['approved_amount'], 2) . '</li>'
+                            . '<li><strong>Tenure:</strong> ' . $approval_data['approved_tenure_months'] . ' months</li>'
+                            . '<li><strong>Interest Rate:</strong> ' . $approval_data['approved_interest_rate'] . '% p.a.</li>'
+                            . '</ul>'
+                            . '<p><a href="' . $review_url . '">Click here to review and accept the loan terms</a> to proceed to disbursement.</p>';
+                        send_email($applicant->email, $n_title, $html);
+                    }
+
+                    $this->session->set_flashdata('success', 'Application approved. Member has been notified to review and accept the terms.' . ($force_savings ? ' (Savings check overridden by admin.)' : ''));
                     redirect('admin/loans/view_application/' . $id);
                     return;
                 } else {
@@ -549,6 +580,15 @@ class Loans extends Admin_Controller {
                             $loan->processing_fee,
                             $loan->member_id,
                             'Processing fee for loan: ' . $loan->loan_number,
+                            $this->session->userdata('admin_id')
+                        );
+
+                        // Auto-record in member other transactions
+                        $this->load->model('Member_transaction_model');
+                        $this->Member_transaction_model->record_processing_fee(
+                            $loan->member_id,
+                            $loan->processing_fee,
+                            $loan_id,
                             $this->session->userdata('admin_id')
                         );
                     }

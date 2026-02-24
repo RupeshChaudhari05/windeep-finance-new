@@ -16,8 +16,8 @@
                                 data-type="<?= $product->interest_type ?? 'reducing' ?>"
                                 data-min="<?= $product->min_amount ?>"
                                 data-max="<?= $product->max_amount ?>"
-                                data-min-tenure="<?= $product->min_tenure ?>"
-                                data-max-tenure="<?= $product->max_tenure ?>">
+                                data-min-tenure="<?= $product->min_tenure_months ?>"
+                                data-max-tenure="<?= $product->max_tenure_months ?>">
                             <?= $product->name ?> (<?= $product->interest_rate ?>%)
                         </option>
                         <?php endforeach; ?>

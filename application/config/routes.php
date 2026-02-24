@@ -76,6 +76,7 @@ $route['admin/members'] = 'admin/members/index';
 $route['admin/members/create'] = 'admin/members/create';
 $route['admin/members/view/(:num)'] = 'admin/members/view/$1';
 $route['admin/members/edit/(:num)'] = 'admin/members/edit/$1';
+$route['admin/members/add_other_transaction/(:num)'] = 'admin/members/add_other_transaction/$1';
 
 // Savings routes
 $route['admin/savings'] = 'admin/savings/index';
@@ -92,6 +93,9 @@ $route['admin/loans/applications'] = 'admin/loans/applications';
 $route['admin/loans/apply'] = 'admin/loans/apply';
 $route['admin/loans/view/(:num)'] = 'admin/loans/view/$1';
 $route['admin/loans/view-application/(:num)'] = 'admin/loans/view_application/$1';
+$route['admin/loans/view_application/(:num)'] = 'admin/loans/view_application/$1';
+$route['admin/loans/submit_application'] = 'admin/loans/submit_application';
+$route['admin/loans/request_modification/(:num)'] = 'admin/loans/request_modification/$1';
 $route['admin/loans/approve/(:num)'] = 'admin/loans/approve/$1';
 $route['admin/loans/reject/(:num)'] = 'admin/loans/reject/$1';
 $route['admin/loans/disburse/(:num)'] = 'admin/loans/disburse/$1';
@@ -165,6 +169,9 @@ $route['admin/reports/custom'] = 'admin/reports/custom';
 // Friendly dashed route for member statement
 $route['admin/reports/member-statement'] = 'admin/reports/member_statement';
 
+$route['admin/reports/other-transactions'] = 'admin/reports/other_transactions';
+$route['admin/reports/export-other-transactions'] = 'admin/reports/export_other_transactions';
+
 // Settings routes
 $route['admin/settings'] = 'admin/settings/index';
 $route['admin/settings/financial_years'] = 'admin/settings/financial_years';
@@ -217,14 +224,30 @@ $route['member/logout'] = 'member/auth/logout';
 $route['member/dashboard'] = 'member/dashboard/index';
 $route['member/profile'] = 'member/profile/index';
 $route['member/profile/edit'] = 'member/profile/edit';
+
+// Member Loans
 $route['member/loans'] = 'member/loans/index';
 $route['member/loans/apply'] = 'member/loans/apply';
+$route['member/loans/applications'] = 'member/loans/applications';
+$route['member/loans/application/(:num)'] = 'member/loans/application/$1';
 $route['member/loans/view/(:num)'] = 'member/loans/view/$1';
+$route['member/loans/approve_application/(:num)'] = 'member/loans/approve_application/$1';
+$route['member/loans/reject_application/(:num)'] = 'member/loans/reject_application/$1';
+$route['member/loans/guarantor_consent/(:num)/(:any)'] = 'member/loans/guarantor_consent/$1/$2';
+$route['member/loans/guarantor_consent/(:num)'] = 'member/loans/guarantor_consent/$1';
+$route['member/loans/request-foreclosure/(:num)'] = 'member/loans/request_foreclosure/$1';
+$route['member/loans/foreclosure-calculator/(:num)'] = 'member/loans/foreclosure_calculator/$1';
+
+// Member Notifications
+$route['member/notifications'] = 'member/notifications/index';
+$route['member/notifications/mark_read/(:num)'] = 'member/notifications/mark_read/$1';
+$route['member/notifications/mark_read_ajax/(:num)'] = 'member/notifications/mark_read_ajax/$1';
+$route['member/notifications/get_loan_detail/(:num)'] = 'member/notifications/get_loan_detail/$1';
+
+// Member other
 $route['member/savings'] = 'member/savings/index';
 $route['member/installments'] = 'member/installments/index';
 $route['member/fines'] = 'member/fines/index';
 $route['member/fines/view/(:num)'] = 'member/fines/view/$1';
 $route['member/fines/request-waiver/(:num)'] = 'member/fines/request_waiver/$1';
 $route['member/fines/waiver-status/(:num)'] = 'member/fines/waiver_status/$1';
-$route['member/loans/request-foreclosure/(:num)'] = 'member/loans/request_foreclosure/$1';
-$route['member/loans/foreclosure-calculator/(:num)'] = 'member/loans/foreclosure_calculator/$1';

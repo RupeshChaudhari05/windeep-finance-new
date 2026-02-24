@@ -284,13 +284,27 @@
                 <div class="form-group">
                     <select id="transaction_type" class="form-control">
                         <option value="">Select Type...</option>
-                        <option value="emi">EMI Payment</option>
-                        <option value="savings">Savings Contribution</option>
-                        <option value="fine">Fine Payment</option>
-                        <option value="late_fee">Late Fee</option>
-                        <option value="membership_fee">Membership Fee</option>
-                        <option value="loan_disbursement">Loan Disbursement</option>
-                        <option value="withdrawal">Savings Withdrawal</option>
+                        <optgroup label="Member Transactions">
+                            <option value="emi">EMI Payment</option>
+                            <option value="savings">Savings Contribution</option>
+                            <option value="fine">Fine Payment</option>
+                            <option value="late_fee">Late Fee</option>
+                            <option value="membership_fee">Membership Fee</option>
+                            <option value="loan_disbursement">Loan Disbursement</option>
+                            <option value="withdrawal">Savings Withdrawal</option>
+                        </optgroup>
+                        <optgroup label="Expenses">
+                            <option value="expense_stationery">Stationery</option>
+                            <option value="expense_travelling">Travelling</option>
+                            <option value="expense_electricity">Electricity</option>
+                            <option value="expense_rent">Rent</option>
+                            <option value="expense_salary">Salary</option>
+                            <option value="expense_printing">Printing & Postage</option>
+                            <option value="expense_telephone">Telephone / Internet</option>
+                            <option value="expense_maintenance">Maintenance</option>
+                            <option value="expense_legal">Legal & Professional</option>
+                            <option value="expense_misc">Miscellaneous Expense</option>
+                        </optgroup>
                         <option value="other">Other</option>
                     </select>
                 </div>

@@ -101,6 +101,11 @@
                                             <i class="fas fa-arrow-right mr-2"></i> KYC Pending
                                         </a>
                                     </li>
+                                    <li class="py-2 border-top border-light">
+                                        <a href="<?= site_url('admin/reports/other-transactions') ?>" class="text-white">
+                                            <i class="fas fa-arrow-right mr-2"></i> Other Transactions
+                                        </a>
+                                    </li>
                                 </ul>
                             </div>
                         </div>

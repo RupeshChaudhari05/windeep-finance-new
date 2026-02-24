@@ -423,7 +423,8 @@ CREATE TABLE IF NOT EXISTS `loan_applications` (
     'disbursed',
     'rejected',
     'cancelled',
-    'expired'
+    'expired',
+    'needs_revision'
 ) DEFAULT 'draft',
 `status_remarks` VARCHAR(255),
 

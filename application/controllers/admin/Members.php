@@ -87,6 +87,10 @@ class Members extends Admin_Controller {
         $this->load->model('Ledger_model');
         $data['ledger'] = $this->Ledger_model->get_member_ledger($id);
         
+        // Get other transactions (membership fees, processing fees, bonuses, etc.)
+        $this->load->model('Member_transaction_model');
+        $data['other_transactions'] = $this->Member_transaction_model->get_member_transactions($id);
+        
         $this->load_view('admin/members/view', $data);
     }
     
@@ -498,6 +502,71 @@ class Members extends Admin_Controller {
             $this->session->set_flashdata('success', 'KYC verified successfully.');
         } else {
             $this->session->set_flashdata('error', 'KYC verification could not be completed. The member record may have been modified. Please refresh and try again.');
+        }
+        
+        redirect('admin/members/view/' . $id);
+    }
+    
+    /**
+     * Add Other Transaction for a Member (membership fee, processing fee, bonus, etc.)
+     */
+    public function add_other_transaction($id = null) {
+        if (!$id) { redirect('admin/members'); }
+        if ($this->input->method() !== 'post') {
+            redirect('admin/members/view/' . $id);
+        }
+        
+        $member = $this->Member_model->get_by_id($id);
+        if (!$member) {
+            $this->session->set_flashdata('error', 'Member not found.');
+            redirect('admin/members');
+        }
+        
+        $this->load->library('form_validation');
+        $this->form_validation->set_rules('transaction_type', 'Transaction Type', 'required');
+        $this->form_validation->set_rules('amount', 'Amount', 'required|numeric|greater_than[0]');
+        
+        if ($this->form_validation->run() === FALSE) {
+            $this->session->set_flashdata('error', validation_errors());
+            redirect('admin/members/view/' . $id);
+        }
+        
+        $this->load->model('Member_transaction_model');
+        
+        $txn_data = [
+            'member_id'        => $id,
+            'transaction_type' => $this->input->post('transaction_type'),
+            'amount'           => $this->input->post('amount'),
+            'transaction_date' => $this->input->post('transaction_date') ?: date('Y-m-d'),
+            'description'      => $this->input->post('description', TRUE),
+            'payment_mode'     => $this->input->post('payment_mode'),
+            'receipt_number'   => $this->input->post('receipt_number', TRUE),
+            'created_by'       => $this->session->userdata('admin_id')
+        ];
+        
+        $txn_id = $this->Member_transaction_model->record($txn_data);
+        
+        if ($txn_id) {
+            // Record in general ledger based on type
+            $this->load->model('Ledger_model');
+            $txn_type = $txn_data['transaction_type'];
+            
+            if (in_array($txn_type, ['membership_fee', 'processing_fee', 'admission_fee', 'late_fee'])) {
+                // Income: Debit Cash/Bank, Credit appropriate income
+                $this->Ledger_model->post_transaction(
+                    'processing_fee', // uses cash_bank debit and processing_fee_income credit
+                    $txn_id,
+                    $txn_data['amount'],
+                    $id,
+                    ucwords(str_replace('_', ' ', $txn_type)) . ' from ' . $member->member_code,
+                    $this->session->userdata('admin_id')
+                );
+            }
+            
+            $this->log_audit('create', 'member_other_transactions', 'member_other_transactions', $txn_id, null, $txn_data);
+            $this->session->set_flashdata('success', 'Transaction recorded successfully.');
+        } else {
+            $this->session->set_flashdata('error', 'Failed to record transaction.');
         }
         
         redirect('admin/members/view/' . $id);

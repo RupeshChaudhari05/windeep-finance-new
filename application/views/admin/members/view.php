@@ -186,6 +186,14 @@
                         </a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link" href="#other_transactions" data-toggle="tab">
+                            <i class="fas fa-receipt mr-1"></i> Other Transactions
+                            <?php if (!empty($other_transactions)): ?>
+                            <span class="badge badge-info"><?= count($other_transactions) ?></span>
+                            <?php endif; ?>
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link" href="#ledger" data-toggle="tab">
                             <i class="fas fa-book mr-1"></i> Ledger
                         </a>
@@ -432,6 +440,58 @@
                         <?php endif; ?>
                     </div>
                     
+                    <!-- Other Transactions Tab -->
+                    <div class="tab-pane" id="other_transactions">
+                        <div class="d-flex justify-content-between mb-3">
+                            <h5>Other Transactions</h5>
+                            <button class="btn btn-sm btn-primary" data-toggle="modal" data-target="#addOtherTransactionModal">
+                                <i class="fas fa-plus mr-1"></i> Add Transaction
+                            </button>
+                        </div>
+                        
+                        <?php if (empty($other_transactions)): ?>
+                            <div class="text-center py-4 text-muted">
+                                <i class="fas fa-receipt fa-3x mb-3"></i>
+                                <p>No other transactions recorded</p>
+                            </div>
+                        <?php else: ?>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Date</th>
+                                            <th>Type</th>
+                                            <th>Description</th>
+                                            <th class="text-right">Amount</th>
+                                            <th>Mode</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($other_transactions as $txn): ?>
+                                        <tr>
+                                            <td><?= format_date($txn->transaction_date, 'd M Y') ?></td>
+                                            <td>
+                                                <span class="badge badge-info">
+                                                    <?= ucwords(str_replace('_', ' ', $txn->transaction_type)) ?>
+                                                </span>
+                                            </td>
+                                            <td><?= htmlspecialchars($txn->description ?? '-') ?></td>
+                                            <td class="text-right font-weight-bold">₹<?= number_format($txn->amount, 2) ?></td>
+                                            <td><?= ucfirst($txn->payment_mode ?? '-') ?></td>
+                                            <td>
+                                                <span class="badge badge-<?= $txn->status == 'completed' ? 'success' : ($txn->status == 'reversed' ? 'danger' : 'warning') ?>">
+                                                    <?= ucfirst($txn->status) ?>
+                                                </span>
+                                            </td>
+                                        </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                    
                     <!-- Ledger Tab -->
                     <div class="tab-pane" id="ledger">
                         <div class="d-flex justify-content-between mb-3">
@@ -480,6 +540,66 @@
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Other Transaction Modal -->
+<div class="modal fade" id="addOtherTransactionModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <form action="<?= site_url('admin/members/add_other_transaction/' . $member->id) ?>" method="post">
+                <?= form_hidden($this->security->get_csrf_token_name(), $this->security->get_csrf_hash()) ?>
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title"><i class="fas fa-receipt mr-1"></i> Add Other Transaction</h5>
+                    <button type="button" class="close text-white" data-dismiss="modal"><span>&times;</span></button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>Transaction Type <span class="text-danger">*</span></label>
+                        <select name="transaction_type" class="form-control" required>
+                            <option value="">Select Type...</option>
+                            <option value="membership_fee">Membership Fee</option>
+                            <option value="processing_fee">Processing Fee</option>
+                            <option value="bonus">Bonus / Reward</option>
+                            <option value="penalty">Penalty</option>
+                            <option value="late_fee">Late Fee</option>
+                            <option value="admission_fee">Admission Fee</option>
+                            <option value="share_capital">Share Capital</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Amount (₹) <span class="text-danger">*</span></label>
+                        <input type="number" name="amount" class="form-control" step="0.01" min="0.01" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Transaction Date</label>
+                        <input type="date" name="transaction_date" class="form-control" value="<?= date('Y-m-d') ?>">
+                    </div>
+                    <div class="form-group">
+                        <label>Payment Mode</label>
+                        <select name="payment_mode" class="form-control">
+                            <option value="cash">Cash</option>
+                            <option value="bank_transfer">Bank Transfer</option>
+                            <option value="upi">UPI</option>
+                            <option value="cheque">Cheque</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Description / Remarks</label>
+                        <textarea name="description" class="form-control" rows="2" placeholder="Optional description"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Receipt Number</label>
+                        <input type="text" name="receipt_number" class="form-control" placeholder="Optional">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary"><i class="fas fa-save mr-1"></i> Save Transaction</button>
+                </div>
+            </form>
         </div>
     </div>
 </div>

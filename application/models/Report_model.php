@@ -99,6 +99,47 @@ class Report_model extends MY_Model {
     }
     
     /**
+     * Get Fee Summary (membership fees, other member fees from bank transaction mappings and general ledger)
+     */
+    public function get_fee_summary() {
+        $summary = [
+            'membership_fee' => 0,
+            'other_member_fee' => 0,
+        ];
+
+        // From bank_transactions mapped as membership_fee
+        $membership = $this->db->select_sum('amount')
+            ->where('transaction_category', 'membership_fee')
+            ->where('mapping_status', 'mapped')
+            ->get('bank_transactions')
+            ->row();
+        $summary['membership_fee'] = $membership->amount ?? 0;
+
+        // From member_other_transactions table
+        $fees = $this->db->select('transaction_type, SUM(amount) as total')
+            ->group_by('transaction_type')
+            ->get('member_other_transactions')
+            ->result();
+        foreach ($fees as $fee) {
+            if ($fee->transaction_type === 'membership_fee') {
+                $summary['membership_fee'] += floatval($fee->total);
+            } else {
+                $summary['other_member_fee'] += floatval($fee->total);
+            }
+        }
+
+        // From transaction_mappings with type 'other' (other fees)
+        $other = $this->db->select_sum('amount')
+            ->where('mapping_type', 'other')
+            ->where('is_reversed', 0)
+            ->get('transaction_mappings')
+            ->row();
+        $summary['other_member_fee'] += floatval($other->amount ?? 0);
+
+        return $summary;
+    }
+
+    /**
      * Get Collection Report
      */
     public function get_collection_report($from_date, $to_date, $type = 'all') {

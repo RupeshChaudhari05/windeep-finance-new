@@ -545,6 +545,93 @@ class Bank extends Admin_Controller {
 
                     if ($amount <= 0) continue;
 
+                    // Handle expense types - these don't need member mapping
+                    if (strpos($type, 'expense_') === 0) {
+                        $expense_category = substr($type, 8); // Remove 'expense_' prefix
+                        $expense_label = ucwords(str_replace('_', ' ', $expense_category));
+                        
+                        // Record in expense_transactions table if it exists
+                        if ($this->db->table_exists('expense_transactions')) {
+                            $this->db->insert('expense_transactions', [
+                                'bank_transaction_id' => $transaction_id,
+                                'expense_category' => $expense_category,
+                                'amount' => $amount,
+                                'description' => $m_remarks ?: $expense_label,
+                                'expense_date' => $txn->transaction_date ?? date('Y-m-d'),
+                                'created_by' => $admin_id,
+                                'created_at' => date('Y-m-d H:i:s')
+                            ]);
+                        }
+                        
+                        // Record GL entry for expenses
+                        $this->load->model('Ledger_model');
+                        $this->Ledger_model->record_expense($expense_category, $amount, $m_remarks ?: $expense_label, $transaction_id);
+                        
+                        // Mark bank transaction as mapped
+                        $updateTxn = [
+                            'mapping_status' => 'mapped',
+                            'transaction_category' => $type,
+                            'updated_at' => date('Y-m-d H:i:s')
+                        ];
+                        if ($this->db->field_exists('mapped_by', 'bank_transactions')) {
+                            $updateTxn['mapped_by'] = $admin_id;
+                        }
+                        if ($this->db->field_exists('mapped_at', 'bank_transactions')) {
+                            $updateTxn['mapped_at'] = date('Y-m-d H:i:s');
+                        }
+                        if ($this->db->field_exists('mapping_remarks', 'bank_transactions')) {
+                            $updateTxn['mapping_remarks'] = $expense_label . ': ' . ($m_remarks ?? '');
+                        }
+                        $this->db->where('id', $transaction_id)->update('bank_transactions', $updateTxn);
+                        continue;
+                    }
+
+                    // Handle other fees tagged to a member (membership_fee, joining_fee, etc.)
+                    if (strpos($type, 'other_fee_') === 0) {
+                        $fee_type = substr($type, 10); // Remove 'other_fee_' prefix
+                        $fee_label = ucwords(str_replace('_', ' ', $fee_type));
+
+                        if (!empty($paid_for) && is_numeric($paid_for)) {
+                            // Record in member_other_transactions
+                            $this->load->model('Member_transaction_model');
+                            $this->Member_transaction_model->record([
+                                'member_id'          => $paid_for,
+                                'transaction_type'   => $fee_type,
+                                'amount'             => $amount,
+                                'transaction_date'   => $txn->transaction_date ?? date('Y-m-d'),
+                                'description'        => $fee_label . ($m_remarks ? ' - ' . $m_remarks : ''),
+                                'reference_type'     => 'bank_transaction',
+                                'reference_id'       => $transaction_id,
+                                'payment_mode'       => 'bank_transfer',
+                                'bank_transaction_id'=> $transaction_id,
+                                'created_by'         => $admin_id
+                            ]);
+
+                            // Record GL entry (income)
+                            $this->load->model('Ledger_model');
+                            $this->Ledger_model->post_transaction(
+                                'processing_fee',
+                                $transaction_id,
+                                $amount,
+                                $paid_for,
+                                $fee_label . ' from Member #' . $paid_for,
+                                $admin_id
+                            );
+
+                            // Insert transaction_mapping row
+                            $this->db->insert('transaction_mappings', [
+                                'bank_transaction_id' => $transaction_id,
+                                'member_id'           => $paid_for,
+                                'mapping_type'        => 'other',
+                                'amount'              => $amount,
+                                'narration'           => $fee_label . ($m_remarks ? ' - ' . $m_remarks : ''),
+                                'mapped_by'           => $admin_id,
+                                'mapped_at'           => date('Y-m-d H:i:s')
+                            ]);
+                        }
+                        continue;
+                    }
+
                     // Convert 'emi' and 'loan' to 'loan_payment' for database enum compatibility
                     // Database enum: ('savings','loan_payment','fine','other')
                     $db_mapping_type = $type;

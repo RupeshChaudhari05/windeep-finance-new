@@ -1,3 +1,17 @@
+<!-- Notification Summary Bar -->
+<?php if (!empty($unread_notifications_count) && $unread_notifications_count > 0): ?>
+<div class="row mb-3">
+    <div class="col-12">
+        <div class="alert alert-info alert-dismissible fade show mb-0" role="alert">
+            <i class="fas fa-bell mr-2"></i>
+            You have <strong><?= $unread_notifications_count ?></strong> unread notification<?= $unread_notifications_count > 1 ? 's' : '' ?>.
+            <a href="<?= site_url('admin/notifications') ?>" class="alert-link ml-2">View All</a>
+            <button type="button" class="close" data-dismiss="alert"><span>&times;</span></button>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
 <!-- Dashboard Content -->
 <div class="row">
     <!-- Quick Stats Cards -->
@@ -100,6 +114,28 @@
             <div class="info-box-content">
                 <span class="info-box-text">Pending Fines</span>
                 <span class="info-box-number">₹<?= number_format($stats['pending_fines']) ?></span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Fee Summary Row -->
+<div class="row">
+    <div class="col-lg-3 col-6">
+        <div class="info-box" data-toggle="tooltip" title="Total membership fee collected from members">
+            <span class="info-box-icon bg-teal"><i class="fas fa-id-badge"></i></span>
+            <div class="info-box-content">
+                <span class="info-box-text">Member Fee</span>
+                <span class="info-box-number">₹<?= number_format($fee_summary['membership_fee'] ?? 0) ?></span>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-3 col-6">
+        <div class="info-box" data-toggle="tooltip" title="Total other fees collected from members (processing, late fees, etc.)">
+            <span class="info-box-icon bg-purple"><i class="fas fa-receipt"></i></span>
+            <div class="info-box-content">
+                <span class="info-box-text">Other Members Fee</span>
+                <span class="info-box-number">₹<?= number_format($fee_summary['other_member_fee'] ?? 0) ?></span>
             </div>
         </div>
     </div>

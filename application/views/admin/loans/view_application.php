@@ -286,6 +286,22 @@
                 <button class="btn btn-danger btn-block mb-2" data-toggle="modal" data-target="#rejectModal">
                     <i class="fas fa-times mr-1"></i> Reject Application
                 </button>
+                <?php elseif ($application->status == 'guarantor_pending'): ?>
+                <div class="alert alert-warning py-2 mb-2">
+                    <i class="fas fa-user-friends mr-1"></i> <strong>Waiting for guarantors</strong><br>
+                    <small>Guarantors have been notified. Once they accept, you can approve.</small>
+                </div>
+                <a href="<?= site_url('admin/loans/approve/' . $application->id) ?>" class="btn btn-success btn-block mb-2">
+                    <i class="fas fa-check mr-1"></i> Review & Approve
+                </a>
+                <button class="btn btn-danger btn-block mb-2" data-toggle="modal" data-target="#rejectModal">
+                    <i class="fas fa-times mr-1"></i> Reject Application
+                </button>
+                <?php elseif ($application->status == 'member_review'): ?>
+                <div class="alert alert-info py-2 mb-2">
+                    <i class="fas fa-clock mr-1"></i> <strong>Awaiting Member Acceptance</strong><br>
+                    <small>The member has been notified to review and accept the approved loan terms.</small>
+                </div>
                 <?php elseif ($application->status == 'member_approved'): ?>
                 <a href="<?= site_url('admin/loans/disburse/' . $application->id) ?>" class="btn btn-primary btn-block mb-2">
                     <i class="fas fa-paper-plane mr-1"></i> Proceed to Disburse

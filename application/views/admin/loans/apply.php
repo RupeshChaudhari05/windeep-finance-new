@@ -31,11 +31,35 @@
                     </div>
                     
                     <!-- Member Info Display -->
-                    <div id="memberInfo" class="alert alert-info d-none mb-3">
+                    <div id="memberInfo" class="mb-3">
                         <div class="row">
-                            <div class="col-4"><strong>KYC:</strong> <span id="infoKyc"></span></div>
-                            <div class="col-4"><strong>Savings:</strong> <span id="infoSavings"></span></div>
-                            <div class="col-4"><strong>Active Loans:</strong> <span id="infoLoans"></span></div>
+                            <div class="col-md-4">
+                                <div class="info-box shadow-sm mb-0">
+                                    <span class="info-box-icon bg-success"><i class="fas fa-id-check"></i></span>
+                                    <div class="info-box-content">
+                                        <span class="info-box-text">KYC Status</span>
+                                        <span class="info-box-number" id="infoKyc"><span class="text-muted small">— select member —</span></span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="info-box shadow-sm mb-0">
+                                    <span class="info-box-icon bg-info"><i class="fas fa-piggy-bank"></i></span>
+                                    <div class="info-box-content">
+                                        <span class="info-box-text">Savings Balance</span>
+                                        <span class="info-box-number" id="infoSavings"><span class="text-muted small">—</span></span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="info-box shadow-sm mb-0">
+                                    <span class="info-box-icon bg-warning"><i class="fas fa-file-contract"></i></span>
+                                    <div class="info-box-content">
+                                        <span class="info-box-text">Active Loans</span>
+                                        <span class="info-box-number" id="infoLoans"><span class="text-muted small">—</span></span>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     
@@ -52,14 +76,14 @@
                                 <label for="product_id">Loan Product <span class="text-danger">*</span>
                                     <i class="fas fa-info-circle text-muted ml-1" data-toggle="tooltip" title="Select the loan product. Each product has different interest rates, tenure ranges, and amount limits."></i>
                                 </label>
-                                <select class="form-control" id="product_id" name="product_id" required>
+                                <select class="form-control" id="product_id" name="loan_product_id" required>
                                     <option value="">Select Product</option>
                                     <?php foreach ($products as $p): ?>
                                         <option value="<?= $p->id ?>" 
                                                 data-min="<?= $p->min_amount ?>" data-max="<?= $p->max_amount ?>"
                                                 data-rate="<?= $p->interest_rate ?>" data-type="<?= $p->interest_type ?>"
-                                                data-tenure-min="<?= $p->min_tenure ?>" data-tenure-max="<?= $p->max_tenure ?>"
-                                                data-guarantors="<?= $p->guarantors_required ?>">
+                                                data-tenure-min="<?= $p->min_tenure_months ?>" data-tenure-max="<?= $p->max_tenure_months ?>"
+                                                data-guarantors="<?= $p->min_guarantors ?>">
                                             <?= $p->product_name ?> (<?= $p->interest_rate ?>% <?= ucfirst($p->interest_type) ?>)
                                         </option>
                                     <?php endforeach; ?>
@@ -86,8 +110,8 @@
                                 <label for="tenure_months">Tenure (Months) <span class="text-danger">*</span>
                                     <i class="fas fa-info-circle text-muted ml-1" data-toggle="tooltip" title="Loan repayment period in months. Longer tenure = lower EMI but more total interest."></i>
                                 </label>
-                                <input type="number" class="form-control" id="tenure_months" name="tenure_months" 
-                                       value="<?= set_value('tenure_months', 12) ?>" required min="1" max="240">
+                                <input type="number" class="form-control" id="tenure_months" name="requested_tenure_months" 
+                                       value="<?= set_value('requested_tenure_months', 12) ?>" required min="1" max="240">
                                 <small id="tenureRange" class="form-text text-muted"></small>
                             </div>
                         </div>
@@ -139,7 +163,7 @@
                     <div id="guarantorsContainer">
                         <div class="guarantor-row row mb-3" data-index="0">
                             <div class="col-md-5">
-                                <select class="form-control select2-guarantor" name="guarantor_id[]" data-placeholder="Select Guarantor">
+                                <select class="form-control select2-guarantor" name="guarantor_ids[]" data-placeholder="Select Guarantor">
                                     <option value="">Select Guarantor (Optional)</option>
                                     <?php foreach ($members as $m): ?>
                                         <option value="<?= $m->id ?>"><?= $m->member_code ?> - <?= $m->first_name ?> <?= $m->last_name ?></option>
@@ -255,12 +279,13 @@ $(document).ready(function() {
     $('#member_id').on('change', function() {
         var selected = $(this).find(':selected');
         if (selected.val()) {
-            $('#memberInfo').removeClass('d-none');
             $('#infoKyc').html(selected.data('kyc') == '1' ? '<span class="badge badge-success">Verified</span>' : '<span class="badge badge-warning">Pending</span>');
-            $('#infoSavings').text('₹' + Number(selected.data('savings')).toLocaleString());
-            $('#infoLoans').text(selected.data('loans'));
+            $('#infoSavings').text('₹' + Number(selected.data('savings')).toLocaleString('en-IN'));
+            $('#infoLoans').text(selected.data('loans') || '0');
         } else {
-            $('#memberInfo').addClass('d-none');
+            $('#infoKyc').html('<span class="text-muted small">— select member —</span>');
+            $('#infoSavings').html('<span class="text-muted small">—</span>');
+            $('#infoLoans').html('<span class="text-muted small">—</span>');
         }
     });
     
@@ -369,7 +394,7 @@ $(document).ready(function() {
         var html = `
             <div class="guarantor-row row mb-3" data-index="${guarantorIndex}">
                 <div class="col-md-5">
-                    <select class="form-control select2-guarantor" name="guarantor_id[]" data-placeholder="Select Guarantor">
+                    <select class="form-control select2-guarantor" name="guarantor_ids[]" data-placeholder="Select Guarantor">
                         <option value="">Select Guarantor</option>
                         <?php foreach ($members as $m): ?>
                             <option value="<?= $m->id ?>"><?= $m->member_code ?> - <?= $m->first_name ?> <?= $m->last_name ?></option>
@@ -377,7 +402,7 @@ $(document).ready(function() {
                     </select>
                 </div>
                 <div class="col-md-5">
-                    <input type="text" class="form-control" name="guarantor_relation[]" placeholder="Relationship">
+                    <input type="text" class="form-control" name="guarantor_relation[]" placeholder="Relationship (optional)">
                 </div>
                 <div class="col-md-2">
                     <button type="button" class="btn btn-danger btn-block remove-guarantor">
@@ -409,7 +434,7 @@ $(document).ready(function() {
         }
         
         // Check guarantors
-        var filledGuarantors = $('select[name="guarantor_id[]"]').filter(function() { return $(this).val(); }).length;
+        var filledGuarantors = $('select[name="guarantor_ids[]"]').filter(function() { return $(this).val(); }).length;
         if (filledGuarantors < requiredGuarantors) {
             e.preventDefault();
             Swal.fire('Error', 'Please add at least ' + requiredGuarantors + ' guarantor(s)', 'error');

@@ -73,6 +73,10 @@ class Dashboard extends Member_Controller {
                                                 ->get()
                                                 ->result();
         
+        // Notification count
+        $this->load->model('Notification_model');
+        $data['unread_notifications_count'] = $this->Notification_model->count_unread('member', $member_id);
+        
         $this->load_member_view('member/dashboard/index', $data);
     }
 

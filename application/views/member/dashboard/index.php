@@ -1,3 +1,17 @@
+<!-- Notification Summary Bar -->
+<?php if (!empty($unread_notifications_count) && $unread_notifications_count > 0): ?>
+<div class="row mb-3">
+    <div class="col-12">
+        <div class="alert alert-info alert-dismissible fade show mb-0" role="alert">
+            <i class="fas fa-bell mr-2"></i>
+            You have <strong><?= $unread_notifications_count ?></strong> unread notification<?= $unread_notifications_count > 1 ? 's' : '' ?>.
+            <a href="<?= site_url('member/notifications') ?>" class="alert-link ml-2">View All</a>
+            <button type="button" class="close" data-dismiss="alert"><span>&times;</span></button>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
 <div class="row">
                 <div class="col-md-8">
         <div class="card">

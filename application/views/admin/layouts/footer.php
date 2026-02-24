@@ -115,6 +115,35 @@ $(document).ready(function() {
     setTimeout(function() {
         $('.alert').not('.alert-permanent').fadeOut('slow');
     }, 5000);
+
+    // Admin Notification Polling
+    function loadAdminNotifications() {
+        $.getJSON('<?= site_url('admin/dashboard/notifications') ?>', function(data) {
+            var list = $('.notification-list');
+            var count = 0;
+            list.empty();
+            if (data && data.length) {
+                data.forEach(function(n) {
+                    var cls = n.is_read ? 'text-muted' : 'font-weight-bold';
+                    var item = '<a href="#" class="dropdown-item ' + cls + '">' +
+                        '<div><strong>' + (n.title || 'Notification') + '</strong></div>' +
+                        '<div class="small text-muted">' + (n.message || '').substring(0, 80) + '</div>' +
+                        '<div class="small text-muted">' + (n.created_at || '') + '</div>' +
+                        '</a>';
+                    list.append(item);
+                    if (!n.is_read) count++;
+                });
+            } else {
+                list.append('<a href="#" class="dropdown-item text-center text-muted"><small>No new notifications</small></a>');
+            }
+            $('.notification-count').text(count > 0 ? count : '0');
+            if (count > 0) {
+                $('.notification-count').show();
+            }
+        });
+    }
+    loadAdminNotifications();
+    setInterval(loadAdminNotifications, 60000);
     
     // CSRF token for all AJAX requests
     $.ajaxSetup({

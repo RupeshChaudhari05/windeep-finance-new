@@ -132,6 +132,42 @@ class Ledger_model extends MY_Model {
     }
     
     /**
+     * Record an expense transaction in the General Ledger.
+     * Debits the Operating Expenses account (4200) and credits Cash & Bank (1102).
+     */
+    public function record_expense($expense_category, $amount, $description = '', $reference_id = null) {
+        // Map specific expense categories to account codes if needed
+        // Default: Debit Operating Expenses (4200), Credit Bank Accounts (1102)
+        $debit_account = $this->get_account_by_code('4200');    // Operating Expenses
+        $credit_account = $this->get_account_by_code('1102');   // Bank Accounts
+        
+        if (!$debit_account || !$credit_account) {
+            log_message('error', 'record_expense: Could not find expense/bank accounts in chart_of_accounts');
+            return false;
+        }
+        
+        $this->load->model('Financial_year_model');
+        $fy = $this->Financial_year_model->get_active();
+        
+        $data = [
+            'voucher_type'      => 'payment',
+            'voucher_date'      => date('Y-m-d'),
+            'financial_year_id' => $fy ? $fy->id : null,
+            'debit_account_id'  => $debit_account->id,
+            'credit_account_id' => $credit_account->id,
+            'debit_amount'      => $amount,
+            'credit_amount'     => $amount,
+            'member_id'         => null,
+            'reference_type'    => 'expense_' . $expense_category,
+            'reference_id'      => $reference_id,
+            'narration'         => $description ?: ucwords(str_replace('_', ' ', $expense_category)) . ' expense',
+            'created_by'        => null
+        ];
+        
+        return $this->create_entry($data);
+    }
+    
+    /**
      * Get Transaction Account Mapping
      */
     private function get_transaction_accounts($transaction_type) {

@@ -337,6 +337,71 @@ class Reports extends Admin_Controller {
     }
     
     /**
+     * Other Transactions Report (Membership Fee, Joining Fee, Processing Fee, etc.)
+     */
+    public function other_transactions() {
+        $data['title'] = 'Other Transactions Report';
+        $data['page_title'] = 'Member Other Transactions';
+        $data['breadcrumb'] = [
+            ['title' => 'Dashboard', 'url' => 'admin/dashboard'],
+            ['title' => 'Reports', 'url' => 'admin/reports'],
+            ['title' => 'Other Transactions', 'url' => '']
+        ];
+
+        $from_date = $this->input->get('from_date') ?: date('Y-m-01');
+        $to_date   = $this->input->get('to_date') ?: date('Y-m-d');
+        $type      = $this->input->get('type') ?: '';
+        $member_id = $this->input->get('member_id') ?: '';
+
+        $filters = [
+            'from_date' => $from_date,
+            'to_date'   => $to_date,
+            'type'      => $type,
+            'member_id' => $member_id
+        ];
+
+        $this->load->model('Member_transaction_model');
+        $data['transactions'] = $this->Member_transaction_model->get_all_transactions($filters);
+        $data['from_date'] = $from_date;
+        $data['to_date']   = $to_date;
+        $data['type']      = $type;
+        $data['member_id'] = $member_id;
+
+        // Summary totals
+        $data['summary'] = $this->Member_transaction_model->get_totals_by_type();
+
+        $this->load_view('admin/reports/other_transactions', $data);
+    }
+
+    /**
+     * Export Other Transactions as CSV/Excel
+     */
+    public function export_other_transactions() {
+        $format    = $this->input->get('format') ?: 'csv';
+        $from_date = $this->input->get('from_date') ?: date('Y-m-01');
+        $to_date   = $this->input->get('to_date') ?: date('Y-m-d');
+        $type      = $this->input->get('type') ?: '';
+        $member_id = $this->input->get('member_id') ?: '';
+
+        $filters = [
+            'from_date' => $from_date,
+            'to_date'   => $to_date,
+            'type'      => $type,
+            'member_id' => $member_id
+        ];
+
+        $this->load->model('Member_transaction_model');
+        $rows = $this->Member_transaction_model->get_all_transactions($filters);
+        $filename = 'other_transactions_' . date('Y-m-d');
+
+        if ($format === 'excel') {
+            $this->export_excel($rows, $filename, 'other_transactions');
+        } else {
+            $this->export_csv($rows, $filename, 'other_transactions');
+        }
+    }
+    
+    /**
      * Export Report
      */
     public function export($report_type) {
@@ -455,8 +520,27 @@ class Reports extends Admin_Controller {
                 }
                 break;
                 
+            case 'other_transactions':
+                fputcsv($output, ['Date', 'Member Code', 'Member Name', 'Phone', 'Transaction Type', 'Amount', 'Payment Mode', 'Receipt No', 'Description', 'Status']);
+                if (is_array($data) || is_object($data)) {
+                    foreach ($data as $row) {
+                        fputcsv($output, [
+                            $row->transaction_date ?? '',
+                            $row->member_code ?? '',
+                            ($row->first_name ?? '') . ' ' . ($row->last_name ?? ''),
+                            $row->phone ?? '',
+                            ucwords(str_replace('_', ' ', $row->transaction_type ?? '')),
+                            $row->amount ?? 0,
+                            $row->payment_mode ?? '',
+                            $row->receipt_number ?? '',
+                            $row->description ?? '',
+                            $row->status ?? ''
+                        ]);
+                    }
+                }
+                break;
+
             default:
-                // Generic CSV export for any data
                 if (is_array($data) && !empty($data)) {
                     $first = reset($data);
                     if (is_object($first)) {
@@ -503,6 +587,9 @@ class Reports extends Admin_Controller {
                 break;
             case 'npa':
                 $headers = ['Loan No', 'Member Code', 'Member Name', 'Principal', 'Outstanding', 'Days Overdue', 'NPA Category'];
+                break;
+            case 'other_transactions':
+                $headers = ['Date', 'Member Code', 'Member Name', 'Phone', 'Transaction Type', 'Amount', 'Payment Mode', 'Receipt No', 'Description', 'Status'];
                 break;
             default:
                 if (is_array($data) && !empty($data)) {
