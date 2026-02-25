@@ -104,11 +104,13 @@
                 </div>
                 
                 <?php if ($overdue_count > 0): ?>
-                <div class="alert alert-danger">
-                    <i class="fas fa-exclamation-triangle"></i>
-                    <strong><?= $overdue_count ?> EMI(s) Overdue!</strong>
-                    <br>
-                    Amount: ₹<?= number_format($overdue_amount) ?>
+                <div class="card card-danger">
+                    <div class="card-body py-2">
+                        <i class="fas fa-exclamation-triangle mr-1"></i>
+                        <strong><?= $overdue_count ?> EMI(s) Overdue!</strong>
+                        <br>
+                        Amount: ₹<?= number_format($overdue_amount) ?>
+                    </div>
                 </div>
                 <?php endif; ?>
                 

@@ -248,11 +248,13 @@
         </div>
         
         <!-- Outstanding Balance -->
-        <div class="alert alert-info">
-            <strong><i class="fas fa-info-circle mr-2"></i>Outstanding Balance After Payment:</strong>
-            <div class="mt-2">
-                Principal: ₹<?= number_format($payment->outstanding_principal_after, 2) ?> | 
-                Interest: ₹<?= number_format($payment->outstanding_interest_after, 2) ?>
+        <div class="card card-info">
+            <div class="card-body">
+                <strong><i class="fas fa-info-circle mr-2"></i>Outstanding Balance After Payment:</strong>
+                <div class="mt-2">
+                    Principal: ₹<?= number_format($payment->outstanding_principal_after, 2) ?> | 
+                    Interest: ₹<?= number_format($payment->outstanding_interest_after, 2) ?>
+                </div>
             </div>
         </div>
         

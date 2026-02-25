@@ -7,10 +7,7 @@
                 <h3 class="card-title"><i class="fas fa-exclamation-triangle mr-1"></i> Loan Not Found</h3>
             </div>
             <div class="card-body">
-                <div class="alert alert-danger">
-                    <h5><i class="icon fas fa-ban"></i> Error!</h5>
-                    The requested loan could not be found or you don't have permission to access it.
-                </div>
+                <p><i class="fas fa-ban mr-1"></i> The requested loan could not be found or you don't have permission to access it.</p>
                 <a href="<?= site_url('admin/loans') ?>" class="btn btn-primary">
                     <i class="fas fa-arrow-left mr-1"></i> Back to Loans
                 </a>
@@ -85,11 +82,13 @@
                 
                 <?php if ($overdue_emis): ?>
                 <hr>
-                <div class="alert alert-danger py-2">
-                    <i class="fas fa-exclamation-triangle"></i>
-                    <strong><?= count($overdue_emis) ?> EMI(s) Overdue</strong>
-                    <br>
-                    Amount: ₹<?= number_format(array_sum(array_column($overdue_emis, 'emi_amount'))) ?>
+                <div class="card card-danger mb-0">
+                    <div class="card-body py-2">
+                        <i class="fas fa-exclamation-triangle mr-1"></i>
+                        <strong><?= count($overdue_emis) ?> EMI(s) Overdue</strong>
+                        <br>
+                        Amount: ₹<?= number_format(array_sum(array_column($overdue_emis, 'emi_amount'))) ?>
+                    </div>
                 </div>
                 <?php endif; ?>
             </div>
@@ -235,16 +234,18 @@
                         <textarea class="form-control" id="remarks" name="remarks" rows="2" placeholder="Payment notes (optional)"></textarea>
                     </div>
                     
-                    <!-- Summary Alert -->
-                    <div class="alert alert-success">
-                        <div class="row">
-                            <div class="col-md-6">
-                                <strong>After Payment:</strong>
-                                <div>New Outstanding: <span class="font-weight-bold" id="newOutstanding">₹<?= number_format($loan->outstanding_principal) ?></span></div>
-                            </div>
-                            <div class="col-md-6">
-                                <strong>EMIs Covered:</strong>
-                                <div><span id="emisCovered">1</span> EMI(s) will be marked paid</div>
+                    <!-- Summary Card -->
+                    <div class="card card-success mb-0">
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <strong>After Payment:</strong>
+                                    <div>New Outstanding: <span class="font-weight-bold" id="newOutstanding">₹<?= number_format($loan->outstanding_principal) ?></span></div>
+                                </div>
+                                <div class="col-md-6">
+                                    <strong>EMIs Covered:</strong>
+                                    <div><span id="emisCovered">1</span> EMI(s) will be marked paid</div>
+                                </div>
                             </div>
                         </div>
                     </div>

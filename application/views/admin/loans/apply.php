@@ -242,9 +242,11 @@
                 
                 <hr>
                 
-                <div class="alert alert-light">
-                    <h6>Repayment Schedule Preview</h6>
-                    <div id="schedulePreview" style="max-height: 300px; overflow-y: auto;">
+                <div class="card">
+                    <div class="card-header py-2">
+                        <h6 class="card-title mb-0">Repayment Schedule Preview</h6>
+                    </div>
+                    <div class="card-body p-2" id="schedulePreview" style="max-height: 300px; overflow-y: auto;">
                         <p class="text-muted text-center">Select product and amount</p>
                     </div>
                 </div>

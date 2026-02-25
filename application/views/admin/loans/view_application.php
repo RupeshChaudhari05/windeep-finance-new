@@ -81,8 +81,10 @@
                         </table>
                         <?php else: ?>
                         <h6 class="text-muted">Status Information</h6>
-                        <div class="alert alert-warning">
-                            <i class="fas fa-clock mr-1"></i> This application is pending review.
+                        <div class="card card-warning">
+                            <div class="card-body py-2">
+                                <i class="fas fa-clock mr-1"></i> This application is pending review.
+                            </div>
                         </div>
                         <?php endif; ?>
                     </div>
@@ -223,7 +225,7 @@
                     </div>
                 </div>
                 <?php if (!empty($member->notes)): ?>
-                <div class="alert alert-light mt-2 mb-0"><strong>Notes:</strong> <?= nl2br(htmlspecialchars($member->notes)) ?></div>
+                <div class="card mt-2 mb-0"><div class="card-body py-2"><strong>Notes:</strong> <?= nl2br(htmlspecialchars($member->notes)) ?></div></div>
                 <?php endif; ?>
             </div>
         </div>
@@ -287,9 +289,11 @@
                     <i class="fas fa-times mr-1"></i> Reject Application
                 </button>
                 <?php elseif ($application->status == 'guarantor_pending'): ?>
-                <div class="alert alert-warning py-2 mb-2">
-                    <i class="fas fa-user-friends mr-1"></i> <strong>Waiting for guarantors</strong><br>
-                    <small>Guarantors have been notified. Once they accept, you can approve.</small>
+                <div class="card card-warning mb-2">
+                    <div class="card-body py-2">
+                        <i class="fas fa-user-friends mr-1"></i> <strong>Waiting for guarantors</strong><br>
+                        <small>Guarantors have been notified. Once they accept, you can approve.</small>
+                    </div>
                 </div>
                 <a href="<?= site_url('admin/loans/approve/' . $application->id) ?>" class="btn btn-success btn-block mb-2">
                     <i class="fas fa-check mr-1"></i> Review & Approve
@@ -298,9 +302,11 @@
                     <i class="fas fa-times mr-1"></i> Reject Application
                 </button>
                 <?php elseif ($application->status == 'member_review'): ?>
-                <div class="alert alert-info py-2 mb-2">
-                    <i class="fas fa-clock mr-1"></i> <strong>Awaiting Member Acceptance</strong><br>
-                    <small>The member has been notified to review and accept the approved loan terms.</small>
+                <div class="card card-info mb-2">
+                    <div class="card-body py-2">
+                        <i class="fas fa-clock mr-1"></i> <strong>Awaiting Member Acceptance</strong><br>
+                        <small>The member has been notified to review and accept the approved loan terms.</small>
+                    </div>
                 </div>
                 <?php elseif ($application->status == 'member_approved'): ?>
                 <a href="<?= site_url('admin/loans/disburse/' . $application->id) ?>" class="btn btn-primary btn-block mb-2">

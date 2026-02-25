@@ -54,8 +54,10 @@
                     </div>
                     
                     <?php if (!empty($application->purpose)): ?>
-                    <div class="alert alert-info mt-3 mb-0">
-                        <i class="fas fa-comment mr-1"></i> <strong>Applicant's Purpose:</strong> <?= $application->purpose ?>
+                    <div class="card card-info mt-3 mb-0">
+                        <div class="card-body py-2">
+                            <i class="fas fa-comment mr-1"></i> <strong>Applicant's Purpose:</strong> <?= $application->purpose ?>
+                        </div>
                     </div>
                     <?php endif; ?>
                 </div>
@@ -175,13 +177,15 @@
                     </div>
 
                     <!-- Product Info (updates dynamically) -->
-                    <div id="productInfo" class="alert alert-light border py-2 mb-3" style="display:<?= $product ? 'block' : 'none' ?>;">
-                        <small>
-                            <strong>Rate:</strong> <span id="piRate"><?= $product->interest_rate ?? '-' ?></span>% |
-                            <strong>Type:</strong> <span id="piType"><?= ucfirst($product->interest_type ?? '-') ?></span> |
-                            <strong>Amount:</strong> ₹<span id="piMinAmt"><?= $product ? number_format($product->min_amount) : '-' ?></span> – ₹<span id="piMaxAmt"><?= $product ? number_format($product->max_amount) : '-' ?></span> |
-                            <strong>Tenure:</strong> <span id="piMinTen"><?= $product->min_tenure_months ?? '-' ?></span> – <span id="piMaxTen"><?= $product->max_tenure_months ?? '-' ?></span> months
-                        </small>
+                    <div id="productInfo" class="card mb-3" style="display:<?= $product ? 'block' : 'none' ?>;">
+                        <div class="card-body py-2">
+                            <small>
+                                <strong>Rate:</strong> <span id="piRate"><?= $product->interest_rate ?? '-' ?></span>% |
+                                <strong>Type:</strong> <span id="piType"><?= ucfirst($product->interest_type ?? '-') ?></span> |
+                                <strong>Amount:</strong> ₹<span id="piMinAmt"><?= $product ? number_format($product->min_amount) : '-' ?></span> – ₹<span id="piMaxAmt"><?= $product ? number_format($product->max_amount) : '-' ?></span> |
+                                <strong>Tenure:</strong> <span id="piMinTen"><?= $product->min_tenure_months ?? '-' ?></span> – <span id="piMaxTen"><?= $product->max_tenure_months ?? '-' ?></span> months
+                            </small>
+                        </div>
                     </div>
 
                     <div class="form-group">
@@ -256,19 +260,23 @@
                         </div>
                     </div>
                     <?php elseif ($max_loan_by_savings !== null): ?>
-                    <div class="alert alert-success py-2 mb-3">
-                        <i class="fas fa-check-circle mr-1"></i>
-                        Savings ratio OK — Max allowed: <strong>₹<?= number_format($max_loan_by_savings) ?></strong>
+                    <div class="card card-success mb-3">
+                        <div class="card-body py-2">
+                            <i class="fas fa-check-circle mr-1"></i>
+                            Savings ratio OK — Max allowed: <strong>₹<?= number_format($max_loan_by_savings) ?></strong>
+                        </div>
                     </div>
                     <?php endif; ?>
                     <!-- ----------------------------------------------------------------- -->
 
                     <?php if (!empty($guarantor_counts) && $guarantor_counts['total'] > 0): ?>
-                    <div class="alert alert-info">
-                        <strong>Guarantors:</strong>
-                        <?= $guarantor_counts['accepted'] ?> accepted, <?= $guarantor_counts['pending'] ?> pending, <?= $guarantor_counts['rejected'] ?> rejected.
-                        <br>
-                        <small class="text-muted">Minimum required: <?= $min_guarantors_required ?></small>
+                    <div class="card card-info mb-3">
+                        <div class="card-body py-2">
+                            <strong>Guarantors:</strong>
+                            <?= $guarantor_counts['accepted'] ?> accepted, <?= $guarantor_counts['pending'] ?> pending, <?= $guarantor_counts['rejected'] ?> rejected.
+                            <br>
+                            <small class="text-muted">Minimum required: <?= $min_guarantors_required ?></small>
+                        </div>
                     </div>
                     <div class="form-group mb-3">
                         <div class="form-check">
