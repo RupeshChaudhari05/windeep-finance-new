@@ -103,31 +103,9 @@ class Fine_model extends MY_Model {
         
         if (!$rule) return false;
         
-        // Calculate fine
-        $fine_amount = 0;
-        $calc_type = isset($rule->calculation_type) ? $rule->calculation_type : 
-                    (isset($rule->fine_type) && in_array($rule->fine_type, ['fixed', 'percentage', 'per_day']) ? $rule->fine_type : 'fixed');
-        
-        if ($calc_type === 'fixed') {
-            $fine_amount = $rule->fine_value;
-        } elseif ($calc_type === 'percentage') {
-            $base = $rule->calculation_base === 'principal' ? $installment->principal_amount : $installment->emi_amount;
-            $fine_amount = $base * ($rule->fine_value / 100);
-        } elseif ($calc_type === 'per_day') {
-            // For per_day: initial fixed amount + per day rate * (days_late - 1)
-            // Example: fine_value = 100, per_day_amount = 10
-            // 1 day late: 100
-            // 2 days late: 100 + 10 = 110
-            // 3 days late: 100 + 10 + 10 = 120
-            if ($days_late >= 1) {
-                $fine_amount = $rule->fine_value + ($rule->per_day_amount * ($days_late - 1));
-            }
-        }
-        
-        // Apply max cap if set
-        if ($rule->max_fine_amount > 0 && $fine_amount > $rule->max_fine_amount) {
-            $fine_amount = $rule->max_fine_amount;
-        }
+        // Calculate fine using the centralized method (respects grace period)
+        $base_amount = isset($installment->emi_amount) ? $installment->emi_amount : 0;
+        $fine_amount = $this->calculate_fine_amount($rule, $days_late, $base_amount);
         
         if ($fine_amount <= 0) return false;
         
@@ -187,33 +165,9 @@ class Fine_model extends MY_Model {
         
         if (!$rule) return false;
         
-        // Calculate fine
-        $fine_amount = 0;
-        $calc_type = isset($rule->calculation_type) ? $rule->calculation_type : 
-                    (isset($rule->fine_type) && in_array($rule->fine_type, ['fixed', 'percentage', 'per_day']) ? $rule->fine_type : 'fixed');
-        
-        if ($calc_type === 'fixed') {
-            $fine_amount = $rule->fine_value ?? ($rule->fine_amount ?? 0);
-        } elseif ($calc_type === 'percentage') {
-            $rate = $rule->fine_value ?? ($rule->fine_rate ?? 0);
-            $fine_amount = $schedule->due_amount * ($rate / 100);
-        } elseif ($calc_type === 'per_day') {
-            // For per_day: initial fixed amount + per day rate * (days_late - 1)
-            // Example: fine_value = 100, per_day_amount = 10
-            // 1 day late: 100
-            // 2 days late: 100 + 10 = 110
-            // 3 days late: 100 + 10 + 10 = 120
-            if ($days_late >= 1) {
-                $fine_amount = $rule->fine_value + ($rule->per_day_amount * ($days_late - 1));
-            }
-        } else {
-            // Fallback: try to use flexible calculate_fine_amount helper
-            $fine_amount = $this->calculate_fine_amount($rule, $days_late, $schedule->due_amount);
-        }
-        
-        if (!empty($rule->max_fine_amount) && $rule->max_fine_amount > 0 && $fine_amount > $rule->max_fine_amount) {
-            $fine_amount = $rule->max_fine_amount;
-        }
+        // Calculate fine using the centralized method (respects grace period)
+        $base_amount = isset($schedule->due_amount) ? $schedule->due_amount : 0;
+        $fine_amount = $this->calculate_fine_amount($rule, $days_late, $base_amount);
         
         if ($fine_amount <= 0) return false;
         
@@ -482,7 +436,7 @@ class Fine_model extends MY_Model {
         return $this->db->select('f.*, m.member_code, m.first_name, m.last_name')
                         ->from($this->table . ' f')
                         ->join('members m', 'm.id = f.member_id')
-                        ->where('f.waiver_reason IS NOT NULL')
+                        ->where('f.waiver_requested_at IS NOT NULL')
                         ->where('f.waiver_approved_by IS NULL')
                         ->where('f.waived_by IS NULL')
                         ->where('f.waiver_denied_by IS NULL')
@@ -553,8 +507,7 @@ class Fine_model extends MY_Model {
         $update = [
             'waiver_denied_by' => $denied_by,
             'waiver_denied_at' => date('Y-m-d H:i:s'),
-            'waiver_denied_reason' => $reason,
-            'waiver_reason' => null
+            'waiver_denied_reason' => $reason
         ];
         return $this->db->where('id', $fine_id)->update($this->table, $update);
     }
@@ -645,20 +598,32 @@ class Fine_model extends MY_Model {
         $updated = 0;
         
         // Get all pending fines that use daily calculation
-        $pending_fines = $this->db->select('f.*, fr.fine_type, fr.fine_value as fine_amount, fr.per_day_amount, fr.grace_period_days as grace_period, fr.max_fine_amount as max_fine')
+        // NOTE: Use distinct aliases for rule fields to avoid overwriting fine fields
+        $pending_fines = $this->db->select('f.id, f.due_date, f.fine_amount as current_fine_amount, f.paid_amount, f.waived_amount, f.balance_amount')
+                                  ->select('fr.fine_value as rule_fine_value, fr.per_day_amount as rule_per_day_amount, fr.grace_period_days, fr.max_fine_amount, fr.calculation_type')
                                   ->from('fines f')
                                   ->join('fine_rules fr', 'fr.id = f.fine_rule_id')
                                   ->where_in('f.status', ['pending', 'partial'])
-                                  ->where_in('fr.fine_type', ['per_day', 'fixed_plus_daily'])
+                                  ->where_in('fr.calculation_type', ['per_day', 'fixed_plus_daily'])
                                   ->get()
                                   ->result();
         
         foreach ($pending_fines as $fine) {
             $days_late = floor((safe_timestamp(date('Y-m-d')) - safe_timestamp($fine->due_date)) / 86400);
-            $new_amount = $this->calculate_fine_amount($fine, $days_late);
             
-            // Only update if amount increased
-            if ($new_amount > $fine->fine_amount) {
+            // Build a proper rule object for calculate_fine_amount
+            $rule_obj = (object)[
+                'grace_period_days' => $fine->grace_period_days ?? 0,
+                'calculation_type'  => $fine->calculation_type ?? 'per_day',
+                'fine_value'        => $fine->rule_fine_value ?? 0,
+                'per_day_amount'    => $fine->rule_per_day_amount ?? 0,
+                'max_fine_amount'   => $fine->max_fine_amount ?? 0,
+            ];
+            
+            $new_amount = $this->calculate_fine_amount($rule_obj, $days_late);
+            
+            // Only update if amount changed (recalculate correctly)
+            if ($new_amount > 0 && abs($new_amount - $fine->current_fine_amount) > 0.01) {
                 $new_balance = $new_amount - $fine->paid_amount - $fine->waived_amount;
                 
                 $this->db->where('id', $fine->id)

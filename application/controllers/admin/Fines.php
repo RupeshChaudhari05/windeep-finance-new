@@ -111,6 +111,99 @@ class Fines extends Admin_Controller {
     }
     
     /**
+     * AJAX: Get fine calculation breakdown for modal
+     */
+    public function get_fine_detail($id) {
+        $fine = $this->db->select('f.*, m.member_code, m.first_name, m.last_name, m.phone')
+                         ->select('fr.rule_name, fr.calculation_type, fr.fine_value as rule_fine_value, fr.per_day_amount as rule_per_day_amount, fr.grace_period_days, fr.max_fine_amount as rule_max_fine, fr.applies_to, fr.fine_type as rule_fine_type')
+                         ->from('fines f')
+                         ->join('members m', 'm.id = f.member_id')
+                         ->join('fine_rules fr', 'fr.id = f.fine_rule_id', 'left')
+                         ->where('f.id', $id)
+                         ->get()
+                         ->row();
+        
+        if (!$fine) {
+            $this->json_response(['success' => false, 'message' => 'Fine not found']);
+            return;
+        }
+        
+        // Build calculation breakdown
+        $grace = (int)($fine->grace_period_days ?? 0);
+        $days_late = (int)$fine->days_late;
+        $effective_days = max(0, $days_late - $grace);
+        $calc_type = $fine->calculation_type ?? 'fixed';
+        $rule_value = (float)($fine->rule_fine_value ?? 0);
+        $per_day = (float)($fine->rule_per_day_amount ?? 0);
+        $max_cap = (float)($fine->rule_max_fine ?? 0);
+        
+        // Recalculate step by step
+        $steps = [];
+        $steps[] = ['label' => 'Due Date', 'value' => date('d M Y', strtotime($fine->due_date))];
+        $steps[] = ['label' => 'Fine Date', 'value' => date('d M Y', strtotime($fine->fine_date))];
+        $steps[] = ['label' => 'Total Days Late', 'value' => $days_late . ' days'];
+        $steps[] = ['label' => 'Grace Period', 'value' => $grace . ' days'];
+        $steps[] = ['label' => 'Effective Overdue Days', 'value' => $effective_days . ' days (= ' . $days_late . ' - ' . $grace . ')'];
+        
+        $correct_amount = 0;
+        if ($calc_type === 'fixed') {
+            $correct_amount = $rule_value;
+            $steps[] = ['label' => 'Calculation Type', 'value' => 'Fixed Amount'];
+            $steps[] = ['label' => 'Fixed Fine', 'value' => '₹' . number_format($rule_value, 2)];
+        } elseif ($calc_type === 'percentage') {
+            $steps[] = ['label' => 'Calculation Type', 'value' => 'Percentage'];
+            $steps[] = ['label' => 'Rate', 'value' => $rule_value . '%'];
+            $correct_amount = $rule_value;
+        } elseif ($calc_type === 'per_day') {
+            $steps[] = ['label' => 'Calculation Type', 'value' => 'Per Day (Fixed + Daily)'];
+            $steps[] = ['label' => 'Initial Fixed Amount', 'value' => '₹' . number_format($rule_value, 2)];
+            $steps[] = ['label' => 'Per Day Rate', 'value' => '₹' . number_format($per_day, 2) . '/day'];
+            
+            if ($effective_days > 0) {
+                $daily_portion = $per_day * max(0, $effective_days - 1);
+                $correct_amount = $rule_value + $daily_portion;
+                $steps[] = ['label' => 'Calculation', 'value' => '₹' . number_format($rule_value, 2) . ' + (₹' . number_format($per_day, 2) . ' x ' . max(0, $effective_days - 1) . ' days) = ₹' . number_format($correct_amount, 2)];
+            }
+        }
+        
+        if ($max_cap > 0) {
+            $steps[] = ['label' => 'Max Cap', 'value' => '₹' . number_format($max_cap, 2)];
+            if ($correct_amount > $max_cap) {
+                $correct_amount = $max_cap;
+                $steps[] = ['label' => 'Capped Amount', 'value' => '₹' . number_format($max_cap, 2) . ' (cap applied)'];
+            }
+        }
+        
+        $steps[] = ['label' => 'Correct Fine Amount', 'value' => '₹' . number_format($correct_amount, 2), 'highlight' => true];
+        $steps[] = ['label' => 'Current Fine (in DB)', 'value' => '₹' . number_format($fine->fine_amount, 2), 'highlight' => true];
+        
+        $is_correct = abs($correct_amount - (float)$fine->fine_amount) < 0.02;
+        
+        $this->json_response([
+            'success' => true,
+            'fine' => [
+                'id' => $fine->id,
+                'fine_code' => $fine->fine_code,
+                'member_name' => trim($fine->first_name . ' ' . $fine->last_name),
+                'member_code' => $fine->member_code,
+                'fine_type' => ucfirst(str_replace('_', ' ', $fine->fine_type)),
+                'rule_name' => $fine->rule_name ?: 'N/A',
+                'fine_date' => date('d M Y', strtotime($fine->fine_date)),
+                'due_date' => date('d M Y', strtotime($fine->due_date)),
+                'days_late' => $days_late,
+                'fine_amount' => (float)$fine->fine_amount,
+                'paid_amount' => (float)$fine->paid_amount,
+                'balance_amount' => (float)$fine->balance_amount,
+                'status' => $fine->status,
+                'remarks' => $fine->remarks,
+                'is_correct' => $is_correct,
+                'correct_amount' => $correct_amount
+            ],
+            'steps' => $steps
+        ]);
+    }
+    
+    /**
      * Create Manual Fine
      */
     public function create() {
@@ -529,5 +622,55 @@ class Fines extends Admin_Controller {
         $this->log_audit('delete', 'fine_rules', 'fine_rules', $id, null, null);
         
         $this->json_response(['success' => true, 'message' => 'Rule deleted successfully']);
+    }
+    
+    /**
+     * Recalculate all pending/partial fines using correct formula
+     */
+    public function recalculate_all() {
+        $admin_id = $this->session->userdata('admin_id');
+        
+        // Get all pending/partial fines with their rules
+        $fines = $this->db->select('f.id, f.due_date, f.fine_amount, f.paid_amount, f.waived_amount')
+                          ->select('fr.calculation_type, fr.fine_value, fr.per_day_amount, fr.grace_period_days, fr.max_fine_amount')
+                          ->from('fines f')
+                          ->join('fine_rules fr', 'fr.id = f.fine_rule_id')
+                          ->where_in('f.status', ['pending', 'partial'])
+                          ->get()
+                          ->result();
+        
+        $fixed = 0;
+        $total = count($fines);
+        
+        foreach ($fines as $f) {
+            $days_late = floor((strtotime(date('Y-m-d')) - strtotime($f->due_date)) / 86400);
+            
+            $rule_obj = (object)[
+                'grace_period_days' => $f->grace_period_days ?? 0,
+                'calculation_type'  => $f->calculation_type ?? 'fixed',
+                'fine_value'        => $f->fine_value ?? 0,
+                'per_day_amount'    => $f->per_day_amount ?? 0,
+                'max_fine_amount'   => $f->max_fine_amount ?? 0,
+            ];
+            
+            $correct_amount = $this->Fine_model->calculate_fine_amount($rule_obj, $days_late);
+            
+            if ($correct_amount > 0 && abs($correct_amount - (float)$f->fine_amount) > 0.01) {
+                $new_balance = $correct_amount - (float)$f->paid_amount - (float)$f->waived_amount;
+                
+                $this->db->where('id', $f->id)->update('fines', [
+                    'fine_amount' => $correct_amount,
+                    'balance_amount' => max(0, $new_balance),
+                    'days_late' => $days_late,
+                    'updated_at' => date('Y-m-d H:i:s'),
+                    'updated_by' => $admin_id
+                ]);
+                $fixed++;
+            }
+        }
+        
+        $this->log_audit('recalculate', 'fines', 'fines', null, null, ['total' => $total, 'fixed' => $fixed]);
+        $this->session->set_flashdata('success', "Recalculated $fixed of $total pending fines.");
+        redirect('admin/fines');
     }
 }

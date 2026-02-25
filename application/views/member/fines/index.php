@@ -8,6 +8,39 @@
         </div>
     </div>
     <div class="card-body">
+        <!-- Summary Row -->
+        <?php if (!empty($fines)): ?>
+        <div class="row mb-3">
+            <div class="col-md-4">
+                <div class="info-box bg-warning mb-0">
+                    <span class="info-box-icon"><i class="fas fa-exclamation-triangle"></i></span>
+                    <div class="info-box-content">
+                        <span class="info-box-text">Pending</span>
+                        <span class="info-box-number">₹<?= number_format($total_pending, 2) ?></span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="info-box bg-success mb-0">
+                    <span class="info-box-icon"><i class="fas fa-check-circle"></i></span>
+                    <div class="info-box-content">
+                        <span class="info-box-text">Paid</span>
+                        <span class="info-box-number">₹<?= number_format($total_paid, 2) ?></span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="info-box bg-info mb-0">
+                    <span class="info-box-icon"><i class="fas fa-hand-holding-heart"></i></span>
+                    <div class="info-box-content">
+                        <span class="info-box-text">Waived</span>
+                        <span class="info-box-number">₹<?= number_format($total_waived, 2) ?></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <?php endif; ?>
+
         <?php if (empty($fines)): ?>
             <div class="alert alert-info">
                 <i class="fas fa-info-circle"></i> No fines found. You're all clear!
@@ -17,9 +50,11 @@
                 <table class="table table-sm table-striped">
                     <thead>
                         <tr>
-                            <th>Fine ID</th>
+                            <th>Fine Code</th>
                             <th>Type</th>
                             <th>Amount</th>
+                            <th>Paid</th>
+                            <th>Balance</th>
                             <th>Status</th>
                             <th>Due Date</th>
                             <th>Actions</th>
@@ -28,10 +63,17 @@
                     <tbody>
                         <?php foreach ($fines as $fine): ?>
                         <tr>
-                            <td><?= $fine->id ?></td>
+                            <td>
+                                <a href="<?= site_url('member/fines/view/' . $fine->id) ?>" class="font-weight-bold">
+                                    <?= $fine->fine_code ?? $fine->id ?>
+                                </a>
+                            </td>
                             <td>
                                 <?php
                                 $fine_types = [
+                                    'savings_late' => 'Savings Late',
+                                    'loan_late' => 'Loan Late',
+                                    'bounced_cheque' => 'Bounced Cheque',
                                     'late_payment' => 'Late Payment',
                                     'missed_installment' => 'Missed Installment',
                                     'loan_default' => 'Loan Default',
@@ -40,11 +82,14 @@
                                 echo $fine_types[$fine->fine_type] ?? $fine->fine_type;
                                 ?>
                             </td>
-                            <td class="text-right">₹<?= number_format((float) (isset($fine->amount) ? $fine->amount : 0), 2) ?></td>
+                            <td class="text-right">₹<?= number_format((float) ($fine->fine_amount ?? 0), 2) ?></td>
+                            <td class="text-right text-success">₹<?= number_format((float) ($fine->paid_amount ?? 0), 2) ?></td>
+                            <td class="text-right text-danger font-weight-bold">₹<?= number_format((float) ($fine->balance_amount ?? $fine->fine_amount ?? 0), 2) ?></td>
                             <td>
                                 <?php
                                 $status_classes = [
                                     'pending' => 'badge-warning',
+                                    'partial' => 'badge-info',
                                     'paid' => 'badge-success',
                                     'waived' => 'badge-info',
                                     'cancelled' => 'badge-secondary'
@@ -57,7 +102,7 @@
                                 <?php
                                 $due_date = new DateTime($fine->due_date);
                                 $today = new DateTime();
-                                $is_overdue = $due_date < $today && $fine->status === 'pending';
+                                $is_overdue = $due_date < $today && in_array($fine->status, ['pending', 'partial']);
                                 ?>
                                 <span class="<?= $is_overdue ? 'text-danger' : '' ?>">
                                     <?= $due_date->format('d/m/Y') ?>
@@ -72,12 +117,14 @@
                                        class="btn btn-xs btn-info">
                                         <i class="fas fa-eye"></i> View
                                     </a>
-                                    <?php if ($fine->status === 'pending'): ?>
+                                    <?php if (in_array($fine->status, ['pending', 'partial']) && empty($fine->waiver_requested_at)): ?>
                                         <button type="button"
                                                 class="btn btn-xs btn-warning"
                                                 onclick="requestWaiver(<?= $fine->id ?>)">
                                             <i class="fas fa-hand-paper"></i> Request Waiver
                                         </button>
+                                    <?php elseif (!empty($fine->waiver_requested_at) && empty($fine->waiver_approved_at) && empty($fine->waiver_denied_at)): ?>
+                                        <span class="badge badge-warning"><i class="fas fa-clock"></i> Waiver Pending</span>
                                     <?php endif; ?>
                                 </div>
                             </td>

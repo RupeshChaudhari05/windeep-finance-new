@@ -20,6 +20,9 @@
                         <td>
                             <?php
                             $fine_types = [
+                                'savings_late' => 'Savings Late Payment',
+                                'loan_late' => 'Loan Late Payment',
+                                'bounced_cheque' => 'Bounced Cheque',
                                 'late_payment' => 'Late Payment',
                                 'missed_installment' => 'Missed Installment',
                                 'loan_default' => 'Loan Default',
@@ -30,8 +33,20 @@
                         </td>
                     </tr>
                     <tr>
-                        <th>Amount:</th>
-                        <td class="text-success font-weight-bold">₹<?= number_format((float) (isset($fine->amount) ? $fine->amount : 0), 2) ?></td>
+                        <th>Fine Amount:</th>
+                        <td class="font-weight-bold">₹<?= number_format((float) ($fine->fine_amount ?? 0), 2) ?></td>
+                    </tr>
+                    <tr>
+                        <th>Paid:</th>
+                        <td class="text-success">₹<?= number_format((float) ($fine->paid_amount ?? 0), 2) ?></td>
+                    </tr>
+                    <tr>
+                        <th>Waived:</th>
+                        <td class="text-info">₹<?= number_format((float) ($fine->waived_amount ?? 0), 2) ?></td>
+                    </tr>
+                    <tr>
+                        <th>Balance Due:</th>
+                        <td class="text-danger font-weight-bold">₹<?= number_format((float) ($balance ?? 0), 2) ?></td>
                     </tr>
                     <tr>
                         <th>Status:</th>
@@ -39,6 +54,7 @@
                             <?php
                             $status_classes = [
                                 'pending' => 'badge-warning',
+                                'partial' => 'badge-info',
                                 'paid' => 'badge-success',
                                 'waived' => 'badge-info',
                                 'cancelled' => 'badge-secondary'
@@ -94,11 +110,11 @@
                             <p><strong>Related Installment:</strong> #<?= $fine->installment_id ?></p>
                         <?php endif; ?>
 
-                        <?php if ($fine->status === 'paid' && $fine->paid_at): ?>
-                            <p><strong>Paid On:</strong> <?= date('d/m/Y H:i', strtotime($fine->paid_at)) ?></p>
+                        <?php if ($fine->status === 'paid' && !empty($fine->payment_date)): ?>
+                            <p><strong>Paid On:</strong> <?= date('d/m/Y', strtotime($fine->payment_date)) ?></p>
                         <?php endif; ?>
 
-                        <?php if ($fine->status === 'waived' && $fine->waived_at): ?>
+                        <?php if ($fine->status === 'waived' && !empty($fine->waived_at)): ?>
                             <p><strong>Waived On:</strong> <?= date('d/m/Y H:i', strtotime($fine->waived_at)) ?></p>
                         <?php endif; ?>
                     </div>
@@ -107,7 +123,7 @@
         </div>
 
         <!-- Waiver Request Section -->
-        <?php if ($fine->status === 'pending'): ?>
+        <?php if (in_array($fine->status, ['pending', 'partial']) && empty($waiver_request)): ?>
             <div class="row mt-4">
                 <div class="col-12">
                     <div class="card border-warning">
@@ -151,50 +167,71 @@
 
         <!-- Waiver Status Section -->
         <?php if (!empty($waiver_request)): ?>
+            <?php
+            // Determine waiver status from timestamps
+            if (!empty($waiver_request->waiver_denied_at)) {
+                $waiver_status = 'denied';
+                $waiver_status_class = 'badge-danger';
+            } elseif (!empty($waiver_request->waiver_approved_at)) {
+                $waiver_status = 'approved';
+                $waiver_status_class = 'badge-success';
+            } else {
+                $waiver_status = 'pending';
+                $waiver_status_class = 'badge-warning';
+            }
+            ?>
             <div class="row mt-4">
                 <div class="col-12">
-                    <div class="card border-info">
-                        <div class="card-header bg-info text-white">
+                    <div class="card border-<?= $waiver_status === 'approved' ? 'success' : ($waiver_status === 'denied' ? 'danger' : 'info') ?>">
+                        <div class="card-header bg-<?= $waiver_status === 'approved' ? 'success' : ($waiver_status === 'denied' ? 'danger' : 'info') ?> text-white">
                             <h6 class="card-title mb-0">
-                                <i class="fas fa-clock"></i> Waiver Request Status
+                                <i class="fas fa-<?= $waiver_status === 'approved' ? 'check-circle' : ($waiver_status === 'denied' ? 'times-circle' : 'clock') ?>"></i> Waiver Request Status
                             </h6>
                         </div>
                         <div class="card-body">
                             <div class="row">
                                 <div class="col-md-6">
-                                    <p><strong>Request Date:</strong> <?= date('d/m/Y H:i', strtotime($waiver_request->requested_at)) ?></p>
+                                    <p><strong>Request Date:</strong> <?= date('d/m/Y H:i', strtotime($waiver_request->waiver_requested_at)) ?></p>
+                                    <?php if (!empty($waiver_request->waiver_requested_amount)): ?>
+                                        <p><strong>Requested Amount:</strong> ₹<?= number_format($waiver_request->waiver_requested_amount, 2) ?></p>
+                                    <?php endif; ?>
                                     <p><strong>Status:</strong>
-                                        <?php
-                                        $waiver_status_classes = [
-                                            'pending' => 'badge-warning',
-                                            'approved' => 'badge-success',
-                                            'rejected' => 'badge-danger'
-                                        ];
-                                        $waiver_status_class = $waiver_status_classes[$waiver_request->status] ?? 'badge-secondary';
-                                        ?>
                                         <span class="badge <?= $waiver_status_class ?> badge-lg">
-                                            <?= ucfirst($waiver_request->status) ?>
+                                            <?= ucfirst($waiver_status) ?>
                                         </span>
                                     </p>
                                 </div>
                                 <div class="col-md-6">
-                                    <?php if ($waiver_request->reviewed_at): ?>
-                                        <p><strong>Reviewed On:</strong> <?= date('d/m/Y H:i', strtotime($waiver_request->reviewed_at)) ?></p>
+                                    <?php if (!empty($waiver_request->waiver_approved_at)): ?>
+                                        <p><strong>Approved On:</strong> <?= date('d/m/Y H:i', strtotime($waiver_request->waiver_approved_at)) ?></p>
+                                        <p><strong>Approved By:</strong> <?= $waiver_request->reviewer_name ?? 'Administrator' ?></p>
                                     <?php endif; ?>
-                                    <?php if ($waiver_request->reviewed_by): ?>
-                                        <p><strong>Reviewed By:</strong> <?= $waiver_request->reviewer_name ?? 'Administrator' ?></p>
+                                    <?php if (!empty($waiver_request->waiver_denied_at)): ?>
+                                        <p><strong>Denied On:</strong> <?= date('d/m/Y H:i', strtotime($waiver_request->waiver_denied_at)) ?></p>
+                                        <p><strong>Denied By:</strong> <?= $waiver_request->denier_name ?? 'Administrator' ?></p>
                                     <?php endif; ?>
                                 </div>
                             </div>
 
+                            <?php if (!empty($waiver_request->waiver_reason)): ?>
                             <div class="mt-3">
                                 <strong>Your Reason:</strong>
                                 <div class="alert alert-light">
-                                    <?= nl2br(htmlspecialchars($waiver_request->reason)) ?>
+                                    <?= nl2br(htmlspecialchars($waiver_request->waiver_reason)) ?>
                                 </div>
                             </div>
+                            <?php endif; ?>
 
-                            <?php if ($waiver_request->admin_comments): ?>
+                            <?php if (!empty($waiver_request->waiver_denied_reason)): ?>
+                                <div class="mt-3">
+                                    <strong>Denial Reason:</strong>
+                                    <div class="alert alert-danger">
+                                        <?= nl2br(htmlspecialchars($waiver_request->waiver_denied_reason)) ?>
+                                    </div>
+                                </div>
+                            <?php endif; ?>
+
+                            <?php if (!empty($waiver_request->admin_comments)): ?>
                                 <div class="mt-3">
                                     <strong>Administrator Comments:</strong>
                                     <div class="alert alert-info">
@@ -203,17 +240,17 @@
                                 </div>
                             <?php endif; ?>
 
-                            <?php if ($waiver_request->status === 'pending'): ?>
+                            <?php if ($waiver_status === 'pending'): ?>
                                 <div class="alert alert-warning mt-3">
                                     <i class="fas fa-clock"></i> Your waiver request is being reviewed. You will be notified once a decision is made.
                                 </div>
-                            <?php elseif ($waiver_request->status === 'approved'): ?>
+                            <?php elseif ($waiver_status === 'approved'): ?>
                                 <div class="alert alert-success mt-3">
                                     <i class="fas fa-check-circle"></i> Your waiver request has been approved! The fine has been waived.
                                 </div>
-                            <?php elseif ($waiver_request->status === 'rejected'): ?>
+                            <?php elseif ($waiver_status === 'denied'): ?>
                                 <div class="alert alert-danger mt-3">
-                                    <i class="fas fa-times-circle"></i> Your waiver request has been rejected. Please contact administration for more details.
+                                    <i class="fas fa-times-circle"></i> Your waiver request has been denied. Please contact administration for more details.
                                 </div>
                             <?php endif; ?>
                         </div>

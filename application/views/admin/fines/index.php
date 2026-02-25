@@ -29,8 +29,14 @@
                 <a href="<?= site_url('admin/fines/create') ?>" class="btn btn-primary btn-sm">
                     <i class="fas fa-plus"></i> Add Manual Fine
                 </a>
+                <a href="<?= site_url('admin/fines/waiver-requests') ?>" class="btn btn-outline-warning btn-sm">
+                    <i class="fas fa-user-clock"></i> Waiver Requests
+                </a>
                 <a href="<?= site_url('admin/fines/rules') ?>" class="btn btn-info btn-sm">
                     <i class="fas fa-cog"></i> Fine Rules
+                </a>
+                <a href="<?= site_url('admin/fines/recalculate_all') ?>" class="btn btn-warning btn-sm" onclick="return confirm('This will recalculate all pending fines using the correct formula. Proceed?')">
+                    <i class="fas fa-sync-alt"></i> Recalculate All
                 </a>
             </div>
         </div>
@@ -154,8 +160,11 @@
                             </td>
                             <td>
                                 <div class="btn-group">
-                                    <a href="<?= site_url('admin/fines/view/' . $fine->id) ?>" class="btn btn-xs btn-info" title="View">
+                                    <button type="button" class="btn btn-xs btn-outline-primary btn-fine-detail" data-fine-id="<?= $fine->id ?>" title="Calculation Detail">
                                         <i class="fas fa-eye"></i>
+                                    </button>
+                                    <a href="<?= site_url('admin/fines/view/' . $fine->id) ?>" class="btn btn-xs btn-info" title="Full View">
+                                        <i class="fas fa-external-link-alt"></i>
                                     </a>
                                     <?php if ($fine->status == 'pending' || $fine->status == 'partial'): ?>
                                     <a href="<?= site_url('admin/fines/collect/' . $fine->id) ?>" class="btn btn-xs btn-success" title="Collect">
@@ -198,3 +207,115 @@
     </div>
     <?php endif; ?>
 </div>
+
+<!-- Fine Calculation Detail Modal -->
+<div class="modal fade" id="fineDetailModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header bg-primary">
+                <h5 class="modal-title text-white"><i class="fas fa-calculator mr-2"></i>Fine Calculation Breakdown</h5>
+                <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+            </div>
+            <div class="modal-body" id="fineDetailBody">
+                <div class="text-center py-4">
+                    <i class="fas fa-spinner fa-spin fa-2x"></i>
+                    <p class="mt-2">Loading...</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+$(document).ready(function() {
+    // Fine Detail Modal
+    $(document).on('click', '.btn-fine-detail', function() {
+        var fineId = $(this).data('fine-id');
+        var $body = $('#fineDetailBody');
+        
+        $body.html('<div class="text-center py-4"><i class="fas fa-spinner fa-spin fa-2x"></i><p class="mt-2">Loading calculation details...</p></div>');
+        $('#fineDetailModal').modal('show');
+        
+        $.getJSON('<?= site_url('admin/fines/get_fine_detail') ?>/' + fineId, function(resp) {
+            if (!resp.success) {
+                $body.html('<div class="text-center text-danger py-3"><i class="fas fa-exclamation-circle fa-2x"></i><p>'+resp.message+'</p></div>');
+                return;
+            }
+            
+            var f = resp.fine;
+            var steps = resp.steps;
+            
+            var html = '';
+            
+            // Fine summary card
+            html += '<div class="row mb-3">';
+            html += '<div class="col-md-6">';
+            html += '<div class="card card-outline card-primary mb-0">';
+            html += '<div class="card-body py-2">';
+            html += '<table class="table table-sm table-borderless mb-0">';
+            html += '<tr><td class="text-muted">Fine Code:</td><td><strong>' + f.fine_code + '</strong></td></tr>';
+            html += '<tr><td class="text-muted">Member:</td><td>' + f.member_name + ' <small class="text-muted">(' + f.member_code + ')</small></td></tr>';
+            html += '<tr><td class="text-muted">Fine Type:</td><td>' + f.fine_type + '</td></tr>';
+            html += '<tr><td class="text-muted">Rule Applied:</td><td><span class="badge badge-info">' + f.rule_name + '</span></td></tr>';
+            html += '</table>';
+            html += '</div></div></div>';
+            
+            html += '<div class="col-md-6">';
+            html += '<div class="card card-outline card-' + (f.status === 'paid' ? 'success' : (f.status === 'pending' ? 'warning' : 'info')) + ' mb-0">';
+            html += '<div class="card-body py-2">';
+            html += '<table class="table table-sm table-borderless mb-0">';
+            html += '<tr><td class="text-muted">Fine Amount:</td><td class="font-weight-bold">&#8377;' + f.fine_amount.toLocaleString('en-IN', {minimumFractionDigits:2}) + '</td></tr>';
+            html += '<tr><td class="text-muted">Paid:</td><td class="text-success">&#8377;' + f.paid_amount.toLocaleString('en-IN', {minimumFractionDigits:2}) + '</td></tr>';
+            html += '<tr><td class="text-muted">Balance:</td><td class="text-danger font-weight-bold">&#8377;' + f.balance_amount.toLocaleString('en-IN', {minimumFractionDigits:2}) + '</td></tr>';
+            html += '<tr><td class="text-muted">Status:</td><td><span class="badge badge-' + ({pending:"warning",partial:"info",paid:"success",waived:"secondary",cancelled:"dark"}[f.status] || "secondary") + '">' + f.status.charAt(0).toUpperCase() + f.status.slice(1) + '</span></td></tr>';
+            html += '</table>';
+            html += '</div></div></div>';
+            html += '</div>';
+            
+            // Calculation Steps
+            html += '<div class="card card-outline card-secondary">';
+            html += '<div class="card-header py-2"><h6 class="card-title mb-0"><i class="fas fa-list-ol mr-1"></i> Step-by-Step Calculation</h6></div>';
+            html += '<div class="card-body p-0">';
+            html += '<table class="table table-sm table-striped mb-0">';
+            html += '<thead><tr><th width="40">#</th><th>Parameter</th><th class="text-right">Value</th></tr></thead><tbody>';
+            
+            for (var i = 0; i < steps.length; i++) {
+                var s = steps[i];
+                var cls = s.highlight ? ' class="bg-light font-weight-bold"' : '';
+                html += '<tr' + cls + '>';
+                html += '<td>' + (i + 1) + '</td>';
+                html += '<td>' + s.label + '</td>';
+                html += '<td class="text-right">' + s.value + '</td>';
+                html += '</tr>';
+            }
+            html += '</tbody></table></div></div>';
+            
+            // Correctness badge
+            if (!f.is_correct) {
+                html += '<div class="card card-danger">';
+                html += '<div class="card-body py-2">';
+                html += '<i class="fas fa-exclamation-triangle mr-1"></i> ';
+                html += '<strong>Mismatch detected!</strong> Current amount &#8377;' + f.fine_amount.toLocaleString('en-IN',{minimumFractionDigits:2}) + ' should be &#8377;' + f.correct_amount.toLocaleString('en-IN',{minimumFractionDigits:2}) + '. ';
+                html += 'Use <strong>Recalculate All</strong> button to fix all fines.';
+                html += '</div></div>';
+            } else {
+                html += '<div class="card card-success">';
+                html += '<div class="card-body py-2">';
+                html += '<i class="fas fa-check-circle mr-1"></i> <strong>Calculation is correct.</strong> Fine amount matches the rule.';
+                html += '</div></div>';
+            }
+            
+            if (f.remarks) {
+                html += '<div class="card"><div class="card-body py-2"><small class="text-muted"><i class="fas fa-sticky-note mr-1"></i> ' + f.remarks + '</small></div></div>';
+            }
+            
+            $body.html(html);
+        }).fail(function() {
+            $body.html('<div class="text-center text-danger py-3"><i class="fas fa-exclamation-circle fa-2x"></i><p>Failed to load fine details.</p></div>');
+        });
+    });
+});
+</script>

@@ -300,7 +300,7 @@ $(document).ready(function() {
         
         if (requestOnly) {
             // Submit waiver request for approval
-            $.post('<?= site_url('admin/fines/request_waiver/' . $fine->id) ?>', {amount: amount, reason: reason}, function(response) {
+            $.post('<?= site_url('admin/fines/request-waiver/' . $fine->id) ?>', {amount: amount, reason: reason}, function(response) {
                 if (response.success) {
                     toastr.success(response.message);
                     location.reload();

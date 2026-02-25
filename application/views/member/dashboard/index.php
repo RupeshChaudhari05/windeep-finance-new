@@ -20,7 +20,7 @@
             </div>
             <div class="card-body">
                 <div class="row">
-                    <div class="col-md-4">
+                    <div class="col-lg-3 col-md-6">
                         <div class="small-box bg-primary" data-toggle="tooltip" data-placement="top" title="Total number of your currently active (disbursed) loans">
                             <div class="inner">
                                 <h3><?= number_format($loans_summary->total_loans ?? 0) ?></h3>
@@ -30,22 +30,34 @@
                             <a href="<?= site_url('member/loans') ?>" class="small-box-footer">View Loans <i class="fas fa-arrow-circle-right"></i></a>
                         </div>
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-lg-3 col-md-6">
                         <div class="small-box bg-success" data-toggle="tooltip" data-placement="top" title="Total remaining principal + interest amount across all your active loans">
                             <div class="inner">
-                                <h3>₹<?= number_format($loans_summary->total_outstanding ?? 0, 2) ?></h3>
+                                <h3>₹<?= number_format($loans_summary->total_outstanding ?? 0, 0) ?></h3>
                                 <p>Outstanding</p>
                             </div>
                             <div class="icon"><i class="fas fa-wallet"></i></div>
+                            <a href="<?= site_url('member/loans') ?>" class="small-box-footer">View Details <i class="fas fa-arrow-circle-right"></i></a>
                         </div>
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-lg-3 col-md-6">
                         <div class="small-box bg-warning" data-toggle="tooltip" data-placement="top" title="Total unpaid fines/penalties. Pay these to avoid further charges.">
                             <div class="inner">
-                                <h3>₹<?= number_format($pending_fines->total_fines ?? 0, 2) ?></h3>
+                                <h3>₹<?= number_format($pending_fines->total_fines ?? 0, 0) ?></h3>
                                 <p>Pending Fines</p>
                             </div>
                             <div class="icon"><i class="fas fa-gavel"></i></div>
+                            <a href="<?= site_url('member/fines') ?>" class="small-box-footer">View Fines <i class="fas fa-arrow-circle-right"></i></a>
+                        </div>
+                    </div>
+                    <div class="col-lg-3 col-md-6">
+                        <div class="small-box bg-<?= ($unread_notifications_count ?? 0) > 0 ? 'danger' : 'secondary' ?>" data-toggle="tooltip" data-placement="top" title="Unread notifications - click to view all">
+                            <div class="inner">
+                                <h3><?= number_format($unread_notifications_count ?? 0) ?></h3>
+                                <p>Notifications</p>
+                            </div>
+                            <div class="icon"><i class="fas fa-bell<?= ($unread_notifications_count ?? 0) > 0 ? ' fa-shake' : '' ?>"></i></div>
+                            <a href="<?= site_url('member/notifications') ?>" class="small-box-footer">View All <i class="fas fa-arrow-circle-right"></i></a>
                         </div>
                     </div>
                 </div>
@@ -150,8 +162,14 @@
                 <a href="<?= site_url('member/savings') ?>" class="btn btn-success btn-block mb-2" data-toggle="tooltip" title="View your savings accounts, balances, and transaction history">
                     <i class="fas fa-piggy-bank mr-1"></i> View Savings
                 </a>
-                <a href="<?= site_url('member/installments') ?>" class="btn btn-warning btn-block" data-toggle="tooltip" title="View all your upcoming and past installment payments">
+                <a href="<?= site_url('member/installments') ?>" class="btn btn-warning btn-block mb-2" data-toggle="tooltip" title="View all your upcoming and past installment payments">
                     <i class="fas fa-calendar-check mr-1"></i> View Installments
+                </a>
+                <a href="<?= site_url('member/notifications') ?>" class="btn btn-<?= ($unread_notifications_count ?? 0) > 0 ? 'danger' : 'outline-secondary' ?> btn-block" data-toggle="tooltip" title="View all your notifications">
+                    <i class="fas fa-bell mr-1"></i> Notifications
+                    <?php if (($unread_notifications_count ?? 0) > 0): ?>
+                        <span class="badge badge-light ml-1"><?= $unread_notifications_count ?></span>
+                    <?php endif; ?>
                 </a>
             </div>
         </div>
