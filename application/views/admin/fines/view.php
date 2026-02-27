@@ -37,7 +37,7 @@
                             </tr>
                             <tr>
                                 <td class="text-muted">Fine Date:</td>
-                                <td><?= format_date($fine->fine_date, 'd M Y') ?></td>
+                                <td><?= format_date($fine->fine_date) ?></td>
                             </tr>
                             <tr>
                                 <td class="text-muted">Related Rule:</td>
@@ -49,20 +49,20 @@
                         <table class="table table-borderless table-sm">
                             <tr>
                                 <td class="text-muted">Fine Amount:</td>
-                                <td class="text-danger font-weight-bold">₹<?= number_format($fine->fine_amount, 2) ?></td>
+                                <td class="text-danger font-weight-bold"><?= format_amount($fine->fine_amount) ?></td>
                             </tr>
                             <tr>
                                 <td class="text-muted">Paid Amount:</td>
-                                <td class="text-success">₹<?= number_format($fine->paid_amount ?? 0, 2) ?></td>
+                                <td class="text-success"><?= format_amount($fine->paid_amount ?? 0) ?></td>
                             </tr>
                             <tr>
                                 <td class="text-muted">Waived Amount:</td>
-                                <td>₹<?= number_format($fine->waived_amount ?? 0, 2) ?></td>
+                                <td><?= format_amount($fine->waived_amount ?? 0) ?></td>
                             </tr>
                             <tr>
                                 <td class="text-muted">Balance Due:</td>
                                 <td class="text-warning font-weight-bold">
-                                    ₹<?= number_format($fine->fine_amount - ($fine->paid_amount ?? 0) - ($fine->waived_amount ?? 0), 2) ?>
+                                    <?= format_amount($fine->fine_amount - ($fine->paid_amount ?? 0) - ($fine->waived_amount ?? 0)) ?>
                                 </td>
                             </tr>
                         </table>
@@ -129,8 +129,8 @@
                             <td>
                                 <span class="badge badge-success">Paid</span>
                             </td>
-                            <td class="text-right">₹<?= number_format($fine->paid_amount, 2) ?></td>
-                            <td><?= format_date($fine->updated_at, 'd M Y') ?></td>
+                            <td class="text-right"><?= format_amount($fine->paid_amount) ?></td>
+                            <td><?= format_date($fine->updated_at) ?></td>
                             <td>Payment received</td>
                         </tr>
                         <?php endif; ?>
@@ -139,8 +139,8 @@
                             <td>
                                 <span class="badge badge-info">Waived</span>
                             </td>
-                            <td class="text-right">₹<?= number_format($fine->waived_amount, 2) ?></td>
-                            <td><?= format_date($fine->waived_at, 'd M Y') ?></td>
+                            <td class="text-right"><?= format_amount($fine->waived_amount) ?></td>
+                            <td><?= format_date($fine->waived_at) ?></td>
                             <td><?= $fine->waiver_reason ?: 'Waiver applied' ?></td>
                         </tr>
                         <?php endif; ?>
@@ -201,20 +201,20 @@
                 <h5 class="mb-3">Balance Summary</h5>
                 <div class="d-flex justify-content-between">
                     <span>Fine Amount:</span>
-                    <span>₹<?= number_format($fine->fine_amount, 2) ?></span>
+                    <span><?= format_amount($fine->fine_amount) ?></span>
                 </div>
                 <div class="d-flex justify-content-between">
                     <span>Paid:</span>
-                    <span>₹<?= number_format($fine->paid_amount ?? 0, 2) ?></span>
+                    <span><?= format_amount($fine->paid_amount ?? 0) ?></span>
                 </div>
                 <div class="d-flex justify-content-between">
                     <span>Waived:</span>
-                    <span>₹<?= number_format($fine->waived_amount ?? 0, 2) ?></span>
+                    <span><?= format_amount($fine->waived_amount ?? 0) ?></span>
                 </div>
                 <hr class="bg-white">
                 <div class="d-flex justify-content-between">
                     <strong>Balance Due:</strong>
-                    <strong>₹<?= number_format($balance, 2) ?></strong>
+                    <strong><?= format_amount($balance) ?></strong>
                 </div>
             </div>
         </div>
@@ -233,10 +233,10 @@
                 <div class="form-group">
                     <label>Waive Amount <span class="text-danger">*</span></label>
                     <div class="input-group">
-                        <div class="input-group-prepend"><span class="input-group-text">₹</span></div>
+                        <div class="input-group-prepend"><span class="input-group-text"><?= get_currency_symbol() ?></span></div>
                         <input type="number" id="waive_amount" class="form-control" value="<?= $balance ?>" max="<?= $balance ?>" step="0.01">
                     </div>
-                    <small class="text-muted">Max: ₹<?= number_format($balance, 2) ?></small>
+                    <small class="text-muted">Max: <?= format_amount($balance) ?></small>
                 </div>
                 <div class="form-group form-check">
                     <input type="checkbox" id="waive_request_only" class="form-check-input">

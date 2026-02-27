@@ -457,12 +457,12 @@ $(document).ready(function() {
                         var html = '<option value="">Select...</option>';
                         if (response.savings_accounts) {
                             response.savings_accounts.forEach(function(acc) {
-                                html += '<option value="savings_' + acc.id + '">Savings: ' + acc.account_number + ' (₹' + acc.balance + ')</option>';
+                                html += '<option value="savings_' + acc.id + '">Savings: ' + acc.account_number + ' (<?= get_currency_symbol() ?>' + acc.balance + ')</option>';
                             });
                         }
                         if (response.loans) {
                             response.loans.forEach(function(loan) {
-                                html += '<option value="loan_' + loan.id + '">Loan: ' + loan.loan_number + ' (₹' + loan.outstanding + ' due)</option>';
+                                html += '<option value="loan_' + loan.id + '">Loan: ' + loan.loan_number + ' (<?= get_currency_symbol() ?>' + loan.outstanding + ' due)</option>';
                             });
                         }
                         $('#related_account').html(html);

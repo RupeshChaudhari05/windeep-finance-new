@@ -139,8 +139,8 @@ class Fines extends Admin_Controller {
         
         // Recalculate step by step
         $steps = [];
-        $steps[] = ['label' => 'Due Date', 'value' => date('d M Y', strtotime($fine->due_date))];
-        $steps[] = ['label' => 'Fine Date', 'value' => date('d M Y', strtotime($fine->fine_date))];
+        $steps[] = ['label' => 'Due Date', 'value' => format_date($fine->due_date)];
+        $steps[] = ['label' => 'Fine Date', 'value' => format_date($fine->fine_date)];
         $steps[] = ['label' => 'Total Days Late', 'value' => $days_late . ' days'];
         $steps[] = ['label' => 'Grace Period', 'value' => $grace . ' days'];
         $steps[] = ['label' => 'Effective Overdue Days', 'value' => $effective_days . ' days (= ' . $days_late . ' - ' . $grace . ')'];
@@ -149,33 +149,33 @@ class Fines extends Admin_Controller {
         if ($calc_type === 'fixed') {
             $correct_amount = $rule_value;
             $steps[] = ['label' => 'Calculation Type', 'value' => 'Fixed Amount'];
-            $steps[] = ['label' => 'Fixed Fine', 'value' => '₹' . number_format($rule_value, 2)];
+            $steps[] = ['label' => 'Fixed Fine', 'value' => format_amount($rule_value)];
         } elseif ($calc_type === 'percentage') {
             $steps[] = ['label' => 'Calculation Type', 'value' => 'Percentage'];
             $steps[] = ['label' => 'Rate', 'value' => $rule_value . '%'];
             $correct_amount = $rule_value;
         } elseif ($calc_type === 'per_day') {
             $steps[] = ['label' => 'Calculation Type', 'value' => 'Per Day (Fixed + Daily)'];
-            $steps[] = ['label' => 'Initial Fixed Amount', 'value' => '₹' . number_format($rule_value, 2)];
-            $steps[] = ['label' => 'Per Day Rate', 'value' => '₹' . number_format($per_day, 2) . '/day'];
+            $steps[] = ['label' => 'Initial Fixed Amount', 'value' => format_amount($rule_value)];
+            $steps[] = ['label' => 'Per Day Rate', 'value' => format_amount($per_day) . '/day'];
             
             if ($effective_days > 0) {
                 $daily_portion = $per_day * max(0, $effective_days - 1);
                 $correct_amount = $rule_value + $daily_portion;
-                $steps[] = ['label' => 'Calculation', 'value' => '₹' . number_format($rule_value, 2) . ' + (₹' . number_format($per_day, 2) . ' x ' . max(0, $effective_days - 1) . ' days) = ₹' . number_format($correct_amount, 2)];
+                $steps[] = ['label' => 'Calculation', 'value' => format_amount($rule_value) . ' + (' . format_amount($per_day) . ' x ' . max(0, $effective_days - 1) . ' days) = ' . format_amount($correct_amount)];
             }
         }
         
         if ($max_cap > 0) {
-            $steps[] = ['label' => 'Max Cap', 'value' => '₹' . number_format($max_cap, 2)];
+            $steps[] = ['label' => 'Max Cap', 'value' => format_amount($max_cap)];
             if ($correct_amount > $max_cap) {
                 $correct_amount = $max_cap;
-                $steps[] = ['label' => 'Capped Amount', 'value' => '₹' . number_format($max_cap, 2) . ' (cap applied)'];
+                $steps[] = ['label' => 'Capped Amount', 'value' => format_amount($max_cap) . ' (cap applied)'];
             }
         }
         
-        $steps[] = ['label' => 'Correct Fine Amount', 'value' => '₹' . number_format($correct_amount, 2), 'highlight' => true];
-        $steps[] = ['label' => 'Current Fine (in DB)', 'value' => '₹' . number_format($fine->fine_amount, 2), 'highlight' => true];
+        $steps[] = ['label' => 'Correct Fine Amount', 'value' => format_amount($correct_amount), 'highlight' => true];
+        $steps[] = ['label' => 'Current Fine (in DB)', 'value' => format_amount($fine->fine_amount), 'highlight' => true];
         
         $is_correct = abs($correct_amount - (float)$fine->fine_amount) < 0.02;
         
@@ -188,8 +188,8 @@ class Fines extends Admin_Controller {
                 'member_code' => $fine->member_code,
                 'fine_type' => ucfirst(str_replace('_', ' ', $fine->fine_type)),
                 'rule_name' => $fine->rule_name ?: 'N/A',
-                'fine_date' => date('d M Y', strtotime($fine->fine_date)),
-                'due_date' => date('d M Y', strtotime($fine->due_date)),
+                'fine_date' => format_date($fine->fine_date),
+                'due_date' => format_date($fine->due_date),
                 'days_late' => $days_late,
                 'fine_amount' => (float)$fine->fine_amount,
                 'paid_amount' => (float)$fine->paid_amount,
@@ -541,7 +541,7 @@ class Fines extends Admin_Controller {
             $this->log_audit('update', 'fine_rules', 'fine_rules', $id, (array)$old, $rule_data);
             $this->json_response([
                 'success' => true, 
-                'message' => 'Rule updated. Changes effective from ' . date('d M Y', strtotime($effective_from))
+                'message' => 'Rule updated. Changes effective from ' . format_date($effective_from)
             ]);
         } else {
             // New rule: effective immediately

@@ -255,7 +255,7 @@
             
             <div class="info-row">
                 <span class="info-label">Date of Birth:</span>
-                <span><?= !empty($member->date_of_birth) ? date('d M Y', strtotime($member->date_of_birth)) : 'N/A' ?></span>
+                <span><?= !empty($member->date_of_birth) ? format_date($member->date_of_birth) : 'N/A' ?></span>
             </div>
             
             <div class="info-row">

@@ -5,24 +5,24 @@
         <table class="table table-sm">
             <tr>
                 <td><strong>Outstanding Principal:</strong></td>
-                <td class="text-right">₹<?= number_format($calculation['outstanding_principal'], 2) ?></td>
+                <td class="text-right"><?= format_amount($calculation['outstanding_principal']) ?></td>
             </tr>
             <?php if ($calculation['prepayment_charge'] > 0): ?>
             <tr>
                 <td><strong>Prepayment Charge (<?= $calculation['prepayment_percentage'] ?>%):</strong></td>
-                <td class="text-right text-warning">₹<?= number_format($calculation['prepayment_charge'], 2) ?></td>
+                <td class="text-right text-warning"><?= format_amount($calculation['prepayment_charge']) ?></td>
             </tr>
             <?php endif; ?>
             <?php if ($calculation['pending_fines'] > 0): ?>
             <tr>
                 <td><strong>Pending Fines:</strong></td>
-                <td class="text-right text-danger">₹<?= number_format($calculation['pending_fines'], 2) ?></td>
+                <td class="text-right text-danger"><?= format_amount($calculation['pending_fines']) ?></td>
             </tr>
             <?php endif; ?>
             <tr class="table-active">
                 <td><strong>Total Foreclosure Amount:</strong></td>
                 <td class="text-right font-weight-bold text-primary" id="calculatedAmount">
-                    ₹<?= number_format($calculation['total_amount'], 2) ?>
+                    <?= format_amount($calculation['total_amount']) ?>
                 </td>
             </tr>
         </table>
@@ -39,7 +39,7 @@
             <div class="card-body text-center">
                 <h6>Total Amount Due</h6>
                 <h3 class="text-danger font-weight-bold">
-                    ₹<?= number_format($calculation['total_amount'], 2) ?>
+                    <?= format_amount($calculation['total_amount']) ?>
                 </h3>
                 <small class="text-muted">Including all charges</small>
             </div>
@@ -52,7 +52,7 @@
                 <?php foreach ($calculation['pending_fines_list'] as $fine): ?>
                 <div class="list-group-item px-0">
                     <small>
-                        <strong>Fine #<?= $fine->id ?>:</strong> ₹<?= number_format((float) (isset($fine->amount) ? $fine->amount : 0), 2) ?>
+                        <strong>Fine #<?= $fine->id ?>:</strong> <?= format_amount((float) (isset($fine->amount) ? $fine->amount : 0)) ?>
                         <br>
                         <span class="text-muted">
                             <?php

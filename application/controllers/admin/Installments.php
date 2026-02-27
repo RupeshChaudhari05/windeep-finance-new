@@ -310,7 +310,7 @@ class Installments extends Admin_Controller {
                 $message = "Dear " . $installment->first_name . ",\n\n";
                 $message .= "This is a reminder for your upcoming/overdue installment.\n\n";
                 $message .= "Loan: " . $installment->loan_number . "\n";
-                $message .= "Due Date: " . date('d-M-Y', strtotime($installment->due_date)) . "\n";
+                $message .= "Due Date: " . format_date($installment->due_date) . "\n";
                 $message .= "EMI Amount: " . $cs . number_format($installment->emi_amount, 2) . "\n\n";
                 $message .= "Please make your payment at the earliest to avoid penalties.\n\n";
                 $message .= "Thank you,\n" . $org_name;
@@ -330,7 +330,7 @@ class Installments extends Admin_Controller {
             'target_type' => 'member',
             'target_id' => $installment->member_id,
             'title' => 'Installment Due Reminder',
-            'message' => 'Reminder: EMI of ' . $this->get_setting('currency_symbol', '₹') . number_format($installment->emi_amount, 2) . ' for loan ' . $installment->loan_number . ' is due on ' . date('d-M-Y', strtotime($installment->due_date)) . '.',
+            'message' => 'Reminder: EMI of ' . $this->get_setting('currency_symbol', '₹') . number_format($installment->emi_amount, 2) . ' for loan ' . $installment->loan_number . ' is due on ' . format_date($installment->due_date) . '.',
             'type' => 'reminder',
             'reference_type' => 'loan_installment',
             'reference_id' => $installment_id,

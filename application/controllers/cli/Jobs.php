@@ -54,7 +54,7 @@ class Jobs extends CI_Controller {
             $result = send_due_date_reminder($member, $due, $due->due_amount, $due->due_date);
 
             if ($result['success']) {
-                echo "✓ Sent reminder to {$member->email} for ₹{$due->due_amount}\n";
+                echo "✓ Sent reminder to {$member->email} for " . format_amount($due->due_amount) . "\n";
                 $sent_count++;
             } else {
                 echo "✗ Failed to send to {$member->email}: {$result['message']}\n";
@@ -99,7 +99,7 @@ class Jobs extends CI_Controller {
             $result = send_installment_reminder($member, $installment);
 
             if ($result['success']) {
-                echo "✓ Sent installment reminder to {$member->email} for ₹{$installment->amount}\n";
+                echo "✓ Sent installment reminder to {$member->email} for " . format_amount($installment->amount) . "\n";
                 $sent_count++;
             } else {
                 echo "✗ Failed to send to {$member->email}: {$result['message']}\n";

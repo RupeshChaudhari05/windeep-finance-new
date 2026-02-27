@@ -87,8 +87,8 @@ class Notifications extends Member_Controller {
             'purpose'            => ucfirst(str_replace('_', ' ', $app->purpose)),
             'purpose_details'    => $app->purpose_details ?? '',
             'status'             => ucfirst(str_replace('_', ' ', $app->status)),
-            'application_date'   => date('d M Y', strtotime($app->application_date)),
-            'expiry_date'        => $app->expiry_date ? date('d M Y', strtotime($app->expiry_date)) : '-',
+            'application_date'   => format_date($app->application_date),
+            'expiry_date'        => $app->expiry_date ? format_date($app->expiry_date) : '-',
         ]);
     }
 }

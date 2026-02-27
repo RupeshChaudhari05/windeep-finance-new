@@ -59,7 +59,7 @@
                     <div class="row">
                         <div class="col-md-6">
                             <div class="form-group">
-                                <label for="monthly_amount">Monthly Amount (₹) <span class="text-danger">*</span></label>
+                                <label for="monthly_amount">Monthly Amount (<?= get_currency_symbol() ?>) <span class="text-danger">*</span></label>
                                 <input type="number" class="form-control" id="monthly_amount" name="monthly_amount" 
                                        value="<?= set_value('monthly_amount') ?>" required min="100"
                                        placeholder="Enter monthly deposit amount">
@@ -113,7 +113,7 @@
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="form-group">
-                                    <label for="deposit_amount">Deposit Amount (₹)</label>
+                                    <label for="deposit_amount">Deposit Amount (<?= get_currency_symbol() ?>)</label>
                                     <input type="number" class="form-control" id="deposit_amount" name="deposit_amount" min="0">
                                 </div>
                             </div>
@@ -165,7 +165,7 @@
                 <table class="table table-sm table-borderless">
                     <tr>
                         <td>Monthly Deposit:</td>
-                        <td class="text-right font-weight-bold" id="calcMonthly">₹0</td>
+                        <td class="text-right font-weight-bold" id="calcMonthly"><?= get_currency_symbol() ?>0</td>
                     </tr>
                     <tr>
                         <td>Duration:</td>
@@ -177,15 +177,15 @@
                     </tr>
                     <tr class="border-top">
                         <td>Total Deposits:</td>
-                        <td class="text-right" id="calcTotal">₹0</td>
+                        <td class="text-right" id="calcTotal"><?= get_currency_symbol() ?>0</td>
                     </tr>
                     <tr>
                         <td>Expected Interest:</td>
-                        <td class="text-right text-success" id="calcInterestAmt">₹0</td>
+                        <td class="text-right text-success" id="calcInterestAmt"><?= get_currency_symbol() ?>0</td>
                     </tr>
                     <tr class="border-top">
                         <td><strong>Maturity Amount:</strong></td>
-                        <td class="text-right font-weight-bold text-primary" id="calcMaturity">₹0</td>
+                        <td class="text-right font-weight-bold text-primary" id="calcMaturity"><?= get_currency_symbol() ?>0</td>
                     </tr>
                     <tr>
                         <td>Maturity Date:</td>
@@ -239,7 +239,7 @@ $(document).ready(function() {
             var interest = selected.data('interest');
             var duration = selected.data('duration');
             
-            $('#amountRange').text('Min: ₹' + min.toLocaleString() + ' | Max: ₹' + (max || 'No limit').toLocaleString());
+            $('#amountRange').text('Min: <?= get_currency_symbol() ?>' + min.toLocaleString() + ' | Max: <?= get_currency_symbol() ?>' + (max || 'No limit').toLocaleString());
             $('#monthly_amount').attr('min', min).attr('max', max || 99999999);
             
             if (duration) {
@@ -249,8 +249,8 @@ $(document).ready(function() {
             $('#schemeDetails').html(`
                 <table class="table table-sm table-borderless">
                     <tr><td>Interest Rate:</td><td class="text-right"><strong>${interest}% p.a.</strong></td></tr>
-                    <tr><td>Min Amount:</td><td class="text-right">₹${min.toLocaleString()}</td></tr>
-                    <tr><td>Max Amount:</td><td class="text-right">₹${(max || 'No limit').toLocaleString()}</td></tr>
+                    <tr><td>Min Amount:</td><td class="text-right"><?= get_currency_symbol() ?>${min.toLocaleString()}</td></tr>
+                    <tr><td>Max Amount:</td><td class="text-right"><?= get_currency_symbol() ?>${(max || 'No limit').toLocaleString()}</td></tr>
                     <tr><td>Default Duration:</td><td class="text-right">${duration ? duration + ' months' : 'Open-ended'}</td></tr>
                 </table>
             `);
@@ -278,12 +278,12 @@ $(document).ready(function() {
         var maturityDate = new Date(startDate);
         maturityDate.setMonth(maturityDate.getMonth() + duration);
         
-        $('#calcMonthly').text('₹' + monthly.toLocaleString());
+        $('#calcMonthly').text('<?= get_currency_symbol() ?>' + monthly.toLocaleString());
         $('#calcDuration').text(duration + ' months');
         $('#calcInterest').text(interest + '% p.a.');
-        $('#calcTotal').text('₹' + totalDeposits.toLocaleString());
-        $('#calcInterestAmt').text('₹' + interestAmt.toLocaleString() + ' (approx)');
-        $('#calcMaturity').text('₹' + maturity.toLocaleString());
+        $('#calcTotal').text('<?= get_currency_symbol() ?>' + totalDeposits.toLocaleString());
+        $('#calcInterestAmt').text('<?= get_currency_symbol() ?>' + interestAmt.toLocaleString() + ' (approx)');
+        $('#calcMaturity').text('<?= get_currency_symbol() ?>' + maturity.toLocaleString());
         $('#calcMaturityDate').text(maturityDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }));
     }
     

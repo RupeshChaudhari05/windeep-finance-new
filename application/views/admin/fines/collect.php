@@ -32,16 +32,16 @@
                         <table class="table table-borderless table-sm">
                             <tr>
                                 <td class="text-muted">Total Fine:</td>
-                                <td class="text-danger font-weight-bold">₹<?= number_format($fine->fine_amount, 2) ?></td>
+                                <td class="text-danger font-weight-bold"><?= format_amount($fine->fine_amount) ?></td>
                             </tr>
                             <tr>
                                 <td class="text-muted">Paid Amount:</td>
-                                <td class="text-success">₹<?= number_format($fine->paid_amount ?? 0, 2) ?></td>
+                                <td class="text-success"><?= format_amount($fine->paid_amount ?? 0) ?></td>
                             </tr>
                             <tr>
                                 <td class="text-muted">Balance Due:</td>
                                 <?php $balance = $fine->fine_amount - ($fine->paid_amount ?? 0) - ($fine->waived_amount ?? 0); ?>
-                                <td class="text-warning font-weight-bold">₹<?= number_format($balance, 2) ?></td>
+                                <td class="text-warning font-weight-bold"><?= format_amount($balance) ?></td>
                             </tr>
                         </table>
                     </div>
@@ -76,7 +76,7 @@
                             </tr>
                             <tr>
                                 <td class="text-muted">Savings Balance:</td>
-                                <td class="text-success">₹<?= number_format($member->savings_balance ?? 0, 2) ?></td>
+                                <td class="text-success"><?= format_amount($member->savings_balance ?? 0) ?></td>
                             </tr>
                         </table>
                     </div>
@@ -96,11 +96,11 @@
                     <div class="form-group">
                         <label>Amount <span class="text-danger">*</span></label>
                         <div class="input-group">
-                            <div class="input-group-prepend"><span class="input-group-text">₹</span></div>
+                            <div class="input-group-prepend"><span class="input-group-text"><?= get_currency_symbol() ?></span></div>
                             <input type="number" name="amount" id="amount" class="form-control" 
                                    value="<?= $balance ?>" max="<?= $balance ?>" step="0.01" required>
                         </div>
-                        <small class="text-muted">Balance: ₹<?= number_format($balance, 2) ?></small>
+                        <small class="text-muted">Balance: <?= format_amount($balance) ?></small>
                     </div>
                     
                     <div class="form-group">
@@ -140,12 +140,12 @@
             <div class="card-body">
                 <h6 class="text-muted">Quick Amount</h6>
                 <div class="btn-group btn-group-sm d-flex flex-wrap">
-                    <button type="button" class="btn btn-outline-primary quick-amount" data-amount="<?= $balance ?>">Full (₹<?= number_format($balance) ?>)</button>
+                    <button type="button" class="btn btn-outline-primary quick-amount" data-amount="<?= $balance ?>">Full (<?= format_amount($balance, 0) ?>)</button>
                     <?php if ($balance >= 100): ?>
-                    <button type="button" class="btn btn-outline-secondary quick-amount" data-amount="100">₹100</button>
+                    <button type="button" class="btn btn-outline-secondary quick-amount" data-amount="100"><?= get_currency_symbol() ?>100</button>
                     <?php endif; ?>
                     <?php if ($balance >= 500): ?>
-                    <button type="button" class="btn btn-outline-secondary quick-amount" data-amount="500">₹500</button>
+                    <button type="button" class="btn btn-outline-secondary quick-amount" data-amount="500"><?= get_currency_symbol() ?>500</button>
                     <?php endif; ?>
                 </div>
             </div>

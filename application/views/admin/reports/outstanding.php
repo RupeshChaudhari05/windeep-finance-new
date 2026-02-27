@@ -56,7 +56,7 @@
                     <span class="info-box-icon"><i class="fas fa-rupee-sign"></i></span>
                     <div class="info-box-content">
                         <span class="info-box-text">Total Outstanding</span>
-                        <span class="info-box-number">₹<?= number_format($summary['total_outstanding'] ?? 0) ?></span>
+                        <span class="info-box-number"><?= format_amount($summary['total_outstanding'] ?? 0, 0) ?></span>
                     </div>
                 </div>
             </div>
@@ -65,7 +65,7 @@
                     <span class="info-box-icon"><i class="fas fa-clock"></i></span>
                     <div class="info-box-content">
                         <span class="info-box-text">Overdue Amount</span>
-                        <span class="info-box-number">₹<?= number_format($summary['overdue_amount'] ?? 0) ?></span>
+                        <span class="info-box-number"><?= format_amount($summary['overdue_amount'] ?? 0, 0) ?></span>
                     </div>
                 </div>
             </div>
@@ -83,7 +83,7 @@
                     <span class="info-box-icon"><i class="fas fa-ban"></i></span>
                     <div class="info-box-content">
                         <span class="info-box-text">NPA (90+ Days)</span>
-                        <span class="info-box-number">₹<?= number_format($summary['npa_amount'] ?? 0) ?></span>
+                        <span class="info-box-number"><?= format_amount($summary['npa_amount'] ?? 0, 0) ?></span>
                     </div>
                 </div>
             </div>
@@ -130,7 +130,7 @@
                                 <tr>
                                     <td><?= $bucket['bucket'] ?></td>
                                     <td class="text-right"><?= $bucket['count'] ?></td>
-                                    <td class="text-right">₹<?= number_format($bucket['amount']) ?></td>
+                                    <td class="text-right"><?= format_amount($bucket['amount'], 0) ?></td>
                                     <td class="text-right"><?= round(($bucket['amount'] / max($total, 1)) * 100, 1) ?>%</td>
                                 </tr>
                                 <?php endforeach; ?>
@@ -176,16 +176,16 @@
                             </td>
                             <td><?= $rec->account_number ?></td>
                             <td><span class="badge badge-<?= $rec->type == 'loan' ? 'primary' : 'success' ?>"><?= ucfirst($rec->type) ?></span></td>
-                            <td><?= format_date($rec->due_date, 'd M Y') ?></td>
+                            <td><?= format_date($rec->due_date) ?></td>
                             <td>
                                 <span class="badge badge-<?= $rec->days_overdue > 90 ? 'danger' : ($rec->days_overdue > 30 ? 'warning' : 'secondary') ?>">
                                     <?= $rec->days_overdue ?> days
                                 </span>
                             </td>
-                            <td class="text-right">₹<?= number_format($rec->principal_due ?? 0) ?></td>
-                            <td class="text-right">₹<?= number_format($rec->interest_due ?? 0) ?></td>
-                            <td class="text-right">₹<?= number_format($rec->fine_due ?? 0) ?></td>
-                            <td class="text-right font-weight-bold">₹<?= number_format($rec->total_due) ?></td>
+                            <td class="text-right"><?= format_amount($rec->principal_due ?? 0, 0) ?></td>
+                            <td class="text-right"><?= format_amount($rec->interest_due ?? 0, 0) ?></td>
+                            <td class="text-right"><?= format_amount($rec->fine_due ?? 0, 0) ?></td>
+                            <td class="text-right font-weight-bold"><?= format_amount($rec->total_due, 0) ?></td>
                             <td>
                                 <?php if ($rec->days_overdue > 90): ?>
                                     <span class="badge badge-danger">NPA</span>
@@ -202,10 +202,10 @@
                 <tfoot class="table-dark">
                     <tr>
                         <th colspan="6" class="text-right">Total:</th>
-                        <th class="text-right">₹<?= number_format($summary['total_principal'] ?? 0) ?></th>
-                        <th class="text-right">₹<?= number_format($summary['total_interest'] ?? 0) ?></th>
-                        <th class="text-right">₹<?= number_format($summary['total_fine'] ?? 0) ?></th>
-                        <th class="text-right">₹<?= number_format($summary['total_outstanding'] ?? 0) ?></th>
+                        <th class="text-right"><?= format_amount($summary['total_principal'] ?? 0, 0) ?></th>
+                        <th class="text-right"><?= format_amount($summary['total_interest'] ?? 0, 0) ?></th>
+                        <th class="text-right"><?= format_amount($summary['total_fine'] ?? 0, 0) ?></th>
+                        <th class="text-right"><?= format_amount($summary['total_outstanding'] ?? 0, 0) ?></th>
                         <th></th>
                     </tr>
                 </tfoot>
@@ -234,7 +234,7 @@ $(document).ready(function() {
             scales: {
                 y: { 
                     beginAtZero: true,
-                    ticks: { callback: function(v) { return '₹' + v.toLocaleString(); } }
+                    ticks: { callback: function(v) { return '<?= get_currency_symbol() ?>' + v.toLocaleString(); } }
                 }
             }
         }

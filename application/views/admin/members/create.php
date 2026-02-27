@@ -262,7 +262,7 @@
                 </div>
                 <div class="col-md-4">
                     <div class="form-group">
-                        <label for="monthly_income">Monthly Income (₹)</label>
+                        <label for="monthly_income">Monthly Income (<?= get_currency_symbol() ?>)</label>
                         <input type="number" class="form-control" id="monthly_income" name="monthly_income" 
                                value="<?= set_value('monthly_income') ?>" min="0"
                                placeholder="Monthly income" title="Approximate monthly income">

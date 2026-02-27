@@ -47,7 +47,7 @@ if (!empty($notifications)) {
                             <div class="flex-grow-1">
                                 <div class="d-flex justify-content-between">
                                     <strong><?= htmlspecialchars($n->title) ?></strong>
-                                    <small class="text-muted ml-2 text-nowrap"><?= date('d M Y h:i A', strtotime($n->created_at)) ?></small>
+                                    <small class="text-muted ml-2 text-nowrap"><?= format_date_time($n->created_at) ?></small>
                                 </div>
                                 <div class="small mt-1" style="word-break: break-word;"><?= nl2br(htmlspecialchars($n->message)) ?></div>
 
@@ -298,7 +298,7 @@ $(function () {
                     '  <div class="col-md-6">' +
                     '    <table class="table table-sm table-borderless">' +
                     '      <tr><th class="text-muted" width="45%">Loan Product</th><td>' + d.product_name + '</td></tr>' +
-                    '      <tr><th class="text-muted">Amount</th><td><strong class="text-primary">₹' + d.requested_amount + '</strong></td></tr>' +
+                    '      <tr><th class="text-muted">Amount</th><td><strong class="text-primary"><?= get_currency_symbol() ?>' + d.requested_amount + '</strong></td></tr>' +
                     '      <tr><th class="text-muted">Tenure</th><td>' + d.tenure + '</td></tr>' +
                     '      <tr><th class="text-muted">Interest Type</th><td>' + d.interest_type + '</td></tr>' +
                     '      <tr><th class="text-muted">Purpose</th><td>' + d.purpose + '</td></tr>' +

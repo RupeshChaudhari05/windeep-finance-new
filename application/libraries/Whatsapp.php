@@ -85,7 +85,7 @@ class Whatsapp {
         return $this->send_template($phone, 'payment_reminder', [
             ['type' => 'text', 'text' => $member_name],
             ['type' => 'currency', 'currency' => ['fallback_value' => "₹{$amount}", 'code' => 'INR', 'amount_1000' => $amount * 1000]],
-            ['type' => 'date_time', 'date_time' => ['fallback_value' => date('d M Y', strtotime($due_date))]]
+            ['type' => 'date_time', 'date_time' => ['fallback_value' => format_date($due_date)]]
         ]);
     }
     

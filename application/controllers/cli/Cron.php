@@ -138,114 +138,12 @@ class Cron extends CI_Controller {
         }
         
         try {
-            // Get overdue loan installments
-            $overdue = $this->db->select('
-                li.*, l.member_id, l.loan_product_id,
-                DATEDIFF(CURDATE(), li.due_date) as days_overdue
-            ')
-            ->from('loan_installments li')
-            ->join('loans l', 'l.id = li.loan_id')
-            ->where('li.status', 'pending')
-            ->where('li.due_date <', date('Y-m-d'))
-            ->where('l.status', 'active')
-            ->get()->result();
+            // Delegate to Fine_model::run_late_fine_job() which correctly looks up
+            // rules by applies_to ('loan'/'savings'/'both') and handles per_day
+            // recalculation for existing fines via update_daily_fines().
+            $fines_applied = $this->Fine_model->run_late_fine_job(1);
             
-            $fines_applied = 0;
-            
-            foreach ($overdue as $installment) {
-                // Check if fine already exists for today
-                $existing = $this->db->where('related_type', 'loan_installment')
-                    ->where('related_id', $installment->id)
-                    ->where('DATE(created_at)', date('Y-m-d'))
-                    ->get('fines')->num_rows();
-                
-                if ($existing > 0) continue;
-                
-                // Calculate fine based on rules
-                $paid = isset($installment->total_paid) ? $installment->total_paid : 0;
-                $fine_amount = $this->Fine_model->calculate_fine(
-                    'loan_late',
-                    $installment->emi_amount - $paid,
-                    $installment->days_overdue
-                );
-                
-                if ($fine_amount > 0) {
-                    // Get the fine rule ID
-                    $rule = $this->db->where('fine_type', 'loan_late')
-                                    ->where('is_active', 1)
-                                    ->get('fine_rules')->row();
-                    
-                    // Apply fine
-                    $this->db->insert('fines', [
-                        'fine_code' => 'FIN-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -6)),
-                        'member_id' => $installment->member_id,
-                        'fine_type' => 'loan_late',
-                        'related_type' => 'loan_installment',
-                        'related_id' => $installment->id,
-                        'fine_rule_id' => $rule ? $rule->id : null,
-                        'fine_date' => date('Y-m-d'),
-                        'due_date' => $installment->due_date,
-                        'days_late' => $installment->days_overdue,
-                        'fine_amount' => $fine_amount,
-                        'balance_amount' => $fine_amount,
-                        'remarks' => "Late payment for installment #{$installment->installment_number}",
-                        'status' => 'pending',
-                        'created_at' => date('Y-m-d H:i:s')
-                    ]);
-                    
-                    $fines_applied++;
-                }
-            }
-            
-            // Get overdue savings schedules
-            $savings_overdue = $this->db->select('
-                ss.*, sa.member_id,
-                DATEDIFF(CURDATE(), ss.due_date) as days_overdue
-            ')
-            ->from('savings_schedule ss')
-            ->join('savings_accounts sa', 'sa.id = ss.savings_account_id')
-            ->where('ss.status', 'pending')
-            ->where('ss.due_date <', date('Y-m-d'))
-            ->where('sa.status', 'active')
-            ->get()->result();
-            
-            foreach ($savings_overdue as $schedule) {
-                // Check existing fine
-                $existing = $this->db->where('related_type', 'savings_schedule')
-                    ->where('related_id', $schedule->id)
-                    ->where('DATE(created_at)', date('Y-m-d'))
-                    ->get('fines')->num_rows();
-                
-                if ($existing > 0) continue;
-                
-                $fine_amount = $this->Fine_model->calculate_fine(
-                    'savings_late',
-                    $schedule->due_amount - $schedule->paid_amount,
-                    $schedule->days_overdue
-                );
-                
-                if ($fine_amount > 0) {
-                    $this->db->insert('fines', [
-                        'fine_code' => 'FIN-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -6)),
-                        'member_id' => $schedule->member_id,
-                        'fine_type' => 'savings_late',
-                        'related_type' => 'savings_schedule',
-                        'related_id' => $schedule->id,
-                        'fine_date' => date('Y-m-d'),
-                        'due_date' => $schedule->due_date,
-                        'days_late' => $schedule->days_overdue,
-                        'fine_amount' => $fine_amount,
-                        'balance_amount' => $fine_amount,
-                        'remarks' => "Late savings deposit for " . date('M Y', strtotime($schedule->due_date)),
-                        'status' => 'pending',
-                        'created_at' => date('Y-m-d H:i:s')
-                    ]);
-                    
-                    $fines_applied++;
-                }
-            }
-            
-            $this->log("Applied {$fines_applied} fines");
+            $this->log("Applied/updated {$fines_applied} fines");
             
         } catch (Exception $e) {
             $this->log("Error: " . $e->getMessage(), 'ERROR');
@@ -406,7 +304,7 @@ class Cron extends CI_Controller {
                 $total_interest += $interest;
             }
             
-            $this->log("Posted interest to {$interest_posted} accounts, total: ₹" . number_format($total_interest, 2));
+            $this->log("Posted interest to {$interest_posted} accounts, total: " . format_amount($total_interest));
             
         } catch (Exception $e) {
             $this->log("Error: " . $e->getMessage(), 'ERROR');
@@ -530,15 +428,15 @@ class Cron extends CI_Controller {
             
             foreach ($due_today as $installment) {
                 if (!empty($installment->email)) {
-                    $subject = "Payment Due Today - ₹" . number_format($installment->emi_amount, 2);
+                    $subject = "Payment Due Today - " . format_amount($installment->emi_amount);
                     
                     $message = "
                         <h2>Payment Due Today</h2>
                         <p>Dear {$installment->first_name},</p>
-                        <p>Your EMI payment of <strong>₹" . number_format($installment->emi_amount, 2) . "</strong> is due <strong>TODAY</strong>.</p>
+                        <p>Your EMI payment of <strong>" . format_amount($installment->emi_amount) . "</strong> is due <strong>TODAY</strong>.</p>
                         <p><strong>Loan Number:</strong> {$installment->loan_number}<br>
                         <strong>Installment:</strong> #{$installment->installment_number}<br>
-                        <strong>Due Date:</strong> " . date('d M Y', strtotime($installment->due_date)) . "</p>
+                        <strong>Due Date:</strong> " . format_date($installment->due_date) . "</p>
                         <p>Please make the payment to avoid late fees.</p>
                         <p>Thank you,<br>Windeep Finance</p>
                     ";
@@ -552,7 +450,7 @@ class Cron extends CI_Controller {
                     'user_type' => 'member',
                     'user_id' => $installment->member_id,
                     'title' => 'Payment Due Today',
-                    'message' => "Your EMI of ₹" . number_format($installment->emi_amount, 2) . " is due today!",
+                    'message' => "Your EMI of " . format_amount($installment->emi_amount) . " is due today!",
                     'type' => 'warning'
                 ]);
             }
@@ -575,7 +473,7 @@ class Cron extends CI_Controller {
                     $message = "
                         <h2>Payment Reminder</h2>
                         <p>Dear {$installment->first_name},</p>
-                        <p>Your EMI payment of <strong>₹" . number_format($installment->emi_amount, 2) . "</strong> is due in <strong>3 days</strong> on " . date('d M Y', strtotime($installment->due_date)) . ".</p>
+                        <p>Your EMI payment of <strong>" . format_amount($installment->emi_amount) . "</strong> is due in <strong>3 days</strong> on " . format_date($installment->due_date) . ".</p>
                         <p>Please ensure timely payment to avoid late fees.</p>
                         <p>Thank you,<br>Windeep Finance</p>
                     ";
@@ -598,12 +496,12 @@ class Cron extends CI_Controller {
             
             foreach ($savings_due_today as $schedule) {
                 if (!empty($schedule->email)) {
-                    $subject = "Savings Deposit Due Today - ₹" . number_format($schedule->due_amount, 2);
+                    $subject = "Savings Deposit Due Today - " . format_amount($schedule->due_amount);
                     
                     $message = "
                         <h2>Savings Deposit Due</h2>
                         <p>Dear {$schedule->first_name},</p>
-                        <p>Your monthly savings deposit of <strong>₹" . number_format($schedule->due_amount, 2) . "</strong> is due <strong>TODAY</strong>.</p>
+                        <p>Your monthly savings deposit of <strong>" . format_amount($schedule->due_amount) . "</strong> is due <strong>TODAY</strong>.</p>
                         <p><strong>Account:</strong> {$schedule->account_number}<br>
                         <strong>Month:</strong> " . date('M Y', strtotime($schedule->due_month)) . "</p>
                         <p>Please make your deposit to avoid late fees.</p>
@@ -619,7 +517,7 @@ class Cron extends CI_Controller {
                     'user_type' => 'member',
                     'user_id' => $schedule->member_id,
                     'title' => 'Savings Deposit Due',
-                    'message' => "Your savings deposit of ₹" . number_format($schedule->due_amount, 2) . " is due today!",
+                    'message' => "Your savings deposit of " . format_amount($schedule->due_amount) . " is due today!",
                     'type' => 'info'
                 ]);
             }
@@ -716,10 +614,10 @@ class Cron extends CI_Controller {
                 <table border='1' cellpadding='10' style='border-collapse:collapse;'>
                     <tr><td>New Members</td><td><strong>{$stats['new_members']}</strong></td></tr>
                     <tr><td>New Loans Disbursed</td><td><strong>{$stats['new_loans']}</strong></td></tr>
-                    <tr><td>Total Collections</td><td><strong>₹" . number_format($stats['collections'], 2) . "</strong></td></tr>
-                    <tr><td>Savings Deposits</td><td><strong>₹" . number_format($stats['savings_deposits'], 2) . "</strong></td></tr>
+                    <tr><td>Total Collections</td><td><strong>" . format_amount($stats['collections']) . "</strong></td></tr>
+                    <tr><td>Savings Deposits</td><td><strong>" . format_amount($stats['savings_deposits']) . "</strong></td></tr>
                 </table>
-                <p>Generated on " . date('d M Y H:i:s') . "</p>
+                <p>Generated on " . format_date_time(date('Y-m-d H:i:s')) . "</p>
             ";
             
             $result = send_email($admin_email, $subject, $message);

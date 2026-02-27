@@ -33,7 +33,7 @@
     <div class="col-lg-3 col-6">
         <div class="small-box bg-success" data-toggle="tooltip" data-placement="top" title="Total savings deposited across all member accounts">
             <div class="inner">
-                <h3>₹<?= number_format($stats['total_savings']) ?></h3>
+                <h3><?= format_amount($stats['total_savings'], 0) ?></h3>
                 <p>Total Savings</p>
             </div>
             <div class="icon">
@@ -48,7 +48,7 @@
     <div class="col-lg-3 col-6">
         <div class="small-box bg-warning" data-toggle="tooltip" data-placement="top" title="Total remaining principal + interest on all disbursed loans">
             <div class="inner">
-                <h3>₹<?= number_format($stats['total_outstanding']) ?></h3>
+                <h3><?= format_amount($stats['total_outstanding'], 0) ?></h3>
                 <p>Loan Outstanding</p>
             </div>
             <div class="icon">
@@ -63,7 +63,7 @@
     <div class="col-lg-3 col-6">
         <div class="small-box bg-danger" data-toggle="tooltip" data-placement="top" title="Total amount past due date across all loans. Needs immediate attention.">
             <div class="inner">
-                <h3>₹<?= number_format($stats['overdue_amount']) ?></h3>
+                <h3><?= format_amount($stats['overdue_amount'], 0) ?></h3>
                 <p>Overdue Amount</p>
             </div>
             <div class="icon">
@@ -93,7 +93,7 @@
             <span class="info-box-icon bg-success"><i class="fas fa-rupee-sign"></i></span>
             <div class="info-box-content">
                 <span class="info-box-text">This Month Collection</span>
-                <span class="info-box-number">₹<?= number_format($monthly_summary['loans_collected'] + $monthly_summary['savings_collected']) ?></span>
+                <span class="info-box-number"><?= format_amount($monthly_summary['loans_collected'] + $monthly_summary['savings_collected'], 0) ?></span>
             </div>
         </div>
     </div>
@@ -103,7 +103,7 @@
             <span class="info-box-icon bg-warning"><i class="fas fa-money-check-alt"></i></span>
             <div class="info-box-content">
                 <span class="info-box-text">This Month Disbursed</span>
-                <span class="info-box-number">₹<?= number_format($monthly_summary['loans_disbursed_amount']) ?></span>
+                <span class="info-box-number"><?= format_amount($monthly_summary['loans_disbursed_amount'], 0) ?></span>
             </div>
         </div>
     </div>
@@ -113,7 +113,7 @@
             <span class="info-box-icon bg-danger"><i class="fas fa-gavel"></i></span>
             <div class="info-box-content">
                 <span class="info-box-text">Pending Fines</span>
-                <span class="info-box-number">₹<?= number_format($stats['pending_fines']) ?></span>
+                <span class="info-box-number"><?= format_amount($stats['pending_fines'], 0) ?></span>
             </div>
         </div>
     </div>
@@ -126,7 +126,7 @@
             <span class="info-box-icon bg-teal"><i class="fas fa-id-badge"></i></span>
             <div class="info-box-content">
                 <span class="info-box-text">Member Fee</span>
-                <span class="info-box-number">₹<?= number_format($fee_summary['membership_fee'] ?? 0) ?></span>
+                <span class="info-box-number"><?= format_amount($fee_summary['membership_fee'] ?? 0, 0) ?></span>
             </div>
         </div>
     </div>
@@ -135,7 +135,7 @@
             <span class="info-box-icon bg-purple"><i class="fas fa-receipt"></i></span>
             <div class="info-box-content">
                 <span class="info-box-text">Other Members Fee</span>
-                <span class="info-box-number">₹<?= number_format($fee_summary['other_member_fee'] ?? 0) ?></span>
+                <span class="info-box-number"><?= format_amount($fee_summary['other_member_fee'] ?? 0, 0) ?></span>
             </div>
         </div>
     </div>
@@ -272,7 +272,7 @@
                                         <small><?= $app->member_code ?></small><br>
                                         <?= $app->first_name ?>
                                     </td>
-                                    <td>₹<?= number_format($app->requested_amount) ?></td>
+                                    <td><?= format_amount($app->requested_amount, 0) ?></td>
                                     <td>
                                         <span class="badge badge-<?= $app->status == 'pending' ? 'warning' : 'info' ?>">
                                             <?= ucfirst(str_replace('_', ' ', $app->status)) ?>
@@ -339,7 +339,7 @@
                                     <td>
                                         <span class="text-danger"><?= format_date($loan->due_date, 'd M') ?></span>
                                     </td>
-                                    <td>₹<?= number_format($loan->emi_amount) ?></td>
+                                    <td><?= format_amount($loan->emi_amount, 0) ?></td>
                                     <td>
                                         <a href="<?= site_url('admin/loans/collect/' . $loan->id) ?>" class="btn btn-xs btn-success" title="Collect">
                                             <i class="fas fa-rupee-sign"></i>
@@ -444,7 +444,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     beginAtZero: true,
                     ticks: {
                         callback: function(value) {
-                            return '₹' + (value / 1000).toFixed(0) + 'K';
+                            return '<?= get_currency_symbol() ?>' + (value / 1000).toFixed(0) + 'K';
                         }
                     }
                 }

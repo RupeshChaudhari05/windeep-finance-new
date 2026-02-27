@@ -9,7 +9,7 @@
     </div>
     <div class="card-body">
         <p><strong>Product:</strong> <?= !empty($application->product_name) ? $application->product_name : '<span class="text-muted">Not assigned yet (admin will assign during approval)</span>' ?></p>
-        <p><strong>Amount:</strong> ₹<?= number_format($application->requested_amount, 2) ?></p>
+        <p><strong>Amount:</strong> <?= format_amount($application->requested_amount) ?></p>
         <p><strong>Tenure:</strong> <?= $application->requested_tenure_months ?> months</p>
         <p><strong>Purpose:</strong> <?= nl2br(htmlspecialchars($application->purpose)) ?></p>
 
@@ -25,7 +25,7 @@
             <h5>Guarantors</h5>
             <ul>
                 <?php foreach ($guarantors as $g): ?>
-                    <li><?= $g->member_code ?> - <?= htmlspecialchars($g->first_name . ' ' . $g->last_name) ?> (₹<?= number_format($g->guarantee_amount,2) ?>) - <?= ucfirst($g->consent_status ?? 'pending') ?></li>
+                    <li><?= $g->member_code ?> - <?= htmlspecialchars($g->first_name . ' ' . $g->last_name) ?> (<?= format_amount($g->guarantee_amount) ?>) - <?= ucfirst($g->consent_status ?? 'pending') ?></li>
                 <?php endforeach; ?>
             </ul>
         <?php endif; ?>
@@ -34,7 +34,7 @@
             <hr>
             <div class="alert alert-success">
                 <strong>Admin Approved Terms:</strong><br>
-                Amount: ₹<?= number_format($application->approved_amount, 2) ?><br>
+                Amount: <?= format_amount($application->approved_amount) ?><br>
                 Tenure: <?= $application->approved_tenure_months ?> months<br>
                 Interest Rate: <?= $application->approved_interest_rate ?>%
                 <?php if (!empty($application->revision_remarks)): ?>

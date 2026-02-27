@@ -31,7 +31,7 @@ $min_guarantors = isset($min_guarantors) ? (int)$min_guarantors : 0;
                 <div class="form-group col-md-6">
                     <label>Amount Requested <span class="text-danger">*</span></label>
                     <div class="input-group">
-                        <div class="input-group-prepend"><span class="input-group-text">₹</span></div>
+                        <div class="input-group-prepend"><span class="input-group-text"><?= get_currency_symbol() ?></span></div>
                         <input type="number" name="amount_requested" id="amount_requested" class="form-control" step="0.01" min="1" value="<?= set_value('amount_requested') ?>" required>
                     </div>
                 </div>

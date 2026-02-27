@@ -114,7 +114,7 @@
                 </tr>
                 <tr>
                     <td>Generated:</td>
-                    <td><?= date('d M Y h:i A') ?></td>
+                    <td><?= format_date_time(date('Y-m-d H:i:s')) ?></td>
                 </tr>
             </table>
         </div>
@@ -228,7 +228,7 @@
     <div class="footer">
         <p>This is a computer-generated statement and does not require a signature.</p>
         <p>For any queries, please contact us at <?= $company_phone ?? '' ?> or <?= $company_email ?? '' ?></p>
-        <p>Generated on <?= date('d M Y h:i:s A') ?></p>
+        <p>Generated on <?= format_date_time(date('Y-m-d H:i:s')) ?></p>
     </div>
 </body>
 </html>

@@ -91,7 +91,7 @@
     <div class="header">
         <h2><?= $this->settings['company_name'] ?? 'Finance Company' ?></h2>
         <h3>Member Ledger Statement</h3>
-        <p>Period: <?= $from_date ? date('d M Y', strtotime($from_date)) : 'Beginning' ?> to <?= $to_date ? date('d M Y', strtotime($to_date)) : date('d M Y') ?></p>
+        <p>Period: <?= $from_date ? format_date($from_date) : 'Beginning' ?> to <?= $to_date ? format_date($to_date) : format_date(date('Y-m-d')) ?></p>
     </div>
 
     <div class="info-section">
@@ -119,16 +119,16 @@
         <table>
             <tr>
                 <td width="25%">Opening Balance:</td>
-                <td width="25%">₹<?= number_format($summary['opening_balance'], 2) ?></td>
+                <td width="25%"><?= format_amount($summary['opening_balance']) ?></td>
                 <td width="25%">Total Debit:</td>
-                <td width="25%" class="text-danger">₹<?= number_format($summary['total_debit'], 2) ?></td>
+                <td width="25%" class="text-danger"><?= format_amount($summary['total_debit']) ?></td>
             </tr>
             <tr>
                 <td>Total Credit:</td>
-                <td class="text-success">₹<?= number_format($summary['total_credit'], 2) ?></td>
+                <td class="text-success"><?= format_amount($summary['total_credit']) ?></td>
                 <td>Closing Balance:</td>
                 <td class="<?= $summary['closing_balance'] >= 0 ? 'text-success' : 'text-danger' ?>">
-                    ₹<?= number_format(abs($summary['closing_balance']), 2) ?> <?= $summary['closing_balance'] >= 0 ? 'Cr' : 'Dr' ?>
+                    <?= format_amount(abs($summary['closing_balance'])) ?> <?= $summary['closing_balance'] >= 0 ? 'Cr' : 'Dr' ?>
                 </td>
             </tr>
         </table>
@@ -149,19 +149,19 @@
         <tbody>
             <?php foreach ($ledger as $entry): ?>
             <tr>
-                <td><?= date('d M Y', strtotime($entry->transaction_date)) ?></td>
+                <td><?= format_date($entry->transaction_date) ?></td>
                 <td><?= ucfirst(str_replace('_', ' ', $entry->transaction_type)) ?></td>
                 <td><?= $entry->reference_type ? ucfirst($entry->reference_type) . ' #' . $entry->reference_id : '-' ?></td>
                 <td><?= $entry->narration ?: '-' ?></td>
                 <td class="text-right text-danger">
-                    <?= $entry->debit_amount > 0 ? '₹' . number_format($entry->debit_amount, 2) : '-' ?>
+                    <?= $entry->debit_amount > 0 ? format_amount($entry->debit_amount) : '-' ?>
                 </td>
                 <td class="text-right text-success">
-                    <?= $entry->credit_amount > 0 ? '₹' . number_format($entry->credit_amount, 2) : '-' ?>
+                    <?= $entry->credit_amount > 0 ? format_amount($entry->credit_amount) : '-' ?>
                 </td>
                 <td class="text-right">
                     <span class="<?= $entry->balance_after >= 0 ? 'text-success' : 'text-danger' ?>">
-                        ₹<?= number_format(abs($entry->balance_after), 2) ?> <?= $entry->balance_after >= 0 ? 'Cr' : 'Dr' ?>
+                        <?= format_amount(abs($entry->balance_after)) ?> <?= $entry->balance_after >= 0 ? 'Cr' : 'Dr' ?>
                     </span>
                 </td>
             </tr>
@@ -170,15 +170,15 @@
         <tfoot>
             <tr>
                 <th colspan="4" class="text-right">Total:</th>
-                <th class="text-right text-danger">₹<?= number_format($summary['total_debit'], 2) ?></th>
-                <th class="text-right text-success">₹<?= number_format($summary['total_credit'], 2) ?></th>
-                <th class="text-right">₹<?= number_format($summary['closing_balance'], 2) ?></th>
+                <th class="text-right text-danger"><?= format_amount($summary['total_debit']) ?></th>
+                <th class="text-right text-success"><?= format_amount($summary['total_credit']) ?></th>
+                <th class="text-right"><?= format_amount($summary['closing_balance']) ?></th>
             </tr>
         </tfoot>
     </table>
 
     <div class="footer">
-        <p>Generated on: <?= date('d M Y h:i A') ?></p>
+        <p>Generated on: <?= format_date_time(date('Y-m-d H:i:s')) ?></p>
         <p>&copy; <?= date('Y') ?> <?= $this->settings['company_name'] ?? 'Finance Company' ?>. All rights reserved.</p>
     </div>
 

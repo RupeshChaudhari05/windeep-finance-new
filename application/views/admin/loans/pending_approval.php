@@ -48,7 +48,7 @@
                                 <br><small class="text-muted"><?= $app->phone ?></small>
                             </td>
                             <td><?= $app->product_name ?? 'Not Assigned' ?></td>
-                            <td class="text-right font-weight-bold">₹<?= number_format($app->requested_amount, 2) ?></td>
+                            <td class="text-right font-weight-bold"><?= format_amount($app->requested_amount) ?></td>
                             <td><?= $app->requested_tenure_months ?> months</td>
                             <td><?= format_date($app->application_date) ?></td>
                             <td>

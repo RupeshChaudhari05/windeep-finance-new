@@ -44,7 +44,7 @@
             <div class="col-md-3">
                 <div class="small-box bg-primary mb-0">
                     <div class="inner py-2 px-3">
-                        <h4>₹<?= number_format($summary['total_disbursed'] ?? 0) ?></h4>
+                        <h4><?= format_amount($summary['total_disbursed'] ?? 0, 0) ?></h4>
                         <p class="mb-0">Total Disbursed</p>
                     </div>
                 </div>
@@ -52,7 +52,7 @@
             <div class="col-md-3">
                 <div class="small-box bg-danger mb-0">
                     <div class="inner py-2 px-3">
-                        <h4>₹<?= number_format($summary['total_outstanding'] ?? 0) ?></h4>
+                        <h4><?= format_amount($summary['total_outstanding'] ?? 0, 0) ?></h4>
                         <p class="mb-0">Outstanding</p>
                     </div>
                 </div>
@@ -60,7 +60,7 @@
             <div class="col-md-3">
                 <div class="small-box bg-success mb-0">
                     <div class="inner py-2 px-3">
-                        <h4>₹<?= number_format($summary['total_collected'] ?? 0) ?></h4>
+                        <h4><?= format_amount($summary['total_collected'] ?? 0, 0) ?></h4>
                         <p class="mb-0">Collected</p>
                     </div>
                 </div>
@@ -115,9 +115,9 @@
                                 <br><small class="text-muted"><?= $loan->member_code ?></small>
                             </td>
                             <td><span class="badge badge-info"><?= $loan->product_name ?></span></td>
-                            <td class="text-right">₹<?= number_format($loan->principal_amount) ?></td>
-                            <td class="text-right font-weight-bold text-danger">₹<?= number_format($loan->outstanding_principal) ?></td>
-                            <td class="text-right">₹<?= number_format($loan->emi_amount) ?></td>
+                            <td class="text-right"><?= format_amount($loan->principal_amount, 0) ?></td>
+                            <td class="text-right font-weight-bold text-danger"><?= format_amount($loan->outstanding_principal, 0) ?></td>
+                            <td class="text-right"><?= format_amount($loan->emi_amount, 0) ?></td>
                             <td>
                                 <?php
                                 $status_class = [

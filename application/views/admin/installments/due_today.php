@@ -15,7 +15,7 @@
             <span class="info-box-icon"><i class="fas fa-rupee-sign"></i></span>
             <div class="info-box-content">
                 <span class="info-box-text">Total Amount Due</span>
-                <span class="info-box-number">₹<?= number_format($total_amount, 2) ?></span>
+                <span class="info-box-number"><?= format_amount($total_amount) ?></span>
             </div>
         </div>
     </div>
@@ -25,7 +25,7 @@
             <span class="info-box-icon"><i class="fas fa-exclamation-triangle"></i></span>
             <div class="info-box-content">
                 <span class="info-box-text">Pending Collection</span>
-                <span class="info-box-number">₹<?= number_format($total_pending, 2) ?></span>
+                <span class="info-box-number"><?= format_amount($total_pending) ?></span>
             </div>
         </div>
     </div>
@@ -88,10 +88,10 @@
                                     </td>
                                     <td><span class="badge badge-info"><?= $inst->product_name ?></span></td>
                                     <td class="text-center"><strong>#<?= $inst->installment_number ?></strong></td>
-                                    <td class="text-right font-weight-bold">₹<?= number_format($inst->emi_amount, 2) ?></td>
-                                    <td class="text-right text-success">₹<?= number_format($inst->total_paid, 2) ?></td>
+                                    <td class="text-right font-weight-bold"><?= format_amount($inst->emi_amount) ?></td>
+                                    <td class="text-right text-success"><?= format_amount($inst->total_paid) ?></td>
                                     <td class="text-right">
-                                        <strong class="text-danger">₹<?= number_format($balance, 2) ?></strong>
+                                        <strong class="text-danger"><?= format_amount($balance) ?></strong>
                                     </td>
                                     <td><a href="tel:<?= $inst->phone ?>"><?= $inst->phone ?></a></td>
                                     <td class="text-center">
@@ -110,9 +110,9 @@
                             <tfoot class="bg-light font-weight-bold">
                                 <tr>
                                     <th colspan="5" class="text-right">Total:</th>
-                                    <th class="text-right">₹<?= number_format($total_amount, 2) ?></th>
-                                    <th class="text-right text-success">₹<?= number_format($total_collected, 2) ?></th>
-                                    <th class="text-right text-danger">₹<?= number_format($total_pending, 2) ?></th>
+                                    <th class="text-right"><?= format_amount($total_amount) ?></th>
+                                    <th class="text-right text-success"><?= format_amount($total_collected) ?></th>
+                                    <th class="text-right text-danger"><?= format_amount($total_pending) ?></th>
                                     <th colspan="2"></th>
                                 </tr>
                             </tfoot>

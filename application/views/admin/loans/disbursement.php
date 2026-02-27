@@ -51,7 +51,7 @@
                                 <br><small class="text-muted"><?= $app->phone ?></small>
                             </td>
                             <td><?= $app->product_name ?? 'N/A' ?></td>
-                            <td class="text-right font-weight-bold text-success">₹<?= number_format($app->approved_amount, 2) ?></td>
+                            <td class="text-right font-weight-bold text-success"><?= format_amount($app->approved_amount) ?></td>
                             <td><?= $app->approved_tenure_months ?> months</td>
                             <td><?= number_format($app->approved_interest_rate, 2) ?>% p.a.</td>
                             <td class="text-right">
@@ -66,7 +66,7 @@
                                     $emi = $P / $n;
                                 }
                                 ?>
-                                ₹<?= number_format($emi, 2) ?>
+                                <?= format_amount($emi) ?>
                             </td>
                             <td><?= format_date($app->admin_approved_at) ?></td>
                             <td>
@@ -87,7 +87,7 @@
                 <tfoot class="bg-light">
                     <tr>
                         <th colspan="4" class="text-right">Total Disbursement Required:</th>
-                        <th class="text-right text-success">₹<?= number_format($total_amount, 2) ?></th>
+                        <th class="text-right text-success"><?= format_amount($total_amount) ?></th>
                         <th colspan="5"></th>
                     </tr>
                 </tfoot>
@@ -113,7 +113,7 @@
             <span class="info-box-icon"><i class="fas fa-rupee-sign"></i></span>
             <div class="info-box-content">
                 <span class="info-box-text">Total Amount</span>
-                <span class="info-box-number">₹<?= number_format($total_amount ?? 0) ?></span>
+                <span class="info-box-number"><?= format_amount($total_amount ?? 0) ?></span>
             </div>
         </div>
     </div>
@@ -122,7 +122,7 @@
             <span class="info-box-icon"><i class="fas fa-calendar-check"></i></span>
             <div class="info-box-content">
                 <span class="info-box-text">Disbursed This Month</span>
-                <span class="info-box-number">₹<?= number_format($stats['month_disbursement'] ?? 0) ?></span>
+                <span class="info-box-number"><?= format_amount($stats['month_disbursement'] ?? 0, 0) ?></span>
             </div>
         </div>
     </div>
@@ -157,7 +157,7 @@
                                 <a href="<?= site_url('admin/loans/view/' . $loan->id) ?>"><?= $loan->loan_number ?></a>
                             </td>
                             <td><?= $loan->first_name ?> <?= $loan->last_name ?></td>
-                            <td class="text-right">₹<?= number_format($loan->principal_amount, 2) ?></td>
+                            <td class="text-right"><?= format_amount($loan->principal_amount, 0) ?></td>
                             <td><?= format_date($loan->disbursement_date) ?></td>
                             <td><?= ucfirst($loan->disbursement_mode ?? 'N/A') ?></td>
                         </tr>

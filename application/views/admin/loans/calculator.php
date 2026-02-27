@@ -27,7 +27,7 @@
                 <div class="form-group">
                     <label>Loan Amount <span class="text-danger">*</span></label>
                     <div class="input-group">
-                        <div class="input-group-prepend"><span class="input-group-text">₹</span></div>
+                        <div class="input-group-prepend"><span class="input-group-text"><?= get_currency_symbol() ?></span></div>
                         <input type="number" id="principal" class="form-control" value="100000" min="1000" step="1000">
                     </div>
                     <small class="text-muted" id="amountRange"></small>
@@ -79,11 +79,11 @@
             <div class="card-body">
                 <div class="row">
                     <div class="col-md-6 text-center border-right">
-                        <h2 class="text-primary mb-0" id="emiAmount">₹0</h2>
+                        <h2 class="text-primary mb-0" id="emiAmount"><?= get_currency_symbol() ?>0</h2>
                         <p class="text-muted mb-0">Monthly EMI</p>
                     </div>
                     <div class="col-md-6 text-center">
-                        <h2 class="text-danger mb-0" id="totalPayable">₹0</h2>
+                        <h2 class="text-danger mb-0" id="totalPayable"><?= get_currency_symbol() ?>0</h2>
                         <p class="text-muted mb-0">Total Payable</p>
                     </div>
                 </div>
@@ -92,11 +92,11 @@
                 
                 <div class="row">
                     <div class="col-md-4 text-center">
-                        <h5 class="mb-0" id="totalPrincipal">₹0</h5>
+                        <h5 class="mb-0" id="totalPrincipal"><?= get_currency_symbol() ?>0</h5>
                         <small class="text-muted">Principal Amount</small>
                     </div>
                     <div class="col-md-4 text-center">
-                        <h5 class="text-success mb-0" id="totalInterest">₹0</h5>
+                        <h5 class="text-success mb-0" id="totalInterest"><?= get_currency_symbol() ?>0</h5>
                         <small class="text-muted">Total Interest</small>
                     </div>
                     <div class="col-md-4 text-center">
@@ -194,7 +194,7 @@ $(document).ready(function() {
         if (selected.val()) {
             $('#rate').val(selected.data('rate'));
             $('input[name="calc_type"][value="' + selected.data('type') + '"]').prop('checked', true);
-            $('#amountRange').text('Range: ₹' + selected.data('min').toLocaleString('en-IN') + ' - ₹' + selected.data('max').toLocaleString('en-IN'));
+            $('#amountRange').text('Range: <?= get_currency_symbol() ?>' + selected.data('min').toLocaleString('en-IN') + ' - <?= get_currency_symbol() ?>' + selected.data('max').toLocaleString('en-IN'));
             $('#tenureRange').text('Range: ' + selected.data('min-tenure') + ' - ' + selected.data('max-tenure') + ' months');
         } else {
             $('#amountRange').text('');
@@ -223,10 +223,10 @@ $(document).ready(function() {
             // Display results
             $('#resultCard, #scheduleCard').show();
             
-            $('#emiAmount').text('₹' + data.emi.toLocaleString('en-IN', {maximumFractionDigits: 0}));
-            $('#totalPayable').text('₹' + data.total_amount.toLocaleString('en-IN', {maximumFractionDigits: 0}));
-            $('#totalPrincipal').text('₹' + data.total_principal.toLocaleString('en-IN', {maximumFractionDigits: 0}));
-            $('#totalInterest').text('₹' + data.total_interest.toLocaleString('en-IN', {maximumFractionDigits: 0}));
+            $('#emiAmount').text('<?= get_currency_symbol() ?>' + data.emi.toLocaleString('en-IN', {maximumFractionDigits: 0}));
+            $('#totalPayable').text('<?= get_currency_symbol() ?>' + data.total_amount.toLocaleString('en-IN', {maximumFractionDigits: 0}));
+            $('#totalPrincipal').text('<?= get_currency_symbol() ?>' + data.total_principal.toLocaleString('en-IN', {maximumFractionDigits: 0}));
+            $('#totalInterest').text('<?= get_currency_symbol() ?>' + data.total_interest.toLocaleString('en-IN', {maximumFractionDigits: 0}));
             
             var interestPercent = ((data.total_interest / data.total_principal) * 100).toFixed(1);
             $('#interestPercent').text(interestPercent + '%');
@@ -291,10 +291,10 @@ $(document).ready(function() {
             
             html += '<tr>';
             html += '<td>' + i + '</td>';
-            html += '<td class="text-right">₹' + emi.toLocaleString('en-IN', {maximumFractionDigits: 0}) + '</td>';
-            html += '<td class="text-right">₹' + principalPart.toLocaleString('en-IN', {maximumFractionDigits: 0}) + '</td>';
-            html += '<td class="text-right">₹' + interest.toLocaleString('en-IN', {maximumFractionDigits: 0}) + '</td>';
-            html += '<td class="text-right">₹' + balance.toLocaleString('en-IN', {maximumFractionDigits: 0}) + '</td>';
+            html += '<td class="text-right"><?= get_currency_symbol() ?>' + emi.toLocaleString('en-IN', {maximumFractionDigits: 0}) + '</td>';
+            html += '<td class="text-right"><?= get_currency_symbol() ?>' + principalPart.toLocaleString('en-IN', {maximumFractionDigits: 0}) + '</td>';
+            html += '<td class="text-right"><?= get_currency_symbol() ?>' + interest.toLocaleString('en-IN', {maximumFractionDigits: 0}) + '</td>';
+            html += '<td class="text-right"><?= get_currency_symbol() ?>' + balance.toLocaleString('en-IN', {maximumFractionDigits: 0}) + '</td>';
             html += '</tr>';
         }
         

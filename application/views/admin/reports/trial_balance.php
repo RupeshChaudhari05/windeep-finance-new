@@ -27,8 +27,8 @@
                         <th>Account Code</th>
                         <th>Account Name</th>
                         <th>Account Type</th>
-                        <th class="text-right">Debit (₹)</th>
-                        <th class="text-right">Credit (₹)</th>
+                        <th class="text-right">Debit (<?= get_currency_symbol() ?>)</th>
+                        <th class="text-right">Credit (<?= get_currency_symbol() ?>)</th>
                     </tr>
                 </thead>
                 <tbody>

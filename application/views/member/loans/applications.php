@@ -30,7 +30,7 @@
                     <tr>
                         <td><?= $app->application_number ?></td>
                         <td><?= htmlspecialchars($app->product_name ?? '-') ?></td>
-                        <td>₹<?= number_format($app->requested_amount,2) ?></td>
+                        <td><?= format_amount($app->requested_amount) ?></td>
                         <td><?= $app->requested_tenure_months ?> months</td>
                         <td><?= ucfirst(str_replace('_',' ',$app->status)) ?></td>
                         <td>

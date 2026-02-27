@@ -83,7 +83,7 @@
                             <td><?= $member->city ?: '-' ?></td>
                             <td>
                                 <?php if ($member->kyc_verified): ?>
-                                    <span class="badge badge-success" title="Verified on <?= format_date($member->kyc_verified_at, 'd M Y') ?>">
+                                    <span class="badge badge-success" title="Verified on <?= format_date($member->kyc_verified_at) ?>">
                                         <i class="fas fa-check-circle"></i> Verified
                                     </span>
                                 <?php else: ?>
@@ -107,7 +107,7 @@
                             </td>
                             <td>
                                 <span title="<?= format_date_time($member->created_at, 'd M Y H:i') ?>">
-                                    <?= format_date($member->created_at, 'd M Y') ?>
+                                    <?= format_date($member->created_at) ?>
                                 </span>
                             </td>
                             <td>

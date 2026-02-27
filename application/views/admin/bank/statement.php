@@ -98,7 +98,7 @@
     <div class="col-md-2">
         <div class="small-box bg-success">
             <div class="inner">
-                <h4>₹<?= number_format($total_credits, 0) ?></h4>
+                <h4><?= format_amount($total_credits, 0) ?></h4>
                 <p>Total Credits</p>
             </div>
             <div class="icon"><i class="fas fa-arrow-down"></i></div>
@@ -107,7 +107,7 @@
     <div class="col-md-2">
         <div class="small-box bg-danger">
             <div class="inner">
-                <h4>₹<?= number_format($total_debits, 0) ?></h4>
+                <h4><?= format_amount($total_debits, 0) ?></h4>
                 <p>Total Debits</p>
             </div>
             <div class="icon"><i class="fas fa-arrow-up"></i></div>
@@ -116,7 +116,7 @@
     <div class="col-md-2">
         <div class="small-box bg-primary">
             <div class="inner">
-                <h4>₹<?= number_format($total_credits - $total_debits, 0) ?></h4>
+                <h4><?= format_amount($total_credits - $total_debits, 0) ?></h4>
                 <p>Net Amount</p>
             </div>
             <div class="icon"><i class="fas fa-balance-scale"></i></div>
@@ -147,7 +147,7 @@
 <div class="alert alert-info py-2">
     <i class="fas fa-calendar-alt mr-1"></i>
     <strong>Financial Year: <?= $selected_fy->year_code ?></strong>
-    &mdash; <?= date('d M Y', strtotime($selected_fy->start_date)) ?> to <?= date('d M Y', strtotime($selected_fy->end_date)) ?>
+    &mdash; <?= format_date($selected_fy->start_date) ?> to <?= format_date($selected_fy->end_date) ?>
     &mdash; <strong><?= count($transactions) ?></strong> transactions (all imports combined into one statement)
 </div>
 <?php endif; ?>
@@ -190,19 +190,19 @@
                     <?php $row_num = 0; foreach ($transactions as $txn): $row_num++; ?>
                     <tr data-mapping-status="<?= $txn->mapping_status ?>" data-txn-type="<?= $txn->transaction_type ?>">
                         <td class="text-muted"><?= $row_num ?></td>
-                        <td><?= date('d M Y', strtotime($txn->transaction_date)) ?></td>
+                        <td><?= format_date($txn->transaction_date) ?></td>
                         <td>
                             <?= character_limiter($txn->description, 50) ?>
                         </td>
                         <td><small class="text-muted"><?= $txn->reference_number ?: ($txn->utr_number ?: '-') ?></small></td>
                         <td class="text-right">
                             <?php if ($txn->transaction_type == 'credit'): ?>
-                            <span class="text-success font-weight-bold">₹<?= number_format($txn->amount, 2) ?></span>
+                            <span class="text-success font-weight-bold"><?= format_amount($txn->amount) ?></span>
                             <?php endif; ?>
                         </td>
                         <td class="text-right">
                             <?php if ($txn->transaction_type == 'debit'): ?>
-                            <span class="text-danger font-weight-bold">₹<?= number_format($txn->amount, 2) ?></span>
+                            <span class="text-danger font-weight-bold"><?= format_amount($txn->amount) ?></span>
                             <?php endif; ?>
                         </td>
                         <td>
@@ -265,7 +265,7 @@
                             <div class="d-flex justify-content-between align-items-center">
                                 <div>
                                     <strong>Transaction Amount:</strong>
-                                    <span id="match_amount" class="h4 ml-2 mb-0">₹0.00</span>
+                                    <span id="match_amount" class="h4 ml-2 mb-0"><?= get_currency_symbol() ?>0.00</span>
                                 </div>
                                 <div>
                                     <strong>Date:</strong> <span id="match_date"></span>
@@ -277,8 +277,8 @@
                     <div class="col-md-6">
                         <div class="mb-0" id="allocation_status">
                             <div class="d-flex justify-content-between">
-                                <span><strong>Allocated:</strong> <span id="total_allocated" class="text-primary">₹0.00</span></span>
-                                <span><strong>Remaining:</strong> <span id="remaining_amount" class="text-danger font-weight-bold">₹0.00</span></span>
+                                <span><strong>Allocated:</strong> <span id="total_allocated" class="text-primary"><?= get_currency_symbol() ?>0.00</span></span>
+                                <span><strong>Remaining:</strong> <span id="remaining_amount" class="text-danger font-weight-bold"><?= get_currency_symbol() ?>0.00</span></span>
                             </div>
                             <div class="progress mt-2" style="height: 10px;">
                                 <div class="progress-bar bg-success" id="allocation_progress" style="width: 0%"></div>
@@ -374,7 +374,7 @@
                             <tfoot class="bg-light">
                                 <tr>
                                     <th colspan="3" class="text-right">Total Allocated:</th>
-                                    <th class="text-right" id="footer_total">₹0.00</th>
+                                    <th class="text-right" id="footer_total"><?= get_currency_symbol() ?>0.00</th>
                                     <th></th>
                                 </tr>
                             </tfoot>
@@ -528,7 +528,7 @@ $(document).ready(function() {
         transactionAmount = amount;
         $('#match_transaction_id').val(id);
         $('#match_transaction_amount').val(amount);
-        $('#match_amount').text('₹' + amount.toLocaleString('en-IN', {minimumFractionDigits: 2}));
+        $('#match_amount').text('<?= get_currency_symbol() ?>' + amount.toLocaleString('en-IN', {minimumFractionDigits: 2}));
         $('#match_date').text(date);
         $('#match_description').text(desc);
         $('#paid_for_container').html('<div class="text-center text-muted py-3" id="no_members_msg"><i class="fas fa-info-circle"></i> Click "Add Member" to allocate this transaction</div>');
@@ -621,14 +621,14 @@ $(document).ready(function() {
         var html = '';
         loans.forEach(function(loan) {
             html += '<div class="border rounded p-2 mb-1 loan-item" data-loan-id="' + loan.id + '">';
-            html += '<div class="d-flex justify-content-between"><strong>' + loan.loan_number + '</strong><span class="badge badge-info">₹' + parseFloat(loan.pending_amount).toLocaleString('en-IN') + '</span></div>';
+            html += '<div class="d-flex justify-content-between"><strong>' + loan.loan_number + '</strong><span class="badge badge-info"><?= get_currency_symbol() ?>' + parseFloat(loan.pending_amount).toLocaleString('en-IN') + '</span></div>';
             if (loan.installments && loan.installments.length > 0) {
                 html += '<div class="mt-1">';
                 loan.installments.forEach(function(inst) {
                     html += '<div class="d-flex justify-content-between align-items-center py-1 installment-row" data-inst-id="' + inst.id + '">';
                     html += '<small>EMI #' + inst.installment_number + ' - Due: ' + inst.due_date + '</small>';
                     html += '<div class="input-group input-group-sm" style="width: 120px;">';
-                    html += '<input type="number" class="form-control allocation-input" data-type="emi" data-member="' + memberId + '" data-related="loan_' + inst.id + '" data-label="EMI #' + inst.installment_number + ' (' + loan.loan_number + ')" placeholder="₹" step="0.01" min="0" max="' + inst.pending_amount + '">';
+                    html += '<input type="number" class="form-control allocation-input" data-type="emi" data-member="' + memberId + '" data-related="loan_' + inst.id + '" data-label="EMI #' + inst.installment_number + ' (' + loan.loan_number + ')" placeholder="<?= get_currency_symbol() ?>" step="0.01" min="0" max="' + inst.pending_amount + '">';
                     html += '</div></div>';
                 });
                 html += '</div>';
@@ -646,7 +646,7 @@ $(document).ready(function() {
         var html = '';
         savings.forEach(function(acc) {
             html += '<div class="border rounded p-2 mb-1">';
-            html += '<div class="d-flex justify-content-between"><strong>' + acc.account_number + '</strong><span class="badge badge-success">₹' + parseFloat(acc.current_balance).toLocaleString('en-IN') + '</span></div>';
+            html += '<div class="d-flex justify-content-between"><strong>' + acc.account_number + '</strong><span class="badge badge-success"><?= get_currency_symbol() ?>' + parseFloat(acc.current_balance).toLocaleString('en-IN') + '</span></div>';
             html += '<div class="input-group input-group-sm mt-1">';
             html += '<input type="number" class="form-control allocation-input" data-type="savings" data-member="' + memberId + '" data-related="savings_' + acc.id + '" data-label="Savings ' + acc.account_number + '" placeholder="Deposit amount" step="0.01" min="0">';
             html += '</div></div>';
@@ -662,7 +662,7 @@ $(document).ready(function() {
         var html = '';
         fines.forEach(function(fine) {
             html += '<div class="border rounded p-2 mb-1">';
-            html += '<div class="d-flex justify-content-between"><small>' + fine.fine_type + '</small><span class="badge badge-danger">₹' + parseFloat(fine.pending_amount).toLocaleString('en-IN') + '</span></div>';
+            html += '<div class="d-flex justify-content-between"><small>' + fine.fine_type + '</small><span class="badge badge-danger"><?= get_currency_symbol() ?>' + parseFloat(fine.pending_amount).toLocaleString('en-IN') + '</span></div>';
             html += '<div class="input-group input-group-sm mt-1">';
             html += '<input type="number" class="form-control allocation-input" data-type="fine" data-member="' + memberId + '" data-related="fine_' + fine.id + '" data-label="Fine: ' + fine.fine_type + '" placeholder="Pay amount" step="0.01" min="0" max="' + fine.pending_amount + '">';
             html += '</div></div>';
@@ -685,7 +685,7 @@ $(document).ready(function() {
             html += '<div class="border rounded p-1 mb-1">';
             html += '<small class="d-block">' + fee.label + '</small>';
             html += '<div class="input-group input-group-sm">';
-            html += '<input type="number" class="form-control allocation-input" data-type="other_fee_' + fee.value + '" data-member="' + memberId + '" data-related="" data-label="' + fee.label + '" placeholder="₹" step="0.01" min="0">';
+            html += '<input type="number" class="form-control allocation-input" data-type="other_fee_' + fee.value + '" data-member="' + memberId + '" data-related="" data-label="' + fee.label + '" placeholder="<?= get_currency_symbol() ?>" step="0.01" min="0">';
             html += '</div></div>';
         });
         $container.html(html);
@@ -759,7 +759,7 @@ $(document).ready(function() {
             row += '<td>' + memberName + '</td>';
             row += '<td><span class="badge badge-' + getTypeBadgeClass(alloc.type) + '">' + alloc.type.toUpperCase() + '</span></td>';
             row += '<td>' + alloc.label + '</td>';
-            row += '<td class="text-right">₹' + alloc.amount.toLocaleString('en-IN', {minimumFractionDigits: 2}) + '</td>';
+            row += '<td class="text-right"><?= get_currency_symbol() ?>' + alloc.amount.toLocaleString('en-IN', {minimumFractionDigits: 2}) + '</td>';
             row += '<td><button type="button" class="btn btn-xs btn-danger remove-allocation-btn" data-index="' + index + '"><i class="fas fa-times"></i></button></td>';
             row += '</tr>';
             $tbody.append(row);
@@ -800,9 +800,9 @@ $(document).ready(function() {
         var remaining = transactionAmount - total;
         var percent = transactionAmount > 0 ? (total / transactionAmount) * 100 : 0;
 
-        $('#total_allocated').text('₹' + total.toLocaleString('en-IN', {minimumFractionDigits: 2}));
-        $('#remaining_amount').text('₹' + remaining.toLocaleString('en-IN', {minimumFractionDigits: 2}));
-        $('#footer_total').text('₹' + total.toLocaleString('en-IN', {minimumFractionDigits: 2}));
+        $('#total_allocated').text('<?= get_currency_symbol() ?>' + total.toLocaleString('en-IN', {minimumFractionDigits: 2}));
+        $('#remaining_amount').text('<?= get_currency_symbol() ?>' + remaining.toLocaleString('en-IN', {minimumFractionDigits: 2}));
+        $('#footer_total').text('<?= get_currency_symbol() ?>' + total.toLocaleString('en-IN', {minimumFractionDigits: 2}));
         $('#allocation_progress').css('width', Math.min(percent, 100) + '%');
 
         var $status = $('#allocation_status');
@@ -821,7 +821,7 @@ $(document).ready(function() {
             $btn.prop('disabled', true);
         } else if (remaining > 0) {
             $error.hide();
-            $helper.html('<i class="fas fa-check-circle"></i> Partial mapping: ₹' + remaining.toLocaleString('en-IN', {minimumFractionDigits: 2}) + ' will remain unmapped');
+            $helper.html('<i class="fas fa-check-circle"></i> Partial mapping: <?= get_currency_symbol() ?>' + remaining.toLocaleString('en-IN', {minimumFractionDigits: 2}) + ' will remain unmapped');
             $btn.prop('disabled', false);
         } else {
             $error.hide();

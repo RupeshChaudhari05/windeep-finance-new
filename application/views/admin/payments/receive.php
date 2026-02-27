@@ -47,12 +47,12 @@
                                     <i class="fas fa-<?= $icon[$due['type']] ?> text-<?= $color[$due['type']] ?>"></i>
                                     <small><?= $due['description'] ?></small>
                                 </td>
-                                <td class="text-right"><strong>₹<?= number_format($due['amount'], 2) ?></strong></td>
+                                <td class="text-right"><strong><?= format_amount($due['amount']) ?></strong></td>
                             </tr>
                             <?php endforeach; ?>
                             <tr class="border-top">
                                 <th>Total Due:</th>
-                                <th class="text-right text-danger">₹<?= number_format($total_dues, 2) ?></th>
+                                <th class="text-right text-danger"><?= format_amount($total_dues) ?></th>
                             </tr>
                         </table>
                     </div>
@@ -106,7 +106,7 @@
                             <div class="form-group">
                                 <label>Amount <span class="text-danger">*</span></label>
                                 <div class="input-group">
-                                    <div class="input-group-prepend"><span class="input-group-text">₹</span></div>
+                                    <div class="input-group-prepend"><span class="input-group-text"><?= get_currency_symbol() ?></span></div>
                                     <input type="number" class="form-control" name="amount" id="amount" 
                                            min="1" step="0.01" required <?= !$member ? 'disabled' : '' ?>>
                                 </div>
@@ -218,7 +218,7 @@ $(document).ready(function() {
                         relatedSelect.append(
                             $('<option></option>')
                                 .val(due.id)
-                                .text(due.description + ' - ₹' + parseFloat(due.amount).toFixed(2))
+                                .text(due.description + ' - <?= get_currency_symbol() ?>' + parseFloat(due.amount).toFixed(2))
                                 .data('amount', due.amount)
                         );
                     }
@@ -232,7 +232,7 @@ $(document).ready(function() {
         const amount = $(this).find(':selected').data('amount');
         if (amount) {
             $('#amount').val(parseFloat(amount).toFixed(2));
-            $('#amountHint').text('Suggested: ₹' + parseFloat(amount).toFixed(2));
+            $('#amountHint').text('Suggested: <?= get_currency_symbol() ?>' + parseFloat(amount).toFixed(2));
         }
     });
     

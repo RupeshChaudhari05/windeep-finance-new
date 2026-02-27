@@ -60,7 +60,7 @@
                     <span class="info-box-icon"><i class="fas fa-rupee-sign"></i></span>
                     <div class="info-box-content">
                         <span class="info-box-text">Total Collection</span>
-                        <span class="info-box-number">₹<?= number_format($summary['total'] ?? 0) ?></span>
+                        <span class="info-box-number"><?= format_amount($summary['total'] ?? 0, 0) ?></span>
                     </div>
                 </div>
             </div>
@@ -69,7 +69,7 @@
                     <span class="info-box-icon"><i class="fas fa-piggy-bank"></i></span>
                     <div class="info-box-content">
                         <span class="info-box-text">Savings</span>
-                        <span class="info-box-number">₹<?= number_format($summary['savings'] ?? 0) ?></span>
+                        <span class="info-box-number"><?= format_amount($summary['savings'] ?? 0, 0) ?></span>
                     </div>
                 </div>
             </div>
@@ -78,7 +78,7 @@
                     <span class="info-box-icon"><i class="fas fa-hand-holding-usd"></i></span>
                     <div class="info-box-content">
                         <span class="info-box-text">Loan EMI</span>
-                        <span class="info-box-number">₹<?= number_format($summary['loan'] ?? 0) ?></span>
+                        <span class="info-box-number"><?= format_amount($summary['loan'] ?? 0, 0) ?></span>
                     </div>
                 </div>
             </div>
@@ -87,7 +87,7 @@
                     <span class="info-box-icon"><i class="fas fa-gavel"></i></span>
                     <div class="info-box-content">
                         <span class="info-box-text">Fine</span>
-                        <span class="info-box-number">₹<?= number_format($summary['fine'] ?? 0) ?></span>
+                        <span class="info-box-number"><?= format_amount($summary['fine'] ?? 0, 0) ?></span>
                     </div>
                 </div>
             </div>
@@ -142,7 +142,7 @@
                         <?php foreach ($collections as $key => $col): ?>
                         <tr>
                             <td><?= $key + 1 ?></td>
-                            <td><?= format_date($col->transaction_date, 'd M Y') ?></td>
+                            <td><?= format_date($col->transaction_date) ?></td>
                             <td><small><?= $col->receipt_number ?></small></td>
                             <td>
                                 <a href="<?= site_url('admin/members/view/' . $col->member_id) ?>">
@@ -158,7 +158,7 @@
                                 </span>
                             </td>
                             <td><small><?= $col->reference_number ?? '-' ?></small></td>
-                            <td class="text-right font-weight-bold">₹<?= number_format($col->amount) ?></td>
+                            <td class="text-right font-weight-bold"><?= format_amount($col->amount, 0) ?></td>
                             <td><?= ucfirst($col->payment_mode) ?></td>
                             <td><small><?= $col->collected_by ?? '-' ?></small></td>
                         </tr>
@@ -168,7 +168,7 @@
                 <tfoot class="table-primary">
                     <tr>
                         <th colspan="6" class="text-right">Total:</th>
-                        <th class="text-right">₹<?= number_format($summary['total'] ?? 0) ?></th>
+                        <th class="text-right"><?= format_amount($summary['total'] ?? 0, 0) ?></th>
                         <th colspan="2"></th>
                     </tr>
                 </tfoot>
@@ -204,7 +204,7 @@ $(document).ready(function() {
             responsive: true,
             plugins: { legend: { display: false } },
             scales: {
-                y: { beginAtZero: true, ticks: { callback: function(v) { return '₹' + v.toLocaleString(); } } }
+                y: { beginAtZero: true, ticks: { callback: function(v) { return '<?= get_currency_symbol() ?>' + v.toLocaleString(); } } }
             }
         }
     });

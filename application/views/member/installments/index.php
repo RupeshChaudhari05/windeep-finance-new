@@ -4,7 +4,7 @@
     <div class="col-lg-3 col-6">
         <div class="small-box bg-info">
             <div class="inner">
-                <h4>₹<?= number_format($summary['total_emi'], 0) ?></h4>
+                <h4><?= format_amount($summary['total_emi'], 0) ?></h4>
                 <p>Total EMI</p>
             </div>
             <div class="icon"><i class="fas fa-calculator"></i></div>
@@ -13,7 +13,7 @@
     <div class="col-lg-3 col-6">
         <div class="small-box bg-success">
             <div class="inner">
-                <h4>₹<?= number_format($summary['total_paid'], 0) ?></h4>
+                <h4><?= format_amount($summary['total_paid'], 0) ?></h4>
                 <p>Total Paid (<?= $summary['paid_count'] ?> EMIs)</p>
             </div>
             <div class="icon"><i class="fas fa-check-circle"></i></div>
@@ -22,7 +22,7 @@
     <div class="col-lg-3 col-6">
         <div class="small-box bg-warning">
             <div class="inner">
-                <h4>₹<?= number_format($summary['total_outstanding'], 0) ?></h4>
+                <h4><?= format_amount($summary['total_outstanding'], 0) ?></h4>
                 <p>Outstanding (<?= $summary['pending_count'] ?> Pending)</p>
             </div>
             <div class="icon"><i class="fas fa-clock"></i></div>
@@ -124,25 +124,25 @@
                                 <?php endif; ?>
                             </td>
                             <td class="text-right">
-                                ₹<?= number_format($inst->principal_amount, 2) ?>
+                                <?= format_amount($inst->principal_amount) ?>
                             </td>
                             <td class="text-right">
-                                ₹<?= number_format($inst->interest_amount, 2) ?>
+                                <?= format_amount($inst->interest_amount) ?>
                             </td>
                             <td class="text-right font-weight-bold">
-                                ₹<?= number_format($inst->emi_amount, 2) ?>
+                                <?= format_amount($inst->emi_amount) ?>
                             </td>
                             <td class="text-right <?= ($inst->fine_amount ?? 0) > 0 ? 'text-danger' : 'text-muted' ?>">
-                                ₹<?= number_format($inst->fine_amount ?? 0, 2) ?>
+                                <?= format_amount($inst->fine_amount ?? 0) ?>
                             </td>
                             <td class="text-right text-success">
-                                ₹<?= number_format($inst->total_paid ?? 0, 2) ?>
+                                <?= format_amount($inst->total_paid ?? 0) ?>
                             </td>
                             <td class="text-right <?= $balance > 0 ? 'text-danger font-weight-bold' : 'text-muted' ?>">
-                                ₹<?= number_format($balance, 2) ?>
+                                <?= format_amount($balance) ?>
                             </td>
                             <td class="text-right">
-                                <small class="text-muted">₹<?= number_format($inst->outstanding_principal_after, 2) ?></small>
+                                <small class="text-muted"><?= format_amount($inst->outstanding_principal_after) ?></small>
                             </td>
                             <td class="text-center">
                                 <?php
@@ -175,12 +175,12 @@
                     <tfoot class="bg-light font-weight-bold">
                         <tr>
                             <td colspan="3" class="text-right">Totals:</td>
-                            <td class="text-right">₹<?= number_format($summary['total_principal'], 2) ?></td>
-                            <td class="text-right">₹<?= number_format($summary['total_interest'], 2) ?></td>
-                            <td class="text-right">₹<?= number_format($summary['total_emi'], 2) ?></td>
-                            <td class="text-right text-danger">₹<?= number_format($summary['total_fine'], 2) ?></td>
-                            <td class="text-right text-success">₹<?= number_format($summary['total_paid'], 2) ?></td>
-                            <td class="text-right text-danger">₹<?= number_format($summary['total_outstanding'], 2) ?></td>
+                            <td class="text-right"><?= format_amount($summary['total_principal']) ?></td>
+                            <td class="text-right"><?= format_amount($summary['total_interest']) ?></td>
+                            <td class="text-right"><?= format_amount($summary['total_emi']) ?></td>
+                            <td class="text-right text-danger"><?= format_amount($summary['total_fine']) ?></td>
+                            <td class="text-right text-success"><?= format_amount($summary['total_paid']) ?></td>
+                            <td class="text-right text-danger"><?= format_amount($summary['total_outstanding']) ?></td>
                             <td colspan="3"></td>
                         </tr>
                     </tfoot>

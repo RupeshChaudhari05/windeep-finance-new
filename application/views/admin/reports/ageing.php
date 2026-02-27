@@ -29,12 +29,12 @@
                         <td><?= $loan->loan_number ?></td>
                         <td><?= $loan->member_code ?> - <?= $loan->first_name . ' ' . $loan->last_name ?></td>
                         <td><?= $loan->product_name ?></td>
-                        <td class="text-right">₹<?= number_format($loan->principal_amount) ?></td>
-                        <td class="text-right">₹<?= number_format($loan->outstanding_principal) ?></td>
+                        <td class="text-right"><?= format_amount($loan->principal_amount, 0) ?></td>
+                        <td class="text-right"><?= format_amount($loan->outstanding_principal, 0) ?></td>
                         <td class="text-center">
                             <span class="badge badge-danger"><?= $loan->days_overdue ?? 0 ?></span>
                         </td>
-                        <td class="text-right text-danger font-weight-bold">₹<?= number_format($loan->overdue_amount ?? 0) ?></td>
+                        <td class="text-right text-danger font-weight-bold"><?= format_amount($loan->overdue_amount ?? 0, 0) ?></td>
                         <td>
                             <span class="badge badge-<?= 
                                 ($loan->ageing_bucket ?? '') == '0-30 days' ? 'warning' : 

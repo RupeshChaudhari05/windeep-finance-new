@@ -217,12 +217,12 @@
                                             </td>
                                             <td class="text-right">
                                                 <?php if ($txn->debit_amount > 0): ?>
-                                                    <span class="text-danger font-weight-bold">₹<?= number_format($txn->debit_amount, 2) ?></span>
+                                                    <span class="text-danger font-weight-bold"><?= format_amount($txn->debit_amount) ?></span>
                                                 <?php endif; ?>
                                             </td>
                                             <td class="text-right">
                                                 <?php if ($txn->credit_amount > 0): ?>
-                                                    <span class="text-success font-weight-bold">₹<?= number_format($txn->credit_amount, 2) ?></span>
+                                                    <span class="text-success font-weight-bold"><?= format_amount($txn->credit_amount) ?></span>
                                                 <?php endif; ?>
                                             </td>
                                             <td>
@@ -303,7 +303,7 @@
                             <div class="d-flex justify-content-between align-items-center">
                                 <div>
                                     <strong>Transaction Amount:</strong>
-                                    <span id="match_amount" class="h4 ml-2 mb-0">₹0.00</span>
+                                    <span id="match_amount" class="h4 ml-2 mb-0"><?= get_currency_symbol() ?>0.00</span>
                                 </div>
                                 <div>
                                     <strong>Date:</strong> <span id="match_date"></span>
@@ -315,8 +315,8 @@
                     <div class="col-md-6">
                         <div class="alert mb-0" id="allocation_status">
                             <div class="d-flex justify-content-between">
-                                <span><strong>Allocated:</strong> <span id="total_allocated">₹0.00</span></span>
-                                <span><strong>Remaining:</strong> <span id="remaining_amount">₹0.00</span></span>
+                                <span><strong>Allocated:</strong> <span id="total_allocated"><?= get_currency_symbol() ?>0.00</span></span>
+                                <span><strong>Remaining:</strong> <span id="remaining_amount"><?= get_currency_symbol() ?>0.00</span></span>
                             </div>
                             <div class="progress mt-2" style="height: 8px;">
                                 <div class="progress-bar bg-success" id="allocation_progress" style="width: 0%"></div>
@@ -409,7 +409,7 @@
                             <tfoot class="bg-light">
                                 <tr>
                                     <th colspan="3" class="text-right">Total Allocated:</th>
-                                    <th class="text-right" id="footer_total">₹0.00</th>
+                                    <th class="text-right" id="footer_total"><?= get_currency_symbol() ?>0.00</th>
                                     <th></th>
                                 </tr>
                             </tfoot>

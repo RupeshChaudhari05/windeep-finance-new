@@ -70,10 +70,10 @@
                                     <?= $rule->fine_value ?>%
                                     <br><small class="text-muted">of overdue amount</small>
                                 <?php elseif ($calc_type == 'per_day'): ?>
-                                    ₹<?= number_format($rule->fine_value, 2) ?> + ₹<?= number_format($rule->per_day_amount, 2) ?>/day
+                                    <?= format_amount($rule->fine_value) ?> + <?= format_amount($rule->per_day_amount) ?>/day
                                     <br><small class="text-muted">initial + per day</small>
                                 <?php else: ?>
-                                    ₹<?= number_format($rule->fine_value, 2) ?>
+                                    <?= format_amount($rule->fine_value) ?>
                                     <br><small class="text-muted">fixed amount</small>
                                 <?php endif; ?>
                             </td>
@@ -82,7 +82,7 @@
                             </td>
                             <td>
                                 <?php if ($rule->max_fine_amount): ?>
-                                    ₹<?= number_format($rule->max_fine_amount) ?>
+                                    <?= format_amount($rule->max_fine_amount, 0) ?>
                                 <?php else: ?>
                                     <span class="text-muted">No limit</span>
                                 <?php endif; ?>
@@ -98,7 +98,7 @@
                                 <?php 
                                 $eff = $rule->effective_from ?? null;
                                 if ($eff): 
-                                    $effDate = date('d M Y', strtotime($eff));
+                                    $effDate = format_date($eff);
                                     $isFuture = strtotime($eff) > time();
                                 ?>
                                     <?php if ($isFuture): ?>
@@ -157,7 +157,7 @@
             <div class="info-box-content">
                 <span class="info-box-text">This Month Fines</span>
                 <span class="info-box-number">
-                    ₹<?= number_format($this->db->select_sum('fine_amount')
+                    <?= get_currency_symbol() ?><?= number_format($this->db->select_sum('fine_amount')
                                                ->where('MONTH(fine_date)', date('m'))
                                                ->where('YEAR(fine_date)', date('Y'))
                                                ->get('fines')->row()->fine_amount ?? 0) ?>
@@ -171,7 +171,7 @@
             <div class="info-box-content">
                 <span class="info-box-text">Pending Collection</span>
                 <span class="info-box-number">
-                    ₹<?= number_format($this->db->select('SUM(fine_amount - IFNULL(paid_amount, 0) - IFNULL(waived_amount, 0)) as pending', FALSE)
+                    <?= get_currency_symbol() ?><?= number_format($this->db->select('SUM(fine_amount - IFNULL(paid_amount, 0) - IFNULL(waived_amount, 0)) as pending', FALSE)
                                                ->where_in('status', ['pending', 'partial'])
                                                ->get('fines')->row()->pending ?? 0) ?>
                 </span>
@@ -236,7 +236,7 @@
                             <div class="form-group">
                                 <label id="amountLabel">Fine Amount <span class="text-danger">*</span></label>
                                 <div class="input-group">
-                                    <div class="input-group-prepend" id="amountPrefix"><span class="input-group-text">₹</span></div>
+                                    <div class="input-group-prepend" id="amountPrefix"><span class="input-group-text"><?= get_currency_symbol() ?></span></div>
                                     <input type="number" name="amount_value" id="amount_value" class="form-control" required step="0.01" min="0">
                                     <div class="input-group-append" id="amountSuffix" style="display:none"><span class="input-group-text">%</span></div>
                                 </div>
@@ -247,7 +247,7 @@
                             <div class="form-group">
                                 <label>Per Day Amount <span class="text-danger">*</span></label>
                                 <div class="input-group">
-                                    <div class="input-group-prepend"><span class="input-group-text">₹</span></div>
+                                    <div class="input-group-prepend"><span class="input-group-text"><?= get_currency_symbol() ?></span></div>
                                     <input type="number" name="per_day_amount" id="per_day_amount" class="form-control" step="0.01" min="0">
                                 </div>
                                 <small class="text-muted">Additional daily charge after grace period</small>
@@ -267,7 +267,7 @@
                             <div class="form-group">
                                 <label>Maximum Fine Cap</label>
                                 <div class="input-group">
-                                    <div class="input-group-prepend"><span class="input-group-text">₹</span></div>
+                                    <div class="input-group-prepend"><span class="input-group-text"><?= get_currency_symbol() ?></span></div>
                                     <input type="number" name="max_fine_amount" id="max_fine_amount" class="form-control" min="0">
                                 </div>
                                 <small class="text-muted">Leave empty for no limit</small>

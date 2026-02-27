@@ -32,16 +32,24 @@ if (!function_exists('ordinal_suffix')) {
 
 if (!function_exists('format_date')) {
     /**
-     * Safe date formatter - returns default when value is empty or invalid
-     * @param mixed $value Timestamp, date string or null
-     * @param string $format PHP date format string
+     * Safe date formatter - reads date_format from system settings.
+     * Falls back to 'd M Y' when settings are unavailable.
+     *
+     * @param mixed  $value   Timestamp, date string or null
+     * @param string $format  PHP date format string (null = use setting)
      * @param string $default String to return when value is empty/invalid
      * @return string
      */
-    function format_date($value, $format = 'd M Y', $default = '-') {
+    function format_date($value, $format = null, $default = '-') {
         if ($value === null || $value === '' || (is_string($value) && trim($value) === '')) {
             return $default;
         }
+
+        // Resolve format from settings when not explicitly provided
+        if ($format === null) {
+            $format = _get_date_format_setting();
+        }
+
         // Allow passing 'now' or relative strings
         if (is_numeric($value)) {
             $ts = (int) $value;
@@ -55,8 +63,40 @@ if (!function_exists('format_date')) {
     }
 }
 
+if (!function_exists('_get_date_format_setting')) {
+    /**
+     * Internal: fetch date_format from system_settings (cached per request).
+     */
+    function _get_date_format_setting() {
+        static $cached = null;
+        if ($cached !== null) return $cached;
+
+        // Try through CI if available
+        if (function_exists('get_instance')) {
+            $CI =& get_instance();
+            if (isset($CI->settings) && isset($CI->settings['date_format'])) {
+                $cached = $CI->settings['date_format'];
+                return $cached;
+            }
+            if (function_exists('get_setting')) {
+                $val = get_setting('date_format', null);
+                if ($val) {
+                    $cached = $val;
+                    return $cached;
+                }
+            }
+        }
+
+        $cached = 'd/m/Y'; // ultimate fallback
+        return $cached;
+    }
+}
+
 if (!function_exists('format_date_time')) {
-    function format_date_time($value, $format = 'd M Y H:i', $default = '-') {
+    function format_date_time($value, $format = null, $default = '-') {
+        if ($format === null) {
+            $format = _get_date_format_setting() . ' H:i';
+        }
         return format_date($value, $format, $default);
     }
 }

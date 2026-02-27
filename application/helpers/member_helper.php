@@ -47,7 +47,7 @@ if (!function_exists('member_avatar_html')) {
 if (!function_exists('member_formatted_income')) {
     function member_formatted_income($member) {
         if (!empty($member->monthly_income)) {
-            return '₹' . number_format($member->monthly_income);
+            return format_amount($member->monthly_income, 0);
         }
         return '-';
     }

@@ -149,7 +149,7 @@
                     </p>
                     <p>
                         <span class="info-label">Payment Date:</span>
-                        <span class="info-value"><?= format_date($payment->payment_date, 'd M Y') ?></span>
+                        <span class="info-value"><?= format_date($payment->payment_date) ?></span>
                     </p>
                     <p>
                         <span class="info-label">Payment Type:</span>
@@ -163,7 +163,7 @@
         <div class="amount-box">
             <div class="text-center">
                 <div style="font-size: 14px; color: #666; margin-bottom: 5px;">Total Amount Paid</div>
-                <div class="total-amount">₹<?= number_format($payment->total_amount, 2) ?></div>
+                <div class="total-amount"><?= format_amount($payment->total_amount) ?></div>
                 <div style="font-size: 12px; color: #999; margin-top: 5px;">
                     (<?= ucwords(convert_number_to_words($payment->total_amount)) ?> Rupees Only)
                 </div>
@@ -173,22 +173,22 @@
                 <table>
                     <tr>
                         <td class="info-label">Principal Amount:</td>
-                        <td class="text-right info-value">₹<?= number_format($payment->principal_component, 2) ?></td>
+                        <td class="text-right info-value"><?= format_amount($payment->principal_component) ?></td>
                     </tr>
                     <tr>
                         <td class="info-label">Interest Amount:</td>
-                        <td class="text-right info-value">₹<?= number_format($payment->interest_component, 2) ?></td>
+                        <td class="text-right info-value"><?= format_amount($payment->interest_component) ?></td>
                     </tr>
                     <?php if ($payment->fine_component > 0): ?>
                     <tr>
                         <td class="info-label">Fine/Penalty:</td>
-                        <td class="text-right info-value text-danger">₹<?= number_format($payment->fine_component, 2) ?></td>
+                        <td class="text-right info-value text-danger"><?= format_amount($payment->fine_component) ?></td>
                     </tr>
                     <?php endif; ?>
                     <?php if ($payment->excess_amount > 0): ?>
                     <tr>
                         <td class="info-label">Excess Amount:</td>
-                        <td class="text-right info-value text-success">₹<?= number_format($payment->excess_amount, 2) ?></td>
+                        <td class="text-right info-value text-success"><?= format_amount($payment->excess_amount) ?></td>
                     </tr>
                     <?php endif; ?>
                 </table>
@@ -227,7 +227,7 @@
                     <?php if ($payment->cheque_date): ?>
                     <p>
                         <span class="info-label">Cheque Date:</span>
-                        <span class="info-value"><?= format_date($payment->cheque_date, 'd M Y') ?></span>
+                        <span class="info-value"><?= format_date($payment->cheque_date) ?></span>
                     </p>
                     <?php endif; ?>
                     <?php if ($payment->receipt_number): ?>
@@ -252,8 +252,8 @@
             <div class="card-body">
                 <strong><i class="fas fa-info-circle mr-2"></i>Outstanding Balance After Payment:</strong>
                 <div class="mt-2">
-                    Principal: ₹<?= number_format($payment->outstanding_principal_after, 2) ?> | 
-                    Interest: ₹<?= number_format($payment->outstanding_interest_after, 2) ?>
+                    Principal: <?= format_amount($payment->outstanding_principal_after) ?> | 
+                    Interest: <?= format_amount($payment->outstanding_interest_after) ?>
                 </div>
             </div>
         </div>
@@ -273,7 +273,7 @@
         <!-- Footer -->
         <div class="receipt-footer">
             <p>This is a computer-generated receipt and does not require a physical signature.</p>
-            <p>Printed on: <?= date('d M Y h:i A') ?></p>
+            <p>Printed on: <?= format_date_time(date('Y-m-d H:i:s')) ?></p>
             <p><strong>Thank you for your payment!</strong></p>
         </div>
     </div>

@@ -39,8 +39,8 @@
                             </a>
                             <br>
                             <small class="text-muted">
-                                Fine: ₹<?= number_format($req->fine_amount ?? 0, 2) ?> |
-                                Balance: ₹<?= number_format($req->balance_amount ?? $req->fine_amount, 2) ?>
+                                Fine: <?= format_amount($req->fine_amount ?? 0) ?> |
+                                Balance: <?= format_amount($req->balance_amount ?? $req->fine_amount) ?>
                             </small>
                         </td>
                         <td>
@@ -52,7 +52,7 @@
                         <td><?= format_date_time($req->waiver_requested_at, 'd M Y H:i', '-') ?></td>
                         <td>
                             <?php if (!empty($req->waiver_requested_amount)): ?>
-                                <span class="badge badge-info">₹<?= number_format($req->waiver_requested_amount, 2) ?></span>
+                                <span class="badge badge-info"><?= format_amount($req->waiver_requested_amount) ?></span>
                             <?php else: ?>
                                 <span class="text-muted">Full balance</span>
                             <?php endif; ?>
@@ -62,7 +62,7 @@
                                    value="<?= number_format($req->waiver_requested_amount ?? ($req->balance_amount ?? $req->fine_amount ?? 0), 2, '.', '') ?>"
                                    data-id="<?= $req->id ?>" step="0.01" min="0"
                                    max="<?= number_format($req->balance_amount ?? $req->fine_amount ?? 0, 2, '.', '') ?>">
-                            <small class="text-muted">Max: ₹<?= number_format($req->balance_amount ?? $req->fine_amount ?? 0, 2) ?></small>
+                            <small class="text-muted">Max: <?= format_amount($req->balance_amount ?? $req->fine_amount ?? 0) ?></small>
                         </td>
                         <td>
                             <span title="<?= htmlspecialchars($req->waiver_reason ?? '') ?>">
@@ -93,7 +93,7 @@ $(document).ready(function() {
         var id = $(this).data('id');
         var amount = $('.request-amount[data-id="' + id + '"]').val();
         if (!amount || parseFloat(amount) <= 0) { toastr.error('Enter a valid waiver amount'); return; }
-        if (!confirm('Approve waiver for ₹' + parseFloat(amount).toFixed(2) + '?')) return;
+        if (!confirm('Approve waiver for <?= get_currency_symbol() ?>' + parseFloat(amount).toFixed(2) + '?')) return;
 
         var $btn = $(this);
         $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i>');

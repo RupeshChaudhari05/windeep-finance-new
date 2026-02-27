@@ -29,7 +29,7 @@
                     </tr>
                     <tr>
                         <th>Monthly Amt:</th>
-                        <td class="font-weight-bold">₹<?= number_format($account->monthly_amount) ?></td>
+                        <td class="font-weight-bold"><?= format_amount($account->monthly_amount) ?></td>
                     </tr>
                     <tr>
                         <th>Interest Rate:</th>
@@ -41,7 +41,7 @@
                     </tr>
                     <tr>
                         <th>Opened On:</th>
-                        <td><?= format_date($account->created_at, 'd M Y') ?></td>
+                        <td><?= format_date($account->created_at) ?></td>
                     </tr>
                     <tr>
                         <th>Maturity Date:</th>
@@ -56,7 +56,7 @@
                     <span class="info-box-icon"><i class="fas fa-wallet"></i></span>
                     <div class="info-box-content">
                         <span class="info-box-text">Current Balance</span>
-                        <span class="info-box-number">₹<?= number_format($account->current_balance, 2) ?></span>
+                        <span class="info-box-number"><?= format_amount($account->current_balance, 0) ?></span>
                     </div>
                 </div>
                 
@@ -64,7 +64,7 @@
                     <span class="info-box-icon"><i class="fas fa-coins"></i></span>
                     <div class="info-box-content">
                         <span class="info-box-text">Total Deposited</span>
-                        <span class="info-box-number">₹<?= number_format($account->total_deposited, 2) ?></span>
+                        <span class="info-box-number"><?= format_amount($account->total_deposited) ?></span>
                     </div>
                 </div>
                 
@@ -72,7 +72,7 @@
                     <span class="info-box-icon"><i class="fas fa-percentage"></i></span>
                     <div class="info-box-content">
                         <span class="info-box-text">Interest Earned</span>
-                        <span class="info-box-number">₹<?= number_format($account->interest_earned, 2) ?></span>
+                        <span class="info-box-number"><?= format_amount($account->interest_earned) ?></span>
                     </div>
                 </div>
                 
@@ -163,13 +163,13 @@
                                             $balance = $txn->running_balance ?? $txn->balance_after ?? 0;
                                             ?>
                                             <td class="text-right text-success">
-                                                <?= $credit > 0 ? '₹' . number_format($credit, 2) : '-' ?>
+                                                <?= $credit > 0 ? format_amount($credit) : '-' ?>
                                             </td>
                                             <td class="text-right text-danger">
-                                                <?= $debit > 0 ? '₹' . number_format($debit, 2) : '-' ?>
+                                                <?= $debit > 0 ? format_amount($debit) : '-' ?>
                                             </td>
                                             <td class="text-right font-weight-bold">
-                                                ₹<?= number_format((float) $balance, 2) ?>
+                                                <?= format_amount((float) $balance) ?>
                                             </td>
                                             <td><small><?= ucfirst($txn->payment_mode) ?></small></td>
                                         </tr>
@@ -203,8 +203,8 @@
                                         <?php foreach ($schedule as $sch): ?>
                                         <tr class="<?= $sch->status == 'pending' && (safe_timestamp($sch->due_date) < time()) ? 'table-danger' : '' ?>">
                                             <td><?= format_date($sch->due_date, 'M Y') ?></td>
-                                            <td><?= format_date($sch->due_date, 'd M Y') ?></td>
-                                            <td class="text-right">₹<?= number_format((float)($sch->due_amount ?? 0), 2) ?></td>
+                                            <td><?= format_date($sch->due_date) ?></td>
+                                            <td class="text-right"><?= format_amount((float)($sch->due_amount ?? 0)) ?></td>
                                             <td>
                                                 <?php
                                                 $sch_status = [
@@ -220,7 +220,7 @@
                                                 </span>
                                             </td>
                                             <td>
-                                                <?= $sch->paid_date ? format_date($sch->paid_date, 'd M Y') : '-' ?>
+                                                <?= $sch->paid_date ? format_date($sch->paid_date) : '-' ?>
                                             </td>
                                         </tr>
                                         <?php endforeach; ?>

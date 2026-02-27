@@ -66,7 +66,7 @@
                             <td>
                                 <a href="tel:<?= $loan->phone ?>"><?= $loan->phone ?></a>
                             </td>
-                            <td class="text-right">₹<?= number_format($loan->emi_amount, 2) ?></td>
+                            <td class="text-right"><?= format_amount($loan->emi_amount) ?></td>
                             <td>
                                 <span class="text-danger"><?= format_date($loan->due_date) ?></span>
                             </td>
@@ -75,9 +75,9 @@
                                     <?= $days_overdue ?> days
                                 </span>
                             </td>
-                            <td class="text-right font-weight-bold text-danger">₹<?= number_format($overdue_amount, 2) ?></td>
+                            <td class="text-right font-weight-bold text-danger"><?= format_amount($overdue_amount) ?></td>
                             <td class="text-right text-warning">
-                                ₹<?= number_format($fine_amount, 2) ?>
+                                <?= format_amount($fine_amount) ?>
                                 <?php if (!empty($loan->fine_estimated)): ?>
                                 <br><small class="text-muted"><i class="fas fa-calculator"></i> estimated</small>
                                 <?php endif; ?>
@@ -103,8 +103,8 @@
                 <tfoot class="bg-light">
                     <tr>
                         <th colspan="7" class="text-right">Total:</th>
-                        <th class="text-right text-danger">₹<?= number_format($total_overdue, 2) ?></th>
-                        <th class="text-right text-warning">₹<?= number_format($total_fine, 2) ?></th>
+                        <th class="text-right text-danger"><?= format_amount($total_overdue) ?></th>
+                        <th class="text-right text-warning"><?= format_amount($total_fine) ?></th>
                         <th></th>
                     </tr>
                 </tfoot>
@@ -128,7 +128,7 @@
     <div class="col-md-3">
         <div class="small-box bg-warning">
             <div class="inner">
-                <h3>₹<?= number_format($total_overdue ?? 0) ?></h3>
+                <h3><?= format_amount($total_overdue ?? 0, 0) ?></h3>
                 <p>Total Overdue Amount</p>
             </div>
             <div class="icon"><i class="fas fa-rupee-sign"></i></div>
@@ -137,7 +137,7 @@
     <div class="col-md-3">
         <div class="small-box bg-info">
             <div class="inner">
-                <h3>₹<?= number_format($total_fine ?? 0) ?></h3>
+                <h3><?= format_amount($total_fine ?? 0, 0) ?></h3>
                 <p>Total Fine Amount</p>
             </div>
             <div class="icon"><i class="fas fa-gavel"></i></div>

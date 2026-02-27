@@ -16,7 +16,7 @@
                     <span class="info-box-icon"><i class="fas fa-exclamation-triangle"></i></span>
                     <div class="info-box-content">
                         <span class="info-box-text">Pending</span>
-                        <span class="info-box-number">₹<?= number_format($total_pending, 2) ?></span>
+                        <span class="info-box-number"><?= format_amount($total_pending) ?></span>
                     </div>
                 </div>
             </div>
@@ -25,7 +25,7 @@
                     <span class="info-box-icon"><i class="fas fa-check-circle"></i></span>
                     <div class="info-box-content">
                         <span class="info-box-text">Paid</span>
-                        <span class="info-box-number">₹<?= number_format($total_paid, 2) ?></span>
+                        <span class="info-box-number"><?= format_amount($total_paid) ?></span>
                     </div>
                 </div>
             </div>
@@ -34,7 +34,7 @@
                     <span class="info-box-icon"><i class="fas fa-hand-holding-heart"></i></span>
                     <div class="info-box-content">
                         <span class="info-box-text">Waived</span>
-                        <span class="info-box-number">₹<?= number_format($total_waived, 2) ?></span>
+                        <span class="info-box-number"><?= format_amount($total_waived) ?></span>
                     </div>
                 </div>
             </div>
@@ -82,9 +82,9 @@
                                 echo $fine_types[$fine->fine_type] ?? $fine->fine_type;
                                 ?>
                             </td>
-                            <td class="text-right">₹<?= number_format((float) ($fine->fine_amount ?? 0), 2) ?></td>
-                            <td class="text-right text-success">₹<?= number_format((float) ($fine->paid_amount ?? 0), 2) ?></td>
-                            <td class="text-right text-danger font-weight-bold">₹<?= number_format((float) ($fine->balance_amount ?? $fine->fine_amount ?? 0), 2) ?></td>
+                            <td class="text-right"><?= format_amount((float) ($fine->fine_amount ?? 0)) ?></td>
+                            <td class="text-right text-success"><?= format_amount((float) ($fine->paid_amount ?? 0)) ?></td>
+                            <td class="text-right text-danger font-weight-bold"><?= format_amount((float) ($fine->balance_amount ?? $fine->fine_amount ?? 0)) ?></td>
                             <td>
                                 <?php
                                 $status_classes = [
@@ -105,7 +105,7 @@
                                 $is_overdue = $due_date < $today && in_array($fine->status, ['pending', 'partial']);
                                 ?>
                                 <span class="<?= $is_overdue ? 'text-danger' : '' ?>">
-                                    <?= $due_date->format('d/m/Y') ?>
+                                    <?= format_date($fine->due_date) ?>
                                     <?php if ($is_overdue): ?>
                                         <small class="text-danger">(Overdue)</small>
                                     <?php endif; ?>

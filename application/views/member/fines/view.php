@@ -34,19 +34,19 @@
                     </tr>
                     <tr>
                         <th>Fine Amount:</th>
-                        <td class="font-weight-bold">₹<?= number_format((float) ($fine->fine_amount ?? 0), 2) ?></td>
+                        <td class="font-weight-bold"><?= format_amount((float) ($fine->fine_amount ?? 0)) ?></td>
                     </tr>
                     <tr>
                         <th>Paid:</th>
-                        <td class="text-success">₹<?= number_format((float) ($fine->paid_amount ?? 0), 2) ?></td>
+                        <td class="text-success"><?= format_amount((float) ($fine->paid_amount ?? 0)) ?></td>
                     </tr>
                     <tr>
                         <th>Waived:</th>
-                        <td class="text-info">₹<?= number_format((float) ($fine->waived_amount ?? 0), 2) ?></td>
+                        <td class="text-info"><?= format_amount((float) ($fine->waived_amount ?? 0)) ?></td>
                     </tr>
                     <tr>
                         <th>Balance Due:</th>
-                        <td class="text-danger font-weight-bold">₹<?= number_format((float) ($balance ?? 0), 2) ?></td>
+                        <td class="text-danger font-weight-bold"><?= format_amount((float) ($balance ?? 0)) ?></td>
                     </tr>
                     <tr>
                         <th>Status:</th>
@@ -73,7 +73,7 @@
                             $is_overdue = $due_date < $today && $fine->status === 'pending';
                             ?>
                             <span class="<?= $is_overdue ? 'text-danger font-weight-bold' : '' ?>">
-                                <?= $due_date->format('d/m/Y') ?>
+                                <?= format_date($fine->due_date) ?>
                                 <?php if ($is_overdue): ?>
                                     <small class="text-danger">(Overdue)</small>
                                 <?php endif; ?>
@@ -82,7 +82,7 @@
                     </tr>
                     <tr>
                         <th>Created:</th>
-                        <td><?= date('d/m/Y H:i', strtotime($fine->created_at)) ?></td>
+                        <td><?= format_date_time($fine->created_at) ?></td>
                     </tr>
                 </table>
             </div>
@@ -111,11 +111,11 @@
                         <?php endif; ?>
 
                         <?php if ($fine->status === 'paid' && !empty($fine->payment_date)): ?>
-                            <p><strong>Paid On:</strong> <?= date('d/m/Y', strtotime($fine->payment_date)) ?></p>
+                            <p><strong>Paid On:</strong> <?= format_date($fine->payment_date) ?></p>
                         <?php endif; ?>
 
                         <?php if ($fine->status === 'waived' && !empty($fine->waived_at)): ?>
-                            <p><strong>Waived On:</strong> <?= date('d/m/Y H:i', strtotime($fine->waived_at)) ?></p>
+                            <p><strong>Waived On:</strong> <?= format_date_time($fine->waived_at) ?></p>
                         <?php endif; ?>
                     </div>
                 </div>
@@ -191,9 +191,9 @@
                         <div class="card-body">
                             <div class="row">
                                 <div class="col-md-6">
-                                    <p><strong>Request Date:</strong> <?= date('d/m/Y H:i', strtotime($waiver_request->waiver_requested_at)) ?></p>
+                                    <p><strong>Request Date:</strong> <?= format_date_time($waiver_request->waiver_requested_at) ?></p>
                                     <?php if (!empty($waiver_request->waiver_requested_amount)): ?>
-                                        <p><strong>Requested Amount:</strong> ₹<?= number_format($waiver_request->waiver_requested_amount, 2) ?></p>
+                                        <p><strong>Requested Amount:</strong> <?= format_amount($waiver_request->waiver_requested_amount) ?></p>
                                     <?php endif; ?>
                                     <p><strong>Status:</strong>
                                         <span class="badge <?= $waiver_status_class ?> badge-lg">
@@ -203,11 +203,11 @@
                                 </div>
                                 <div class="col-md-6">
                                     <?php if (!empty($waiver_request->waiver_approved_at)): ?>
-                                        <p><strong>Approved On:</strong> <?= date('d/m/Y H:i', strtotime($waiver_request->waiver_approved_at)) ?></p>
+                                        <p><strong>Approved On:</strong> <?= format_date_time($waiver_request->waiver_approved_at) ?></p>
                                         <p><strong>Approved By:</strong> <?= $waiver_request->reviewer_name ?? 'Administrator' ?></p>
                                     <?php endif; ?>
                                     <?php if (!empty($waiver_request->waiver_denied_at)): ?>
-                                        <p><strong>Denied On:</strong> <?= date('d/m/Y H:i', strtotime($waiver_request->waiver_denied_at)) ?></p>
+                                        <p><strong>Denied On:</strong> <?= format_date_time($waiver_request->waiver_denied_at) ?></p>
                                         <p><strong>Denied By:</strong> <?= $waiver_request->denier_name ?? 'Administrator' ?></p>
                                     <?php endif; ?>
                                 </div>

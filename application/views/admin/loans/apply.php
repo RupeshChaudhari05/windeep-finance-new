@@ -93,7 +93,7 @@
                         </div>
                         <div class="col-md-6">
                             <div class="form-group">
-                                <label for="requested_amount">Loan Amount (₹) <span class="text-danger">*</span>
+                                <label for="requested_amount">Loan Amount (<?= get_currency_symbol() ?>) <span class="text-danger">*</span>
                                     <i class="fas fa-info-circle text-muted ml-1" data-toggle="tooltip" title="Amount the member wants to borrow. Must be within the product's min-max range shown below."></i>
                                 </label>
                                 <input type="number" class="form-control" id="requested_amount" name="requested_amount" 
@@ -216,7 +216,7 @@
                 <table class="table table-sm table-borderless">
                     <tr>
                         <td>Loan Amount:</td>
-                        <td class="text-right font-weight-bold" id="calcAmount">₹0</td>
+                        <td class="text-right font-weight-bold" id="calcAmount"><?= get_currency_symbol() ?>0</td>
                     </tr>
                     <tr>
                         <td>Interest Rate:</td>
@@ -228,15 +228,15 @@
                     </tr>
                     <tr class="border-top">
                         <td><strong>Monthly EMI:</strong></td>
-                        <td class="text-right font-weight-bold text-primary" id="calcEMI">₹0</td>
+                        <td class="text-right font-weight-bold text-primary" id="calcEMI"><?= get_currency_symbol() ?>0</td>
                     </tr>
                     <tr>
                         <td>Total Interest:</td>
-                        <td class="text-right text-warning" id="calcTotalInterest">₹0</td>
+                        <td class="text-right text-warning" id="calcTotalInterest"><?= get_currency_symbol() ?>0</td>
                     </tr>
                     <tr>
                         <td>Total Payable:</td>
-                        <td class="text-right font-weight-bold" id="calcTotal">₹0</td>
+                        <td class="text-right font-weight-bold" id="calcTotal"><?= get_currency_symbol() ?>0</td>
                     </tr>
                 </table>
                 
@@ -282,7 +282,7 @@ $(document).ready(function() {
         var selected = $(this).find(':selected');
         if (selected.val()) {
             $('#infoKyc').html(selected.data('kyc') == '1' ? '<span class="badge badge-success">Verified</span>' : '<span class="badge badge-warning">Pending</span>');
-            $('#infoSavings').text('₹' + Number(selected.data('savings')).toLocaleString('en-IN'));
+            $('#infoSavings').text('<?= get_currency_symbol() ?>' + Number(selected.data('savings')).toLocaleString('en-IN'));
             $('#infoLoans').text(selected.data('loans') || '0');
         } else {
             $('#infoKyc').html('<span class="text-muted small">— select member —</span>');
@@ -303,7 +303,7 @@ $(document).ready(function() {
             var tenureMax = selected.data('tenure-max');
             requiredGuarantors = selected.data('guarantors');
             
-            $('#amountRange').text('Min: ₹' + min.toLocaleString() + ' | Max: ₹' + max.toLocaleString());
+            $('#amountRange').text('Min: <?= get_currency_symbol() ?>' + min.toLocaleString() + ' | Max: <?= get_currency_symbol() ?>' + max.toLocaleString());
             $('#tenureRange').text('Min: ' + tenureMin + ' months | Max: ' + tenureMax + ' months');
             $('#guarantorRequired').text('(Required: ' + requiredGuarantors + ')');
             
@@ -314,7 +314,7 @@ $(document).ready(function() {
                 <table class="table table-sm table-borderless">
                     <tr><td>Product:</td><td class="text-right"><strong>${selected.text().split('(')[0]}</strong></td></tr>
                     <tr><td>Interest:</td><td class="text-right">${rate}% p.a. (${type})</td></tr>
-                    <tr><td>Amount Range:</td><td class="text-right">₹${min.toLocaleString()} - ₹${max.toLocaleString()}</td></tr>
+                    <tr><td>Amount Range:</td><td class="text-right"><?= get_currency_symbol() ?>${min.toLocaleString()} - <?= get_currency_symbol() ?>${max.toLocaleString()}</td></tr>
                     <tr><td>Tenure Range:</td><td class="text-right">${tenureMin} - ${tenureMax} months</td></tr>
                     <tr><td>Guarantors:</td><td class="text-right">${requiredGuarantors} required</td></tr>
                 </table>
@@ -354,12 +354,12 @@ $(document).ready(function() {
         
         var totalPayable = principal + totalInterest;
         
-        $('#calcAmount').text('₹' + principal.toLocaleString());
+        $('#calcAmount').text('<?= get_currency_symbol() ?>' + principal.toLocaleString());
         $('#calcRate').text(rate + '% p.a. (' + type + ')');
         $('#calcTenure').text(tenure + ' months');
-        $('#calcEMI').text('₹' + emi.toLocaleString());
-        $('#calcTotalInterest').text('₹' + totalInterest.toLocaleString());
-        $('#calcTotal').text('₹' + totalPayable.toLocaleString());
+        $('#calcEMI').text('<?= get_currency_symbol() ?>' + emi.toLocaleString());
+        $('#calcTotalInterest').text('<?= get_currency_symbol() ?>' + totalInterest.toLocaleString());
+        $('#calcTotal').text('<?= get_currency_symbol() ?>' + totalPayable.toLocaleString());
         
         // Generate mini schedule
         generateSchedulePreview(principal, emi, monthlyRate, tenure, type);
@@ -379,7 +379,7 @@ $(document).ready(function() {
                 principalPart = emi - interest;
             }
             balance = Math.max(0, balance - principalPart);
-            html += '<tr><td>' + i + '</td><td>₹' + emi.toLocaleString() + '</td><td>₹' + Math.round(balance).toLocaleString() + '</td></tr>';
+            html += '<tr><td>' + i + '</td><td><?= get_currency_symbol() ?>' + emi.toLocaleString() + '</td><td><?= get_currency_symbol() ?>' + Math.round(balance).toLocaleString() + '</td></tr>';
         }
         
         if (tenure > 12) {

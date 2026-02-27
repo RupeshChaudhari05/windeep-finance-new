@@ -33,7 +33,7 @@
                     <div class="col-lg-3 col-md-6">
                         <div class="small-box bg-success" data-toggle="tooltip" data-placement="top" title="Total remaining principal + interest amount across all your active loans">
                             <div class="inner">
-                                <h3>₹<?= number_format($loans_summary->total_outstanding ?? 0, 0) ?></h3>
+                                <h3><?= format_amount($loans_summary->total_outstanding ?? 0, 0) ?></h3>
                                 <p>Outstanding</p>
                             </div>
                             <div class="icon"><i class="fas fa-wallet"></i></div>
@@ -43,7 +43,7 @@
                     <div class="col-lg-3 col-md-6">
                         <div class="small-box bg-warning" data-toggle="tooltip" data-placement="top" title="Total unpaid fines/penalties. Pay these to avoid further charges.">
                             <div class="inner">
-                                <h3>₹<?= number_format($pending_fines->total_fines ?? 0, 0) ?></h3>
+                                <h3><?= format_amount($pending_fines->total_fines ?? 0, 0) ?></h3>
                                 <p>Pending Fines</p>
                             </div>
                             <div class="icon"><i class="fas fa-gavel"></i></div>
@@ -79,9 +79,9 @@
                             <tbody>
                                 <?php foreach ($pending_installments as $inst): ?>
                                 <tr>
-                                    <td><?= format_date($inst->due_date, 'd M Y') ?></td>
+                                    <td><?= format_date($inst->due_date) ?></td>
                                     <td><a href="<?= site_url('member/loans/view/' . $inst->loan_id) ?>"><?= $inst->loan_number ?></a></td>
-                                    <td class="text-right">₹<?= number_format($inst->emi_amount, 2) ?></td>
+                                    <td class="text-right"><?= format_amount($inst->emi_amount) ?></td>
                                     <td>
                                         <span class="badge badge-<?= $inst->status == 'pending' ? 'warning' : ($inst->status == 'partial' ? 'info' : 'secondary') ?>">
                                             <?= ucfirst($inst->status) ?>
@@ -116,9 +116,9 @@
                         <tbody>
                             <?php foreach ($recent_transactions as $t): ?>
                             <tr>
-                                <td><?= format_date($t->payment_date, 'd M Y') ?></td>
+                                <td><?= format_date($t->payment_date) ?></td>
                                 <td><?= $t->loan_number ?? '-' ?></td>
-                                <td class="text-right">₹<?= number_format($t->total_amount ?? $t->amount ?? 0, 2) ?></td>
+                                <td class="text-right"><?= format_amount($t->total_amount ?? $t->amount ?? 0) ?></td>
                             </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -145,7 +145,7 @@
                                 <strong><?= htmlspecialchars($sa->account_number) ?></strong>
                                 <br><small class="text-muted"><?= htmlspecialchars($sa->scheme_name ?? '') ?></small>
                             </div>
-                            <span class="badge badge-success">₹<?= number_format($sa->current_balance ?? 0, 2) ?></span>
+                            <span class="badge badge-success"><?= format_amount($sa->current_balance ?? 0) ?></span>
                         </li>
                         <?php endforeach; ?>
                     </ul>

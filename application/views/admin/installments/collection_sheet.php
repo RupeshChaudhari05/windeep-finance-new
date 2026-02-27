@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>EMI Collection Sheet - <?= format_date($date, 'd M Y') ?></title>
+    <title>EMI Collection Sheet - <?= format_date($date) ?></title>
     <style>
         body { font-family: Arial, sans-serif; font-size: 12px; }
         .header { text-align: center; margin-bottom: 20px; }
@@ -39,8 +39,8 @@
     </div>
     
     <div class="info">
-        <p><strong>Total Members:</strong> <?= count($installments) ?> | <strong>Expected Collection:</strong> ₹<?= number_format($total_expected, 2) ?></p>
-        <p><strong>Generated on:</strong> <?= date('d M Y h:i A') ?></p>
+        <p><strong>Total Members:</strong> <?= count($installments) ?> | <strong>Expected Collection:</strong> <?= format_amount($total_expected) ?></p>
+        <p><strong>Generated on:</strong> <?= format_date_time(date('Y-m-d H:i:s')) ?></p>
     </div>
     
     <?php if (empty($installments)): ?>
@@ -73,9 +73,9 @@
                     <td><?= $inst->first_name ?> <?= $inst->last_name ?></td>
                     <td><?= $inst->loan_number ?></td>
                     <td class="text-center">#<?= $inst->installment_number ?></td>
-                    <td class="text-right">₹<?= number_format($inst->emi_amount, 2) ?></td>
-                    <td class="text-right">₹<?= number_format($inst->total_paid, 2) ?></td>
-                    <td class="text-right">₹<?= number_format($balance, 2) ?></td>
+                    <td class="text-right"><?= format_amount($inst->emi_amount) ?></td>
+                    <td class="text-right"><?= format_amount($inst->total_paid) ?></td>
+                    <td class="text-right"><?= format_amount($balance) ?></td>
                     <td><?= $inst->phone ?></td>
                     <td></td>
                 </tr>
@@ -84,9 +84,9 @@
             <tfoot>
                 <tr class="total-row">
                     <td colspan="5" class="text-right">Total:</td>
-                    <td class="text-right">₹<?= number_format($total_expected, 2) ?></td>
-                    <td class="text-right">₹<?= number_format($total_paid, 2) ?></td>
-                    <td class="text-right">₹<?= number_format($total_expected - $total_paid, 2) ?></td>
+                    <td class="text-right"><?= format_amount($total_expected) ?></td>
+                    <td class="text-right"><?= format_amount($total_paid) ?></td>
+                    <td class="text-right"><?= format_amount($total_expected - $total_paid) ?></td>
                     <td colspan="2"></td>
                 </tr>
             </tfoot>

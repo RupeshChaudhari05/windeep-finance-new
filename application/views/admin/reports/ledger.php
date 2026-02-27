@@ -58,7 +58,7 @@
                     <span class="info-box-icon"><i class="fas fa-arrow-circle-left"></i></span>
                     <div class="info-box-content">
                         <span class="info-box-text">Total Debit</span>
-                        <span class="info-box-number">₹<?= number_format($summary['total_debit'] ?? 0) ?></span>
+                        <span class="info-box-number"><?= format_amount($summary['total_debit'] ?? 0, 0) ?></span>
                     </div>
                 </div>
             </div>
@@ -67,7 +67,7 @@
                     <span class="info-box-icon"><i class="fas fa-arrow-circle-right"></i></span>
                     <div class="info-box-content">
                         <span class="info-box-text">Total Credit</span>
-                        <span class="info-box-number">₹<?= number_format($summary['total_credit'] ?? 0) ?></span>
+                        <span class="info-box-number"><?= format_amount($summary['total_credit'] ?? 0, 0) ?></span>
                     </div>
                 </div>
             </div>
@@ -77,7 +77,7 @@
                     <div class="info-box-content">
                         <span class="info-box-text">Net Balance</span>
                         <span class="info-box-number">
-                            ₹<?= number_format(abs(($summary['total_debit'] ?? 0) - ($summary['total_credit'] ?? 0))) ?>
+                            <?= get_currency_symbol() ?><?= number_format(abs(($summary['total_debit'] ?? 0) - ($summary['total_credit'] ?? 0))) ?>
                             <?= ($summary['total_debit'] ?? 0) >= ($summary['total_credit'] ?? 0) ? 'Dr' : 'Cr' ?>
                         </span>
                     </div>
@@ -95,9 +95,9 @@
                         <th>Account Head</th>
                         <th>Particulars</th>
                         <th>Reference</th>
-                        <th class="text-right">Debit (₹)</th>
-                        <th class="text-right">Credit (₹)</th>
-                        <th class="text-right">Balance (₹)</th>
+                        <th class="text-right">Debit (<?= get_currency_symbol() ?>)</th>
+                        <th class="text-right">Credit (<?= get_currency_symbol() ?>)</th>
+                        <th class="text-right">Balance (<?= get_currency_symbol() ?>)</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -106,7 +106,7 @@
                         <td colspan="5"><strong>Opening Balance</strong></td>
                         <td class="text-right">-</td>
                         <td class="text-right">-</td>
-                        <td class="text-right"><strong>₹<?= number_format($opening_balance ?? 0) ?></strong></td>
+                        <td class="text-right"><strong><?= format_amount($opening_balance ?? 0, 0) ?></strong></td>
                     </tr>
                     <?php endif; ?>
                     
@@ -134,13 +134,13 @@
                             <td><?= $entry->narration ?></td>
                             <td><small><?= $entry->reference_type ? ucfirst($entry->reference_type) . ' #' . $entry->reference_id : '-' ?></small></td>
                             <td class="text-right text-primary">
-                                <?= $entry->entry_type == 'debit' ? '₹' . number_format($entry->amount) : '-' ?>
+                                <?= $entry->entry_type == 'debit' ? format_amount($entry->amount, 0) : '-' ?>
                             </td>
                             <td class="text-right text-success">
-                                <?= $entry->entry_type == 'credit' ? '₹' . number_format($entry->amount) : '-' ?>
+                                <?= $entry->entry_type == 'credit' ? format_amount($entry->amount, 0) : '-' ?>
                             </td>
                             <td class="text-right">
-                                ₹<?= number_format(abs($running_balance)) ?>
+                                <?= format_amount(abs($running_balance), 0) ?>
                                 <?= $running_balance >= 0 ? 'Dr' : 'Cr' ?>
                             </td>
                         </tr>
@@ -150,10 +150,10 @@
                 <tfoot class="table-secondary">
                     <tr>
                         <th colspan="5" class="text-right">Total:</th>
-                        <th class="text-right">₹<?= number_format($summary['total_debit'] ?? 0) ?></th>
-                        <th class="text-right">₹<?= number_format($summary['total_credit'] ?? 0) ?></th>
+                        <th class="text-right"><?= format_amount($summary['total_debit'] ?? 0, 0) ?></th>
+                        <th class="text-right"><?= format_amount($summary['total_credit'] ?? 0, 0) ?></th>
                         <th class="text-right">
-                            ₹<?= number_format(abs(($summary['total_debit'] ?? 0) - ($summary['total_credit'] ?? 0))) ?>
+                            <?= get_currency_symbol() ?><?= number_format(abs(($summary['total_debit'] ?? 0) - ($summary['total_credit'] ?? 0))) ?>
                             <?= ($summary['total_debit'] ?? 0) >= ($summary['total_credit'] ?? 0) ? 'Dr' : 'Cr' ?>
                         </th>
                     </tr>

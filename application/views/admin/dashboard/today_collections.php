@@ -41,7 +41,7 @@
 <!-- Collection List -->
 <div class="card">
     <div class="card-header">
-        <h3 class="card-title"><i class="fas fa-list mr-1"></i> Today's Collections - <?= date('d M Y') ?></h3>
+        <h3 class="card-title"><i class="fas fa-list mr-1"></i> Today's Collections - <?= format_date(date('Y-m-d')) ?></h3>
         <div class="card-tools">
             <a href="<?= site_url('admin/dashboard/today_collections?export=excel') ?>" class="btn btn-success btn-sm">
                 <i class="fas fa-download"></i> Export

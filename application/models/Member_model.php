@@ -419,7 +419,7 @@ class Member_model extends MY_Model {
         if ($loan_amount > $available) {
             return [
                 'can_guarantee' => false, 
-                'reason' => 'Guarantee limit exceeded. Available: ₹' . number_format($available, 2)
+                'reason' => 'Guarantee limit exceeded. Available: ' . format_amount($available)
             ];
         }
         

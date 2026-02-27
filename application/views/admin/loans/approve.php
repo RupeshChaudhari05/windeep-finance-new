@@ -24,7 +24,7 @@
                                 </tr>
                                 <tr>
                                     <td class="text-muted">Requested Amount:</td>
-                                    <td><span class="text-primary font-weight-bold">₹<?= number_format($application->requested_amount) ?></span></td>
+                                    <td><span class="text-primary font-weight-bold"><?= format_amount($application->requested_amount, 0) ?></span></td>
                                 </tr>
                                 <tr>
                                     <td class="text-muted">Requested Tenure:</td>
@@ -94,7 +94,7 @@
                             <table class="table table-borderless table-sm">
                                 <tr>
                                     <td class="text-muted">Savings Balance:</td>
-                                    <td class="text-success">₹<?= number_format($member->savings_summary->current_balance ?? 0) ?></td>
+                                    <td class="text-success"><?= format_amount($member->savings_summary->current_balance ?? 0, 0) ?></td>
                                 </tr>
                                 <tr>
                                     <td class="text-muted">Active Loans:</td>
@@ -182,7 +182,7 @@
                             <small>
                                 <strong>Rate:</strong> <span id="piRate"><?= $product->interest_rate ?? '-' ?></span>% |
                                 <strong>Type:</strong> <span id="piType"><?= ucfirst($product->interest_type ?? '-') ?></span> |
-                                <strong>Amount:</strong> ₹<span id="piMinAmt"><?= $product ? number_format($product->min_amount) : '-' ?></span> – ₹<span id="piMaxAmt"><?= $product ? number_format($product->max_amount) : '-' ?></span> |
+                                <strong>Amount:</strong> <?= get_currency_symbol() ?><span id="piMinAmt"><?= $product ? number_format($product->min_amount) : '-' ?></span> – <?= get_currency_symbol() ?><span id="piMaxAmt"><?= $product ? number_format($product->max_amount) : '-' ?></span> |
                                 <strong>Tenure:</strong> <span id="piMinTen"><?= $product->min_tenure_months ?? '-' ?></span> – <span id="piMaxTen"><?= $product->max_tenure_months ?? '-' ?></span> months
                             </small>
                         </div>
@@ -191,12 +191,12 @@
                     <div class="form-group">
                         <label>Approved Amount <span class="text-danger">*</span></label>
                         <div class="input-group">
-                            <div class="input-group-prepend"><span class="input-group-text">₹</span></div>
+                            <div class="input-group-prepend"><span class="input-group-text"><?= get_currency_symbol() ?></span></div>
                             <input type="number" name="approved_amount" id="approved_amount" class="form-control" 
                                    value="<?= $application->requested_amount ?>" required
                                    min="<?= $product->min_amount ?? 0 ?>" max="<?= $product->max_amount ?? 99999999 ?>">
                         </div>
-                        <small class="text-muted" id="amountHelp"><?= $product ? 'Range: ₹'.number_format($product->min_amount).' - ₹'.number_format($product->max_amount) : 'Select scheme to see range' ?></small>
+                        <small class="text-muted" id="amountHelp"><?= $product ? 'Range: <?= get_currency_symbol() ?>'.number_format($product->min_amount).' - <?= get_currency_symbol() ?>'.number_format($product->max_amount) : 'Select scheme to see range' ?></small>
                     </div>
                     
                     <div class="form-group">
@@ -224,11 +224,11 @@
 
                     if (!empty($min_savings_required) && $savings_balance < $min_savings_required) {
                         $savings_ok     = false;
-                        $savings_msgs[] = 'Minimum savings required: <strong>₹' . number_format($min_savings_required) . '</strong> &nbsp;|&nbsp; Member has: <strong>₹' . number_format($savings_balance) . '</strong>';
+                        $savings_msgs[] = 'Minimum savings required: <strong><?= get_currency_symbol() ?>' . number_format($min_savings_required) . '</strong> &nbsp;|&nbsp; Member has: <strong><?= get_currency_symbol() ?>' . number_format($savings_balance) . '</strong>';
                     }
                     if ($max_loan_by_savings !== null && $application->requested_amount > $max_loan_by_savings) {
                         $savings_ok     = false;
-                        $savings_msgs[] = 'Max loan allowed by savings ratio (' . $savings_ratio . 'x): <strong>₹' . number_format($max_loan_by_savings) . '</strong> &nbsp;|&nbsp; Requested: <strong>₹' . number_format($application->requested_amount) . '</strong>';
+                        $savings_msgs[] = 'Max loan allowed by savings ratio (' . $savings_ratio . 'x): <strong><?= get_currency_symbol() ?>' . number_format($max_loan_by_savings) . '</strong> &nbsp;|&nbsp; Requested: <strong><?= get_currency_symbol() ?>' . number_format($application->requested_amount) . '</strong>';
                     }
                     ?>
 
@@ -246,7 +246,7 @@
 
                             <?php if ($max_loan_by_savings !== null && $max_loan_by_savings > 0): ?>
                             <button type="button" class="btn btn-sm btn-outline-primary mb-2" id="btnUseMaxAllowed">
-                                <i class="fas fa-arrow-down mr-1"></i> Set Approved Amount to Max Allowed (₹<?= number_format($max_loan_by_savings) ?>)
+                                <i class="fas fa-arrow-down mr-1"></i> Set Approved Amount to Max Allowed (<?= format_amount($max_loan_by_savings, 0) ?>)
                             </button><br>
                             <?php endif; ?>
 
@@ -263,7 +263,7 @@
                     <div class="card card-success mb-3">
                         <div class="card-body py-2">
                             <i class="fas fa-check-circle mr-1"></i>
-                            Savings ratio OK — Max allowed: <strong>₹<?= number_format($max_loan_by_savings) ?></strong>
+                            Savings ratio OK — Max allowed: <strong><?= format_amount($max_loan_by_savings, 0) ?></strong>
                         </div>
                     </div>
                     <?php endif; ?>
@@ -354,7 +354,7 @@ $(document).ready(function() {
         $('#piMaxTen').text(maxTen);
         $('#productInfo').show();
 
-        $('#amountHelp').text('Range: ₹' + minAmt.toLocaleString('en-IN') + ' - ₹' + maxAmt.toLocaleString('en-IN'));
+        $('#amountHelp').text('Range: <?= get_currency_symbol() ?>' + minAmt.toLocaleString('en-IN') + ' - <?= get_currency_symbol() ?>' + maxAmt.toLocaleString('en-IN'));
         $('#tenureHelp').text('Range: ' + minTen + ' - ' + maxTen + ' months');
         $('#rateHelp').text('Default product rate: ' + rate + '%');
 
@@ -375,13 +375,13 @@ $(document).ready(function() {
                 type: currentInterestType
             }, function(data) {
                 var html = '<div class="row">';
-                html += '<div class="col-6"><div class="text-center"><h4 class="text-primary">₹' + data.emi.toLocaleString('en-IN', {maximumFractionDigits: 0}) + '</h4><small class="text-muted">Monthly EMI</small></div></div>';
-                html += '<div class="col-6"><div class="text-center"><h4 class="text-success">₹' + data.total_interest.toLocaleString('en-IN', {maximumFractionDigits: 0}) + '</h4><small class="text-muted">Total Interest</small></div></div>';
+                html += '<div class="col-6"><div class="text-center"><h4 class="text-primary"><?= get_currency_symbol() ?>' + data.emi.toLocaleString('en-IN', {maximumFractionDigits: 0}) + '</h4><small class="text-muted">Monthly EMI</small></div></div>';
+                html += '<div class="col-6"><div class="text-center"><h4 class="text-success"><?= get_currency_symbol() ?>' + data.total_interest.toLocaleString('en-IN', {maximumFractionDigits: 0}) + '</h4><small class="text-muted">Total Interest</small></div></div>';
                 html += '</div>';
                 html += '<hr>';
                 html += '<div class="row">';
-                html += '<div class="col-6"><small class="text-muted">Principal:</small> ₹' + data.total_principal.toLocaleString('en-IN') + '</div>';
-                html += '<div class="col-6"><small class="text-muted">Total Payable:</small> ₹' + data.total_amount.toLocaleString('en-IN') + '</div>';
+                html += '<div class="col-6"><small class="text-muted">Principal:</small> <?= get_currency_symbol() ?>' + data.total_principal.toLocaleString('en-IN') + '</div>';
+                html += '<div class="col-6"><small class="text-muted">Total Payable:</small> <?= get_currency_symbol() ?>' + data.total_amount.toLocaleString('en-IN') + '</div>';
                 html += '</div>';
                 $('#emiPreview').html(html);
             }, 'json');
@@ -418,7 +418,7 @@ $(document).ready(function() {
         $('#approved_amount').val(Math.floor(maxAllowed)).trigger('input');
         $('#savingsWarningCard').removeClass('card-warning').addClass('card-success');
         $('#savingsWarningCard .card-header').removeClass('bg-warning').addClass('bg-success');
-        toastr.info('Approved amount set to ₹' + Math.floor(maxAllowed).toLocaleString('en-IN'));
+        toastr.info('Approved amount set to <?= get_currency_symbol() ?>' + Math.floor(maxAllowed).toLocaleString('en-IN'));
     });
 
     // Confirm Force Approve (guarantors + savings)

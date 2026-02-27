@@ -42,7 +42,7 @@
                 <table class="table table-sm table-borderless">
                     <tr>
                         <th>Due Date:</th>
-                        <td><?= format_date($installment->due_date, 'd M Y') ?></td>
+                        <td><?= format_date($installment->due_date) ?></td>
                     </tr>
                     <tr>
                         <th>Status:</th>
@@ -59,7 +59,7 @@
                     <?php if ($installment->paid_date): ?>
                     <tr>
                         <th>Paid Date:</th>
-                        <td><?= format_date($installment->paid_date, 'd M Y') ?></td>
+                        <td><?= format_date($installment->paid_date) ?></td>
                     </tr>
                     <?php endif; ?>
                 </table>
@@ -82,19 +82,19 @@
                 <table class="table table-bordered">
                     <tr>
                         <th width="200">EMI Amount</th>
-                        <td class="text-right"><strong class="text-primary">₹<?= number_format($installment->emi_amount, 2) ?></strong></td>
+                        <td class="text-right"><strong class="text-primary"><?= format_amount($installment->emi_amount) ?></strong></td>
                     </tr>
                     <tr>
                         <th>Principal Component</th>
-                        <td class="text-right">₹<?= number_format($installment->principal_amount, 2) ?></td>
+                        <td class="text-right"><?= format_amount($installment->principal_amount) ?></td>
                     </tr>
                     <tr>
                         <th>Interest Component</th>
-                        <td class="text-right">₹<?= number_format($installment->interest_amount, 2) ?></td>
+                        <td class="text-right"><?= format_amount($installment->interest_amount) ?></td>
                     </tr>
                     <tr class="table-success">
                         <th>Total Paid</th>
-                        <td class="text-right"><strong>₹<?= number_format($installment->total_paid, 2) ?></strong></td>
+                        <td class="text-right"><strong><?= format_amount($installment->total_paid) ?></strong></td>
                     </tr>
                     <tr>
                         <td colspan="2">
@@ -108,15 +108,15 @@
                     </tr>
                     <tr>
                         <th>Principal Paid</th>
-                        <td class="text-right text-success">₹<?= number_format($installment->principal_paid, 2) ?></td>
+                        <td class="text-right text-success"><?= format_amount($installment->principal_paid) ?></td>
                     </tr>
                     <tr>
                         <th>Interest Paid</th>
-                        <td class="text-right text-success">₹<?= number_format($installment->interest_paid, 2) ?></td>
+                        <td class="text-right text-success"><?= format_amount($installment->interest_paid) ?></td>
                     </tr>
                     <tr class="table-danger">
                         <th>Outstanding Balance</th>
-                        <td class="text-right"><strong>₹<?= number_format($installment->emi_amount - $installment->total_paid, 2) ?></strong></td>
+                        <td class="text-right"><strong><?= format_amount($installment->emi_amount - $installment->total_paid) ?></strong></td>
                     </tr>
                 </table>
                 
@@ -124,11 +124,11 @@
                 <table class="table table-sm table-bordered">
                     <tr>
                         <th>Before This EMI</th>
-                        <td class="text-right">₹<?= number_format($installment->outstanding_principal_before, 2) ?></td>
+                        <td class="text-right"><?= format_amount($installment->outstanding_principal_before) ?></td>
                     </tr>
                     <tr>
                         <th>After This EMI</th>
-                        <td class="text-right">₹<?= number_format($installment->outstanding_principal_after, 2) ?></td>
+                        <td class="text-right"><?= format_amount($installment->outstanding_principal_after) ?></td>
                     </tr>
                 </table>
             </div>
@@ -157,11 +157,11 @@
                         <tbody>
                             <?php foreach ($payments as $pmt): ?>
                             <tr>
-                                <td><?= format_date($pmt->payment_date, 'd M Y') ?></td>
+                                <td><?= format_date($pmt->payment_date) ?></td>
                                 <td><?= $pmt->payment_code ?></td>
-                                <td class="text-right">₹<?= number_format($pmt->total_amount, 2) ?></td>
-                                <td class="text-right">₹<?= number_format($pmt->principal_component, 2) ?></td>
-                                <td class="text-right">₹<?= number_format($pmt->interest_component, 2) ?></td>
+                                <td class="text-right"><?= format_amount($pmt->total_amount) ?></td>
+                                <td class="text-right"><?= format_amount($pmt->principal_component) ?></td>
+                                <td class="text-right"><?= format_amount($pmt->interest_component) ?></td>
                                 <td><?= ucfirst($pmt->payment_mode) ?></td>
                             </tr>
                             <?php endforeach; ?>
@@ -192,11 +192,11 @@
                     <tbody>
                         <?php foreach ($fines as $fine): ?>
                         <tr>
-                            <td><?= format_date($fine->fine_date, 'd M Y') ?></td>
+                            <td><?= format_date($fine->fine_date) ?></td>
                             <td><?= ucfirst(str_replace('_', ' ', $fine->fine_type)) ?></td>
                             <td><?= $fine->reason ?></td>
-                            <td class="text-right">₹<?= number_format($fine->fine_amount, 2) ?></td>
-                            <td class="text-right">₹<?= number_format($fine->paid_amount, 2) ?></td>
+                            <td class="text-right"><?= format_amount($fine->fine_amount) ?></td>
+                            <td class="text-right"><?= format_amount($fine->paid_amount) ?></td>
                             <td>
                                 <span class="badge badge-<?= $fine->status == 'paid' ? 'success' : 'warning' ?>">
                                     <?= ucfirst($fine->status) ?>

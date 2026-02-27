@@ -59,13 +59,13 @@
                                 <th title="Original loan amount disbursed">
                                     <i class="fas fa-rupee-sign text-muted mr-1"></i> Principal Amount
                                 </th>
-                                <td class="font-weight-bold"><?= isset($settings['currency_symbol']) ? $settings['currency_symbol'] : '₹' ?><?= number_format($loan->principal_amount, 2) ?></td>
+                                <td class="font-weight-bold"><?= isset($settings['currency_symbol']) ? $settings['currency_symbol'] : '<?= get_currency_symbol() ?>' ?><?= number_format($loan->principal_amount, 2) ?></td>
                             </tr>
                             <tr>
                                 <th title="Remaining principal balance on the loan">
                                     <i class="fas fa-balance-scale text-muted mr-1"></i> Outstanding Principal
                                 </th>
-                                <td class="text-danger font-weight-bold"><?= isset($settings['currency_symbol']) ? $settings['currency_symbol'] : '₹' ?><?= number_format($loan->outstanding_principal ?? 0, 2) ?></td>
+                                <td class="text-danger font-weight-bold"><?= isset($settings['currency_symbol']) ? $settings['currency_symbol'] : '<?= get_currency_symbol() ?>' ?><?= number_format($loan->outstanding_principal ?? 0, 2) ?></td>
                             </tr>
                             <tr>
                                 <th title="Current status of your loan">
@@ -89,7 +89,7 @@
                         <h3 class="card-title"><i class="fas fa-calculator mr-1"></i> Settlement Amount</h3>
                     </div>
                     <div class="card-body">
-                        <?php $cs = isset($settings['currency_symbol']) ? $settings['currency_symbol'] : '₹'; ?>
+                        <?php $cs = isset($settings['currency_symbol']) ? $settings['currency_symbol'] : '<?= get_currency_symbol() ?>'; ?>
                         <table class="table table-bordered table-sm">
                             <tr>
                                 <th title="Remaining principal to be paid">Outstanding Principal</th>

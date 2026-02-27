@@ -77,7 +77,7 @@
                     <div class="col-md-3">
                         <div class="small-box bg-success">
                             <div class="inner">
-                                <h3>₹<?= number_format($total_amount, 2) ?></h3>
+                                <h3><?= format_amount($total_amount) ?></h3>
                                 <p>Total Collection</p>
                             </div>
                             <div class="icon"><i class="fas fa-rupee-sign"></i></div>
@@ -96,7 +96,7 @@
                         <div class="small-box bg-info">
                             <div class="inner">
                                 <?php $avg = count($payments) > 0 ? $total_amount / count($payments) : 0; ?>
-                                <h3>₹<?= number_format($avg, 2) ?></h3>
+                                <h3><?= format_amount($avg) ?></h3>
                                 <p>Average Payment</p>
                             </div>
                             <div class="icon"><i class="fas fa-calculator"></i></div>
@@ -140,7 +140,7 @@
                         <tbody>
                             <?php foreach ($payments as $pmt): ?>
                             <tr>
-                                <td><?= format_date($pmt->payment_date, 'd M Y') ?></td>
+                                <td><?= format_date($pmt->payment_date) ?></td>
                                 <td>
                                     <a href="<?= site_url('admin/members/view/' . ($pmt->member_id ?? '')) ?>">
                                         <?= $pmt->member_code ?>
@@ -168,7 +168,7 @@
                                         <?= $pmt->fine_code ?? '-' ?>
                                     <?php endif; ?>
                                 </td>
-                                <td class="text-right"><strong>₹<?= number_format($pmt->amount, 2) ?></strong></td>
+                                <td class="text-right"><strong><?= format_amount($pmt->amount) ?></strong></td>
                                 <td>
                                     <?php
                                     $mode_icons = ['cash' => 'money-bill-wave', 'upi' => 'mobile-alt', 'bank_transfer' => 'university', 'cheque' => 'file-invoice', 'card' => 'credit-card'];
@@ -187,7 +187,7 @@
                         <tfoot class="table-primary">
                             <tr>
                                 <th colspan="4" class="text-right">Total:</th>
-                                <th class="text-right">₹<?= number_format($total_amount, 2) ?></th>
+                                <th class="text-right"><?= format_amount($total_amount) ?></th>
                                 <th colspan="3"></th>
                             </tr>
                         </tfoot>

@@ -38,8 +38,8 @@
                                 <span class="badge badge-success ml-2">Current</span>
                                 <?php endif; ?>
                             </td>
-                            <td><?= format_date($year->start_date, 'd M Y') ?></td>
-                            <td><?= format_date($year->end_date, 'd M Y') ?></td>
+                            <td><?= format_date($year->start_date) ?></td>
+                            <td><?= format_date($year->end_date) ?></td>
                             <td>
                                 <?php if ($year->is_closed): ?>
                                 <span class="badge badge-secondary">Closed</span>

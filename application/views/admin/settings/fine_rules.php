@@ -64,19 +64,19 @@
                                 <?php if (($rule->calculation_type ?? '') == 'percentage'): ?>
                                     <strong><?= number_format($rule->fine_value ?? 0, 2) ?>%</strong>
                                 <?php else: ?>
-                                    <strong>₹<?= number_format($rule->fine_value ?? 0, 2) ?></strong>
+                                    <strong><?= format_amount($rule->fine_value ?? 0) ?></strong>
                                 <?php endif; ?>
                             </td>
                             <td class="text-right">
                                 <?php if (in_array($rule->calculation_type ?? '', ['per_day', 'fixed_plus_daily'])): ?>
-                                    <strong>₹<?= number_format($rule->per_day_amount ?? 0, 2) ?></strong>/day
+                                    <strong><?= format_amount($rule->per_day_amount ?? 0) ?></strong>/day
                                 <?php else: ?>
                                     <span class="text-muted">-</span>
                                 <?php endif; ?>
                             </td>
                             <td class="text-center"><?= $rule->grace_period_days ?? 0 ?> days</td>
                             <td class="text-right">
-                                <?= ($rule->max_fine_amount ?? 0) > 0 ? '₹' . number_format($rule->max_fine_amount, 2) : '<span class="text-muted">No limit</span>' ?>
+                                <?= ($rule->max_fine_amount ?? 0) > 0 ? format_amount($rule->max_fine_amount) : '<span class="text-muted">No limit</span>' ?>
                             </td>
                             <td>
                                 <?php if ($rule->is_active ?? 1): ?>
@@ -117,7 +117,7 @@
                 <div class="callout callout-warning">
                     <h6>Fixed + Daily Fine</h6>
                     <p class="small mb-0">
-                        <strong>Example:</strong> ₹100 initial fine + ₹10 per day after grace period.<br>
+                        <strong>Example:</strong> <?= get_currency_symbol() ?>100 initial fine + <?= get_currency_symbol() ?>10 per day after grace period.<br>
                         <em>Due Date: 5th → Grace till 10th → Fine from 11th</em>
                     </p>
                 </div>
@@ -147,15 +147,15 @@
                     </tr>
                     <tr>
                         <td>Initial Fine</td>
-                        <td class="text-right">₹100</td>
+                        <td class="text-right"><?= get_currency_symbol() ?>100</td>
                     </tr>
                     <tr>
                         <td>Daily After</td>
-                        <td class="text-right">₹10/day</td>
+                        <td class="text-right"><?= get_currency_symbol() ?>10/day</td>
                     </tr>
                     <tr class="bg-warning">
                         <td>Fine on 20th Jan</td>
-                        <td class="text-right"><strong>₹100 + (10×10) = ₹200</strong></td>
+                        <td class="text-right"><strong><?= get_currency_symbol() ?>100 + (10×10) = <?= get_currency_symbol() ?>200</strong></td>
                     </tr>
                 </table>
             </div>
@@ -236,7 +236,7 @@
                     <div class="row">
                         <div class="col-md-4" id="fixedAmountGroup">
                             <div class="form-group">
-                                <label>Initial/Fixed Fine (₹) <span class="text-danger">*</span></label>
+                                <label>Initial/Fixed Fine (<?= get_currency_symbol() ?>) <span class="text-danger">*</span></label>
                                 <input type="number" name="fine_amount" id="fine_amount" class="form-control" step="0.01" value="100">
                                 <small class="text-muted">One-time initial fine amount</small>
                             </div>
@@ -250,14 +250,14 @@
                         </div>
                         <div class="col-md-4" id="perDayGroup" style="display:none;">
                             <div class="form-group">
-                                <label>Per Day Fine (₹) <span class="text-danger">*</span></label>
+                                <label>Per Day Fine (<?= get_currency_symbol() ?>) <span class="text-danger">*</span></label>
                                 <input type="number" name="per_day_amount" id="per_day_amount" class="form-control" step="0.01" value="10">
                                 <small class="text-muted">Added daily after grace period</small>
                             </div>
                         </div>
                         <div class="col-md-4">
                             <div class="form-group">
-                                <label>Maximum Fine (₹)</label>
+                                <label>Maximum Fine (<?= get_currency_symbol() ?>)</label>
                                 <input type="number" name="max_fine" id="max_fine" class="form-control" step="0.01">
                                 <small class="text-muted">Leave empty for no limit</small>
                             </div>
@@ -294,15 +294,15 @@
                             <div class="row">
                                 <div class="col-md-4">
                                     <small class="text-muted">After 10 days late:</small>
-                                    <div class="h5 text-danger mb-0" id="preview10">₹0</div>
+                                    <div class="h5 text-danger mb-0" id="preview10"><?= get_currency_symbol() ?>0</div>
                                 </div>
                                 <div class="col-md-4">
                                     <small class="text-muted">After 30 days late:</small>
-                                    <div class="h5 text-danger mb-0" id="preview30">₹0</div>
+                                    <div class="h5 text-danger mb-0" id="preview30"><?= get_currency_symbol() ?>0</div>
                                 </div>
                                 <div class="col-md-4">
                                     <small class="text-muted">After 60 days late:</small>
-                                    <div class="h5 text-danger mb-0" id="preview60">₹0</div>
+                                    <div class="h5 text-danger mb-0" id="preview60"><?= get_currency_symbol() ?>0</div>
                                 </div>
                             </div>
                         </div>
@@ -385,7 +385,7 @@ $(document).ready(function() {
             }
             
             fine = Math.min(fine, maxFine);
-            $('#preview' + days).text('₹' + fine.toFixed(2));
+            $('#preview' + days).text('<?= get_currency_symbol() ?>' + fine.toFixed(2));
         });
     }
     
@@ -476,7 +476,7 @@ $(document).ready(function() {
         $('#fine_amount').val(100);
         $('#per_day_amount').val(10);
         $('#grace_period').val(5);
-        $('#description').val('₹100 initial fine after 5 days grace period, then ₹10 per day');
+        $('#description').val('<?= get_currency_symbol() ?>100 initial fine after 5 days grace period, then <?= get_currency_symbol() ?>10 per day');
         updatePreview();
         $('#addRuleModal').modal('show');
     });
@@ -489,7 +489,7 @@ $(document).ready(function() {
         $('#fine_amount').val(50);
         $('#per_day_amount').val(5);
         $('#grace_period').val(3);
-        $('#description').val('₹50 initial fine after 3 days grace period, then ₹5 per day');
+        $('#description').val('<?= get_currency_symbol() ?>50 initial fine after 3 days grace period, then <?= get_currency_symbol() ?>5 per day');
         updatePreview();
         $('#addRuleModal').modal('show');
     });
@@ -501,7 +501,7 @@ $(document).ready(function() {
         $('#fine_type').val('fixed').trigger('change');
         $('#fine_amount').val(200);
         $('#grace_period').val(15);
-        $('#description').val('₹200 flat fine for membership due after 15 days');
+        $('#description').val('<?= get_currency_symbol() ?>200 flat fine for membership due after 15 days');
         updatePreview();
         $('#addRuleModal').modal('show');
     });

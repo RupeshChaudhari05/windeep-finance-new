@@ -48,15 +48,15 @@
                     </tr>
                     <tr>
                         <th>Disbursed On:</th>
-                        <td><?= format_date($loan->disbursement_date, 'd M Y') ?></td>
+                        <td><?= format_date($loan->disbursement_date) ?></td>
                     </tr>
                     <tr>
                         <th>First EMI:</th>
-                        <td><?= format_date($loan->first_emi_date, 'd M Y') ?></td>
+                        <td><?= format_date($loan->first_emi_date) ?></td>
                     </tr>
                     <tr>
                         <th>Last EMI:</th>
-                        <td><?= format_date($loan->last_emi_date, 'd M Y') ?></td>
+                        <td><?= format_date($loan->last_emi_date) ?></td>
                     </tr>
                 </table>
                 
@@ -67,7 +67,7 @@
                     <span class="info-box-icon"><i class="fas fa-money-bill"></i></span>
                     <div class="info-box-content">
                         <span class="info-box-text">Principal Amount</span>
-                        <span class="info-box-number">₹<?= number_format($loan->principal_amount) ?></span>
+                        <span class="info-box-number"><?= format_amount($loan->principal_amount, 0) ?></span>
                     </div>
                 </div>
                 
@@ -75,7 +75,7 @@
                     <span class="info-box-icon"><i class="fas fa-percentage"></i></span>
                     <div class="info-box-content">
                         <span class="info-box-text">Total Interest</span>
-                        <span class="info-box-number">₹<?= number_format($loan->total_interest) ?></span>
+                        <span class="info-box-number"><?= format_amount($loan->total_interest, 0) ?></span>
                     </div>
                 </div>
                 
@@ -83,7 +83,7 @@
                     <span class="info-box-icon"><i class="fas fa-calculator"></i></span>
                     <div class="info-box-content">
                         <span class="info-box-text">EMI Amount</span>
-                        <span class="info-box-number">₹<?= number_format($loan->emi_amount) ?></span>
+                        <span class="info-box-number"><?= format_amount($loan->emi_amount, 0) ?></span>
                     </div>
                 </div>
                 
@@ -91,7 +91,7 @@
                     <span class="info-box-icon"><i class="fas fa-exclamation-circle"></i></span>
                     <div class="info-box-content">
                         <span class="info-box-text">Outstanding Principal</span>
-                        <span class="info-box-number">₹<?= number_format($loan->outstanding_principal) ?></span>
+                        <span class="info-box-number"><?= format_amount($loan->outstanding_principal, 0) ?></span>
                     </div>
                 </div>
                 
@@ -99,7 +99,7 @@
                     <span class="info-box-icon"><i class="fas fa-check-circle"></i></span>
                     <div class="info-box-content">
                         <span class="info-box-text">Total Paid</span>
-                        <span class="info-box-number">₹<?= number_format($loan->total_paid) ?></span>
+                        <span class="info-box-number"><?= format_amount($loan->total_paid, 0) ?></span>
                     </div>
                 </div>
                 
@@ -109,7 +109,7 @@
                         <i class="fas fa-exclamation-triangle mr-1"></i>
                         <strong><?= $overdue_count ?> EMI(s) Overdue!</strong>
                         <br>
-                        Amount: ₹<?= number_format($overdue_amount) ?>
+                        Amount: <?= format_amount($overdue_amount, 0) ?>
                     </div>
                 </div>
                 <?php endif; ?>
@@ -210,11 +210,11 @@
                                     <tr class="<?= $emi->status == 'pending' && (!empty($emi->due_date) && safe_timestamp($emi->due_date) < time()) ? 'table-danger' : '' ?>
                                                <?= $emi->status == 'paid' ? 'table-success' : '' ?>">
                                         <td><?= $emi->installment_number ?></td>
-                                        <td><?= format_date($emi->due_date, 'd M Y') ?></td>
-                                        <td class="text-right">₹<?= number_format($emi->emi_amount) ?></td>
-                                        <td class="text-right">₹<?= number_format($emi->principal_component) ?></td>
-                                        <td class="text-right">₹<?= number_format($emi->interest_component) ?></td>
-                                        <td class="text-right font-weight-bold">₹<?= number_format($emi->outstanding_after) ?></td>
+                                        <td><?= format_date($emi->due_date) ?></td>
+                                        <td class="text-right"><?= format_amount($emi->emi_amount, 0) ?></td>
+                                        <td class="text-right"><?= format_amount($emi->principal_component, 0) ?></td>
+                                        <td class="text-right"><?= format_amount($emi->interest_component, 0) ?></td>
+                                        <td class="text-right font-weight-bold"><?= format_amount($emi->outstanding_after, 0) ?></td>
                                         <td>
                                             <?php
                                             $emi_status = ['pending' => 'warning', 'paid' => 'success', 'partial' => 'info', 'skipped' => 'secondary'];
@@ -227,7 +227,7 @@
                                             <?php endif; ?>
                                         </td>
                                         <td>
-                                            <?= $emi->paid_date ? format_date($emi->paid_date, 'd M Y') : '-' ?>
+                                            <?= $emi->paid_date ? format_date($emi->paid_date) : '-' ?>
                                         </td>
                                     </tr>
                                     <?php endforeach; ?>
@@ -269,7 +269,7 @@
                                     <tbody>
                                         <?php foreach ($payments as $pmt): ?>
                                         <tr>
-                                            <td><?= format_date($pmt->payment_date, 'd M Y') ?></td>
+                                            <td><?= format_date($pmt->payment_date) ?></td>
                                             <td><small class="text-primary"><?= $pmt->payment_code ?? ($pmt->receipt_number ?? 'N/A') ?></small></td>
                                             <td>
                                                 <?php
@@ -286,12 +286,12 @@
                                                     <?= ucfirst(str_replace('_', ' ', $pmt->payment_type ?? 'emi')) ?>
                                                 </span>
                                             </td>
-                                            <td class="text-right font-weight-bold">₹<?= number_format($pmt->total_amount ?? $pmt->amount ?? 0, 2) ?></td>
-                                            <td class="text-right">₹<?= number_format($pmt->principal_component ?? 0, 2) ?></td>
-                                            <td class="text-right">₹<?= number_format($pmt->interest_component ?? 0, 2) ?></td>
+                                            <td class="text-right font-weight-bold"><?= format_amount($pmt->total_amount ?? $pmt->amount ?? 0) ?></td>
+                                            <td class="text-right"><?= format_amount($pmt->principal_component ?? 0) ?></td>
+                                            <td class="text-right"><?= format_amount($pmt->interest_component ?? 0) ?></td>
                                             <td class="text-right">
                                                 <?php if (($pmt->fine_component ?? 0) > 0): ?>
-                                                    <span class="text-danger">₹<?= number_format($pmt->fine_component, 2) ?></span>
+                                                    <span class="text-danger"><?= format_amount($pmt->fine_component) ?></span>
                                                 <?php else: ?>
                                                     <span class="text-muted">-</span>
                                                 <?php endif; ?>
@@ -322,10 +322,10 @@
                                     <tfoot class="table-primary">
                                         <tr>
                                             <th colspan="3" class="text-right">Total:</th>
-                                            <th class="text-right">₹<?= number_format(array_sum(array_map(function($p) { return $p->total_amount ?? $p->amount ?? 0; }, $payments)), 2) ?></th>
-                                            <th class="text-right">₹<?= number_format(array_sum(array_map(function($p) { return $p->principal_component ?? 0; }, $payments)), 2) ?></th>
-                                            <th class="text-right">₹<?= number_format(array_sum(array_map(function($p) { return $p->interest_component ?? 0; }, $payments)), 2) ?></th>
-                                            <th class="text-right">₹<?= number_format(array_sum(array_map(function($p) { return $p->fine_component ?? 0; }, $payments)), 2) ?></th>
+                                            <th class="text-right"><?= get_currency_symbol() ?><?= number_format(array_sum(array_map(function($p) { return $p->total_amount ?? $p->amount ?? 0; }, $payments)), 2) ?></th>
+                                            <th class="text-right"><?= get_currency_symbol() ?><?= number_format(array_sum(array_map(function($p) { return $p->principal_component ?? 0; }, $payments)), 2) ?></th>
+                                            <th class="text-right"><?= get_currency_symbol() ?><?= number_format(array_sum(array_map(function($p) { return $p->interest_component ?? 0; }, $payments)), 2) ?></th>
+                                            <th class="text-right"><?= get_currency_symbol() ?><?= number_format(array_sum(array_map(function($p) { return $p->fine_component ?? 0; }, $payments)), 2) ?></th>
                                             <th colspan="3"></th>
                                         </tr>
                                     </tfoot>
@@ -360,8 +360,8 @@
                                             <td><?= format_date($fine->fine_date) ?></td>
                                             <td><?= ucfirst(str_replace('_', ' ', $fine->fine_type)) ?></td>
                                             <td><small><?= $fine->reason ?></small></td>
-                                            <td class="text-right">₹<?= number_format($fine->fine_amount) ?></td>
-                                            <td class="text-right">₹<?= number_format($fine->paid_amount) ?></td>
+                                            <td class="text-right"><?= format_amount($fine->fine_amount, 0) ?></td>
+                                            <td class="text-right"><?= format_amount($fine->paid_amount, 0) ?></td>
                                             <td>
                                                 <?php
                                                 $fine_status = ['pending' => 'warning', 'partial' => 'info', 'paid' => 'success', 'waived' => 'secondary'];

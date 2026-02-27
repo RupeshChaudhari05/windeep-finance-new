@@ -73,7 +73,7 @@
                             <span class="info-box-icon bg-info"><i class="fas fa-balance-scale"></i></span>
                             <div class="info-box-content">
                                 <span class="info-box-text">Opening Balance</span>
-                                <span class="info-box-number">₹<?= number_format($summary['opening_balance'], 2) ?></span>
+                                <span class="info-box-number"><?= format_amount($summary['opening_balance']) ?></span>
                             </div>
                         </div>
                     </div>
@@ -82,7 +82,7 @@
                             <span class="info-box-icon bg-danger"><i class="fas fa-arrow-down"></i></span>
                             <div class="info-box-content">
                                 <span class="info-box-text">Total Debit</span>
-                                <span class="info-box-number text-danger">₹<?= number_format($summary['total_debit'], 2) ?></span>
+                                <span class="info-box-number text-danger"><?= format_amount($summary['total_debit']) ?></span>
                             </div>
                         </div>
                     </div>
@@ -91,7 +91,7 @@
                             <span class="info-box-icon bg-success"><i class="fas fa-arrow-up"></i></span>
                             <div class="info-box-content">
                                 <span class="info-box-text">Total Credit</span>
-                                <span class="info-box-number text-success">₹<?= number_format($summary['total_credit'], 2) ?></span>
+                                <span class="info-box-number text-success"><?= format_amount($summary['total_credit']) ?></span>
                             </div>
                         </div>
                     </div>
@@ -100,7 +100,7 @@
                             <span class="info-box-icon bg-primary"><i class="fas fa-wallet"></i></span>
                             <div class="info-box-content">
                                 <span class="info-box-text">Closing Balance</span>
-                                <span class="info-box-number">₹<?= number_format($summary['closing_balance'], 2) ?></span>
+                                <span class="info-box-number"><?= format_amount($summary['closing_balance']) ?></span>
                             </div>
                         </div>
                     </div>
@@ -123,7 +123,7 @@
                         <tbody>
                             <?php foreach ($ledger as $entry): ?>
                             <tr>
-                                <td><?= date('d M Y', strtotime($entry->transaction_date)) ?></td>
+                                <td><?= format_date($entry->transaction_date) ?></td>
                                 <td>
                                     <?php
                                     $type_badges = [
@@ -155,21 +155,21 @@
                                 </td>
                                 <td class="text-right text-danger">
                                     <?php if ($entry->debit_amount > 0): ?>
-                                        ₹<?= number_format($entry->debit_amount, 2) ?>
+                                        <?= format_amount($entry->debit_amount) ?>
                                     <?php else: ?>
                                         -
                                     <?php endif; ?>
                                 </td>
                                 <td class="text-right text-success">
                                     <?php if ($entry->credit_amount > 0): ?>
-                                        ₹<?= number_format($entry->credit_amount, 2) ?>
+                                        <?= format_amount($entry->credit_amount) ?>
                                     <?php else: ?>
                                         -
                                     <?php endif; ?>
                                 </td>
                                 <td class="text-right font-weight-bold">
                                     <span class="text-<?= $entry->balance_after >= 0 ? 'success' : 'danger' ?>">
-                                        ₹<?= number_format(abs($entry->balance_after), 2) ?>
+                                        <?= format_amount(abs($entry->balance_after)) ?>
                                         <?= $entry->balance_after >= 0 ? 'Cr' : 'Dr' ?>
                                     </span>
                                 </td>
@@ -179,9 +179,9 @@
                         <tfoot class="bg-primary">
                             <tr>
                                 <th colspan="4" class="text-right">Total:</th>
-                                <th class="text-right text-danger">₹<?= number_format($summary['total_debit'], 2) ?></th>
-                                <th class="text-right text-success">₹<?= number_format($summary['total_credit'], 2) ?></th>
-                                <th class="text-right">₹<?= number_format($summary['closing_balance'], 2) ?></th>
+                                <th class="text-right text-danger"><?= format_amount($summary['total_debit']) ?></th>
+                                <th class="text-right text-success"><?= format_amount($summary['total_credit']) ?></th>
+                                <th class="text-right"><?= format_amount($summary['closing_balance']) ?></th>
                             </tr>
                         </tfoot>
                     </table>

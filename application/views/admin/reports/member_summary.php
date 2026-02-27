@@ -34,10 +34,10 @@
                         <td><?= $member->first_name . ' ' . $member->last_name ?></td>
                         <td><?= $member->phone ?></td>
                         <td class="text-center"><?= $member->savings_accounts ?? 0 ?></td>
-                        <td class="text-right">₹<?= number_format($member->total_savings ?? 0) ?></td>
+                        <td class="text-right"><?= format_amount($member->total_savings ?? 0, 0) ?></td>
                         <td class="text-center"><?= $member->total_loans ?? 0 ?></td>
-                        <td class="text-right">₹<?= number_format($member->outstanding_loans ?? 0) ?></td>
-                        <td class="text-right">₹<?= number_format($member->pending_fines ?? 0) ?></td>
+                        <td class="text-right"><?= format_amount($member->outstanding_loans ?? 0, 0) ?></td>
+                        <td class="text-right"><?= format_amount($member->pending_fines ?? 0, 0) ?></td>
                         <td>
                             <span class="badge badge-<?= $member->status == 'active' ? 'success' : 'secondary' ?>">
                                 <?= ucfirst($member->status) ?>

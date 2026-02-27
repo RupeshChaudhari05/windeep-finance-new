@@ -3,7 +3,7 @@
     <div class="col-md-3">
         <div class="small-box bg-success">
             <div class="inner">
-                <h3>₹<?= number_format($total_amount, 2) ?></h3>
+                <h3><?= format_amount($total_amount) ?></h3>
                 <p>Total Collected</p>
             </div>
             <div class="icon">
@@ -15,7 +15,7 @@
     <div class="col-md-3">
         <div class="small-box bg-primary">
             <div class="inner">
-                <h3>₹<?= number_format($total_principal, 2) ?></h3>
+                <h3><?= format_amount($total_principal) ?></h3>
                 <p>Principal Recovered</p>
             </div>
             <div class="icon">
@@ -27,7 +27,7 @@
     <div class="col-md-3">
         <div class="small-box bg-warning">
             <div class="inner">
-                <h3>₹<?= number_format($total_interest, 2) ?></h3>
+                <h3><?= format_amount($total_interest) ?></h3>
                 <p>Interest Earned</p>
             </div>
             <div class="icon">
@@ -162,7 +162,7 @@
                             <tbody>
                                 <?php foreach ($payments as $payment): ?>
                                 <tr>
-                                    <td><?= format_date($payment->payment_date, 'd M Y') ?></td>
+                                    <td><?= format_date($payment->payment_date) ?></td>
                                     <td>
                                         <a href="<?= site_url('admin/loans/payment_receipt/' . $payment->id) ?>" target="_blank" class="text-primary" title="View Receipt">
                                             <i class="fas fa-receipt mr-1"></i><?= $payment->payment_code ?>
@@ -194,12 +194,12 @@
                                             <?= ucfirst(str_replace('_', ' ', $payment->payment_type)) ?>
                                         </span>
                                     </td>
-                                    <td class="text-right font-weight-bold">₹<?= number_format($payment->total_amount, 2) ?></td>
-                                    <td class="text-right">₹<?= number_format($payment->principal_component, 2) ?></td>
-                                    <td class="text-right">₹<?= number_format($payment->interest_component, 2) ?></td>
+                                    <td class="text-right font-weight-bold"><?= format_amount($payment->total_amount) ?></td>
+                                    <td class="text-right"><?= format_amount($payment->principal_component) ?></td>
+                                    <td class="text-right"><?= format_amount($payment->interest_component) ?></td>
                                     <td class="text-right">
                                         <?php if ($payment->fine_component > 0): ?>
-                                            <span class="text-danger">₹<?= number_format($payment->fine_component, 2) ?></span>
+                                            <span class="text-danger"><?= format_amount($payment->fine_component) ?></span>
                                         <?php else: ?>
                                             <span class="text-muted">-</span>
                                         <?php endif; ?>
@@ -234,10 +234,10 @@
                             <tfoot class="bg-light font-weight-bold">
                                 <tr>
                                     <th colspan="5" class="text-right">Total:</th>
-                                    <th class="text-right">₹<?= number_format($total_amount, 2) ?></th>
-                                    <th class="text-right">₹<?= number_format($total_principal, 2) ?></th>
-                                    <th class="text-right">₹<?= number_format($total_interest, 2) ?></th>
-                                    <th class="text-right">₹<?= number_format($total_fine, 2) ?></th>
+                                    <th class="text-right"><?= format_amount($total_amount) ?></th>
+                                    <th class="text-right"><?= format_amount($total_principal) ?></th>
+                                    <th class="text-right"><?= format_amount($total_interest) ?></th>
+                                    <th class="text-right"><?= format_amount($total_fine) ?></th>
                                     <th colspan="3"></th>
                                 </tr>
                             </tfoot>

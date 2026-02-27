@@ -4,8 +4,8 @@
     </div>
     <div class="card-body">
         <p><strong>Product:</strong> <?= $loan->product_name ?></p>
-        <p><strong>Amount:</strong> ₹<?= number_format($loan->principal_amount, 2) ?></p>
-        <p><strong>Outstanding:</strong> ₹<?= number_format($loan->outstanding_principal ?? 0, 2) ?></p>
+        <p><strong>Amount:</strong> <?= format_amount($loan->principal_amount) ?></p>
+        <p><strong>Outstanding:</strong> <?= format_amount($loan->outstanding_principal ?? 0) ?></p>
 
         <h5>Installments</h5>
         <?php if (empty($installments)): ?>
@@ -18,7 +18,7 @@
                     <tr>
                         <td><?= $inst->installment_number ?></td>
                         <td><?= format_date($inst->due_date) ?></td>
-                        <td class="text-right">₹<?= number_format($inst->emi_amount, 2) ?></td>
+                        <td class="text-right"><?= format_amount($inst->emi_amount) ?></td>
                         <td><?= ucfirst($inst->status) ?></td>
                     </tr>
                     <?php endforeach; ?>
@@ -55,7 +55,7 @@
                                 <div class="card bg-light">
                                     <div class="card-body text-center">
                                         <h6>Current Outstanding</h6>
-                                        <h4 class="text-primary">₹<?= number_format($loan->outstanding_principal ?? 0, 2) ?></h4>
+                                        <h4 class="text-primary"><?= format_amount($loan->outstanding_principal ?? 0) ?></h4>
                                         <small class="text-muted">Principal Amount</small>
                                     </div>
                                 </div>

@@ -22,11 +22,11 @@
                                 </tr>
                                 <tr>
                                     <td>Requested Amount:</td>
-                                    <td>₹<?= number_format($application->requested_amount) ?></td>
+                                    <td><?= format_amount($application->requested_amount) ?></td>
                                 </tr>
                                 <tr>
                                     <td>Approved Amount:</td>
-                                    <td class="text-success"><strong>₹<?= number_format($application->approved_amount) ?></strong></td>
+                                    <td class="text-success"><strong><?= format_amount($application->approved_amount, 0) ?></strong></td>
                                 </tr>
                             </table>
                         </div>
@@ -47,7 +47,7 @@
                                 </tr>
                                 <tr>
                                     <td>Monthly EMI:</td>
-                                    <td class="text-primary"><strong>₹<?= number_format($emi_calc['emi'], 2) ?></strong></td>
+                                    <td class="text-primary"><strong><?= format_amount($emi_calc['emi'], 0) ?></strong></td>
                                 </tr>
                             </table>
                         </div>
@@ -79,15 +79,15 @@
                             <table class="table table-borderless table-sm">
                                 <tr>
                                     <td>Total Principal:</td>
-                                    <td>₹<?= number_format($application->approved_amount) ?></td>
+                                    <td><?= format_amount($application->approved_amount) ?></td>
                                 </tr>
                                 <tr>
                                     <td>Total Interest:</td>
-                                    <td>₹<?= number_format($emi_calc['total_interest']) ?></td>
+                                    <td><?= format_amount($emi_calc['total_interest'], 0) ?></td>
                                 </tr>
                                 <tr>
                                     <td>Total Payable:</td>
-                                    <td class="text-danger"><strong>₹<?= number_format($emi_calc['total_payable']) ?></strong></td>
+                                    <td class="text-danger"><strong><?= format_amount($emi_calc['total_payable'], 0) ?></strong></td>
                                 </tr>
                             </table>
                         </div>
@@ -117,15 +117,15 @@
                     <table class="table table-bordered">
                         <tr>
                             <td>Approved Amount</td>
-                            <td class="text-right">₹<?= number_format($application->approved_amount, 2) ?></td>
+                            <td class="text-right"><?= format_amount($application->approved_amount, 0) ?></td>
                         </tr>
                         <tr>
                             <td>Processing Fee (<?= $product->processing_fee_value ?><?= $product->processing_fee_type == 'percentage' ? '%' : '' ?>)</td>
-                            <td class="text-right text-danger">- ₹<?= number_format($processing_fee, 2) ?></td>
+                            <td class="text-right text-danger">- <?= format_amount($processing_fee) ?></td>
                         </tr>
                         <tr class="table-success">
                             <th>Net Disbursement</th>
-                            <th class="text-right">₹<?= number_format($net_disbursement, 2) ?></th>
+                            <th class="text-right"><?= format_amount($net_disbursement) ?></th>
                         </tr>
                     </table>
                 </div>
@@ -188,10 +188,10 @@
                 <div class="card-body">
                     <h6><i class="fas fa-info-circle text-info"></i> Quick Info</h6>
                     <ul class="list-unstyled mb-0">
-                        <li><small>• Net Disbursement: <strong>₹<?= number_format($net_disbursement) ?></strong></small></li>
-                        <li><small>• Monthly EMI: <strong>₹<?= number_format($emi_calc['emi']) ?></strong></small></li>
+                        <li><small>• Net Disbursement: <strong><?= format_amount($net_disbursement, 0) ?></strong></small></li>
+                        <li><small>• Monthly EMI: <strong><?= format_amount($emi_calc['emi'], 0) ?></strong></small></li>
                         <li><small>• Total EMIs: <strong><?= $application->approved_tenure_months ?></strong></small></li>
-                        <li><small>• Total Interest: <strong>₹<?= number_format($emi_calc['total_interest']) ?></strong></small></li>
+                        <li><small>• Total Interest: <strong><?= format_amount($emi_calc['total_interest'], 0) ?></strong></small></li>
                     </ul>
                 </div>
             </div>

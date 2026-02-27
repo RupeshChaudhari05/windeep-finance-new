@@ -184,7 +184,7 @@ function loadTemplate(template) {
 <p>This is a reminder that your payment is due.</p>
 <p><strong>Payment Details:</strong></p>
 <ul>
-    <li>Amount Due: ₹[Amount]</li>
+    <li>Amount Due: <?= get_currency_symbol() ?>[Amount]</li>
     <li>Due Date: [Due Date]</li>
     <li>Reference: [Reference]</li>
 </ul>
@@ -201,10 +201,10 @@ function loadTemplate(template) {
 <p>You can view your detailed transaction history by logging into your account.</p>
 <p><strong>Summary:</strong></p>
 <ul>
-    <li>Opening Balance: ₹[Opening Balance]</li>
-    <li>Total Deposits: ₹[Deposits]</li>
-    <li>Total Withdrawals: ₹[Withdrawals]</li>
-    <li>Closing Balance: ₹[Closing Balance]</li>
+    <li>Opening Balance: <?= get_currency_symbol() ?>[Opening Balance]</li>
+    <li>Total Deposits: <?= get_currency_symbol() ?>[Deposits]</li>
+    <li>Total Withdrawals: <?= get_currency_symbol() ?>[Withdrawals]</li>
+    <li>Closing Balance: <?= get_currency_symbol() ?>[Closing Balance]</li>
 </ul>
 <p>If you have any questions about your statement, please contact us.</p>
 <p>Best regards,<br>Windeep Finance Team</p>`
@@ -217,10 +217,10 @@ function loadTemplate(template) {
 <p><strong>Loan Details:</strong></p>
 <ul>
     <li>Loan Number: [Loan Number]</li>
-    <li>Approved Amount: ₹[Amount]</li>
+    <li>Approved Amount: <?= get_currency_symbol() ?>[Amount]</li>
     <li>Interest Rate: [Rate]%</li>
     <li>Tenure: [Tenure] months</li>
-    <li>EMI Amount: ₹[EMI]</li>
+    <li>EMI Amount: <?= get_currency_symbol() ?>[EMI]</li>
 </ul>
 <p>Your loan will be disbursed within 2-3 business days after completing the necessary documentation.</p>
 <p>Please contact our loan officer for next steps.</p>

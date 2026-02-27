@@ -62,7 +62,7 @@
                         </div>
                         <div class="col-md-6">
                             <div class="form-group">
-                                <label>Min Savings Balance (₹)</label>
+                                <label>Min Savings Balance (<?= get_currency_symbol() ?>)</label>
                                 <input type="number" name="settings[guarantor_min_savings]" class="form-control" 
                                        value="<?= $settings['guarantor_min_savings'] ?? 5000 ?>" min="0">
                                 <small class="text-muted">Minimum savings balance required to be a guarantor</small>

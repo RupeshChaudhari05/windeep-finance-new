@@ -239,8 +239,8 @@ function send_due_date_reminder($member, $loan_details, $due_amount, $due_date)
         <div style='background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;'>
             <strong>Loan Details:</strong><br>
             Member Code: {$member->member_code}<br>
-            Due Amount: ₹" . number_format($due_amount, 2) . "<br>
-            Due Date: " . date('F j, Y', strtotime($due_date)) . "
+            Due Amount: " . format_amount($due_amount) . "<br>
+            Due Date: " . format_date($due_date) . "
         </div>
 
         <p>Please ensure timely payment to avoid late fees.</p>
@@ -272,8 +272,8 @@ function send_installment_reminder($member, $installment_details)
         <div style='background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;'>
             <strong>Installment Details:</strong><br>
             Member Code: {$member->member_code}<br>
-            Amount: ₹" . number_format($installment_details->amount, 2) . "<br>
-            Due Date: " . date('F j, Y', strtotime($installment_details->due_date)) . "<br>
+            Amount: " . format_amount($installment_details->amount) . "<br>
+            Due Date: " . format_date($installment_details->due_date) . "<br>
             Installment: {$installment_details->installment_number}
         </div>
 

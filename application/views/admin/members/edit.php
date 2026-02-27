@@ -295,7 +295,7 @@
                 </div>
                 <div class="col-md-4">
                     <div class="form-group">
-                        <label for="monthly_income">Monthly Income (₹)
+                        <label for="monthly_income">Monthly Income (<?= get_currency_symbol() ?>)
                             <i class="fas fa-info-circle text-muted ml-1" data-toggle="tooltip" title="Gross monthly income. Used for loan eligibility assessment."></i>
                         </label>
                            <input type="number" class="form-control" id="monthly_income" name="monthly_income" 

@@ -69,7 +69,7 @@
         <div class="header">
             <h1>WINDEEP FINANCE</h1>
             <p>Loan Account Statement</p>
-            <p style="margin-top: 5px;">Statement Date: <?= date('d M Y') ?></p>
+            <p style="margin-top: 5px;">Statement Date: <?= format_date(date('Y-m-d')) ?></p>
         </div>
         
         <!-- Loan Details -->
@@ -94,13 +94,13 @@
                 </tr>
                 <tr>
                     <td class="label">Principal Amount:</td>
-                    <td class="value">₹<?= number_format($loan->principal_amount, 2) ?></td>
+                    <td class="value"><?= format_amount($loan->principal_amount) ?></td>
                     <td class="label">Interest Rate:</td>
                     <td class="value"><?= $loan->interest_rate ?>% p.a.</td>
                 </tr>
                 <tr>
                     <td class="label">Monthly EMI:</td>
-                    <td class="value">₹<?= number_format($loan->emi_amount, 2) ?></td>
+                    <td class="value"><?= format_amount($loan->emi_amount) ?></td>
                     <td class="label">Tenure:</td>
                     <td class="value"><?= $loan->tenure_months ?> Months</td>
                 </tr>
@@ -143,20 +143,20 @@
         <!-- Summary -->
         <div class="summary-box">
             <div class="summary-item">
-                <div class="amount">₹<?= number_format($loan->principal_amount, 2) ?></div>
+                <div class="amount"><?= format_amount($loan->principal_amount) ?></div>
                 <div class="label">Principal Amount</div>
             </div>
             <div class="summary-item">
-                <div class="amount">₹<?= number_format($loan->total_interest ?? 0, 2) ?></div>
+                <div class="amount"><?= format_amount($loan->total_interest ?? 0) ?></div>
                 <div class="label">Total Interest</div>
             </div>
             <div class="summary-item">
-                <div class="amount">₹<?= number_format($loan->total_amount_paid ?? 0, 2) ?></div>
+                <div class="amount"><?= format_amount($loan->total_amount_paid ?? 0) ?></div>
                 <div class="label">Total Paid</div>
             </div>
             <div class="summary-item">
                 <div class="amount" style="color: <?= ($loan->outstanding_principal ?? 0) > 0 ? '#dc3545' : '#28a745' ?>">
-                    ₹<?= number_format($loan->outstanding_principal ?? 0, 2) ?>
+                    <?= format_amount($loan->outstanding_principal ?? 0) ?>
                 </div>
                 <div class="label">Outstanding Balance</div>
             </div>
@@ -199,10 +199,10 @@
                     <tr>
                         <td><?= $inst->installment_number ?></td>
                         <td><?= format_date($inst->due_date) ?></td>
-                        <td class="text-right">₹<?= number_format($inst->emi_amount, 2) ?></td>
-                        <td class="text-right">₹<?= number_format($inst->principal_amount, 2) ?></td>
-                        <td class="text-right">₹<?= number_format($inst->interest_amount, 2) ?></td>
-                        <td class="text-right">₹<?= number_format($inst->total_paid ?? 0, 2) ?></td>
+                        <td class="text-right"><?= format_amount($inst->emi_amount) ?></td>
+                        <td class="text-right"><?= format_amount($inst->principal_amount) ?></td>
+                        <td class="text-right"><?= format_amount($inst->interest_amount) ?></td>
+                        <td class="text-right"><?= format_amount($inst->total_paid ?? 0) ?></td>
                         <td>
                             <span class="badge badge-<?= 
                                 $inst->status == 'paid' ? 'success' : 
@@ -218,10 +218,10 @@
                 <tfoot>
                     <tr>
                         <th colspan="2">Total</th>
-                        <th class="text-right">₹<?= number_format($total_emi, 2) ?></th>
-                        <th class="text-right">₹<?= number_format($total_principal, 2) ?></th>
-                        <th class="text-right">₹<?= number_format($total_interest, 2) ?></th>
-                        <th class="text-right">₹<?= number_format($total_paid, 2) ?></th>
+                        <th class="text-right"><?= format_amount($total_emi) ?></th>
+                        <th class="text-right"><?= format_amount($total_principal) ?></th>
+                        <th class="text-right"><?= format_amount($total_interest) ?></th>
+                        <th class="text-right"><?= format_amount($total_paid) ?></th>
                         <th></th>
                     </tr>
                 </tfoot>
@@ -258,7 +258,7 @@
                     <tr>
                         <td><?= format_date($payment->payment_date) ?></td>
                         <td><?= $payment->receipt_number ?? '-' ?></td>
-                        <td class="text-right">₹<?= number_format($payment->total_amount, 2) ?></td>
+                        <td class="text-right"><?= format_amount($payment->total_amount) ?></td>
                         <td><?= ucfirst($payment->payment_mode) ?></td>
                         <td><?= $payment->reference_number ?: '-' ?></td>
                     </tr>
@@ -280,7 +280,7 @@
         <!-- Footer -->
         <div class="footer">
             <div class="footer-row">
-                <span>Generated on: <?= date('d M Y h:i A') ?></span>
+                <span>Generated on: <?= format_date_time(date('Y-m-d H:i:s')) ?></span>
                 <span>This is a computer-generated document. No signature required.</span>
             </div>
             <p style="text-align: center; margin-top: 10px;">

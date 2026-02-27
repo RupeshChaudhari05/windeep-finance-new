@@ -19,7 +19,7 @@
                     <tr>
                         <td><?= $l->loan_number ?></td>
                         <td><?= $l->product_name ?></td>
-                        <td class="text-right">₹<?= number_format($l->outstanding_principal ?? 0, 2) ?></td>
+                        <td class="text-right"><?= format_amount($l->outstanding_principal ?? 0) ?></td>
                         <td><a href="<?= site_url('member/loans/view/' . $l->id) ?>" class="btn btn-xs btn-info">View</a></td>
                     </tr>
                     <?php endforeach; ?>

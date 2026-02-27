@@ -38,15 +38,15 @@
                         <td><?= format_date($entry->date) ?></td>
                         <td><?= $entry->description ?? 'N/A' ?></td>
                         <td class="text-right text-success">
-                            <?= $entry->debit > 0 ? '₹' . number_format($entry->debit) : '-' ?>
+                            <?= $entry->debit > 0 ? format_amount($entry->debit, 0) : '-' ?>
                         </td>
                         <td class="text-right text-danger">
-                            <?= $entry->credit > 0 ? '₹' . number_format($entry->credit) : '-' ?>
+                            <?= $entry->credit > 0 ? format_amount($entry->credit, 0) : '-' ?>
                         </td>
                         <td class="text-right font-weight-bold">
                             <?php 
                             $balance += ($entry->debit ?? 0) - ($entry->credit ?? 0);
-                            echo '₹' . number_format($balance);
+                            echo format_amount($balance, 0);
                             ?>
                         </td>
                     </tr>
@@ -55,7 +55,7 @@
                 <tfoot class="table-primary">
                     <tr>
                         <th colspan="4" class="text-right">Closing Balance:</th>
-                        <th class="text-right">₹<?= number_format($balance) ?></th>
+                        <th class="text-right"><?= format_amount($balance, 0) ?></th>
                     </tr>
                 </tfoot>
             </table>

@@ -176,7 +176,7 @@ class Loans extends Member_Controller {
                         $app = $this->Loan_model->get_application($application_id);
                         $url = site_url('member/loans/guarantor_consent/' . $res['id'] . '/' . $res['token']);
                         $title = 'Guarantor Request: ' . $app->application_number;
-                        $message = "You have been requested to act as a guarantor for loan application " . $app->application_number . " by " . ($this->member->first_name ?? '') . " " . ($this->member->last_name ?? '') . ". Loan Amount: ₹" . number_format($requested_amount, 2) . ". Please review and accept or reject: " . $url;
+                        $message = "You have been requested to act as a guarantor for loan application " . $app->application_number . " by " . ($this->member->first_name ?? '') . " " . ($this->member->last_name ?? '') . ". Loan Amount: " . format_amount($requested_amount) . ". Please review and accept or reject: " . $url;
                         $this->Notification_model->create('member', $gmember_id, 'guarantor_request', $title, $message, ['application_id' => $application_id, 'guarantor_id' => $res['id'], 'url' => $url]);
 
                         // Send email (best-effort)
@@ -186,7 +186,7 @@ class Loans extends Member_Controller {
                             $subject = 'You have been requested as guarantor';
                             $html = '<p>Dear ' . htmlspecialchars($gmember->first_name . ' ' . $gmember->last_name) . ',</p>';
                             $html .= '<p>You have been requested to act as a guarantor for loan application <strong>' . $app->application_number . '</strong> by <strong>' . htmlspecialchars($this->member->first_name . ' ' . $this->member->last_name) . '</strong>.</p>';
-                            $html .= '<p><strong>Loan Amount: ₹' . number_format($requested_amount, 2) . '</strong></p>';
+                            $html .= '<p><strong>Loan Amount: ' . format_amount($requested_amount) . '</strong></p>';
                             $html .= '<p>Please <a href="' . $url . '">click here to review and respond</a>.</p>';
                             send_email($gmember->email, $subject, $html);
                         }
@@ -449,7 +449,7 @@ class Loans extends Member_Controller {
                     $app = $this->Loan_model->get_application($application_id);
                     $url = site_url('member/loans/guarantor_consent/' . $res['id'] . '/' . $res['token']);
                     $title = 'Guarantor Request: ' . $app->application_number;
-                    $message = "You have been requested to act as a guarantor for loan application " . $app->application_number . " by " . ($this->member->first_name ?? '') . " " . ($this->member->last_name ?? '') . ". Loan Amount: ₹" . number_format($requested_amount, 2) . ". Please review and accept or reject: " . $url;
+                    $message = "You have been requested to act as a guarantor for loan application " . $app->application_number . " by " . ($this->member->first_name ?? '') . " " . ($this->member->last_name ?? '') . ". Loan Amount: " . format_amount($requested_amount) . ". Please review and accept or reject: " . $url;
                     $this->Notification_model->create('member', $gmember_id, 'guarantor_request', $title, $message, ['application_id' => $application_id, 'guarantor_id' => $res['id'], 'url' => $url]);
 
                     $this->load->model('Member_model');
@@ -653,7 +653,7 @@ class Loans extends Member_Controller {
         // You could create a loan_requests table or use loan_applications table
         // For now, we'll just log the activity
         $this->log_activity('Member requested loan foreclosure',
-                          "Loan ID: $loan_id, Settlement: ₹" . number_format($settlement['total_settlement'], 2) . ", Reason: $reason");
+                          "Loan ID: $loan_id, Settlement: " . format_amount($settlement['total_settlement']) . ", Reason: $reason");
 
         // Send notification to admins (this would need to be implemented)
         // $this->_notify_admins_foreclosure_request($request_data);

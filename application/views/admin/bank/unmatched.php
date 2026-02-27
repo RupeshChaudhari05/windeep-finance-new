@@ -34,7 +34,7 @@
                                 <?php foreach ($transactions as $txn): ?>
                                 <tr>
                                     <td><input type="checkbox" class="txn-check" value="<?= $txn->id ?>"></td>
-                                    <td><?= format_date($txn->transaction_date, 'd M Y') ?></td>
+                                    <td><?= format_date($txn->transaction_date) ?></td>
                                     <td>
                                         <small><?= $txn->bank_name ?></small><br>
                                         <small class="text-muted"><?= substr($txn->account_number, -4) ?></small>
@@ -43,7 +43,7 @@
                                     <td><small><?= $txn->reference_number ?: '-' ?></small></td>
                                     <td class="text-right">
                                         <span class="text-<?= $txn->transaction_type == 'credit' ? 'success' : 'danger' ?> font-weight-bold">
-                                            <?= $txn->transaction_type == 'credit' ? '+' : '-' ?>₹<?= number_format($txn->amount, 2) ?>
+                                            <?= $txn->transaction_type == 'credit' ? '+' : '-' ?><?= format_amount($txn->amount) ?>
                                         </span>
                                     </td>
                                     <td>
@@ -97,7 +97,7 @@
                                 <small><?= $sp->first_name ?> <?= $sp->last_name ?></small>
                             </td>
                             <td class="text-right">
-                                ₹<?= number_format($sp->amount, 2) ?><br>
+                                <?= format_amount($sp->amount) ?><br>
                                 <small class="text-muted"><?= format_date($sp->payment_date ?? $sp->created_at, 'd M') ?></small>
                             </td>
                         </tr>
@@ -124,7 +124,7 @@
                                 <small><?= $lp->loan_number ?></small>
                             </td>
                             <td class="text-right">
-                                ₹<?= number_format($lp->emi_amount, 2) ?><br>
+                                <?= format_amount($lp->emi_amount) ?><br>
                                 <small class="text-muted">Due: <?= format_date($lp->due_date, 'd M') ?></small>
                             </td>
                         </tr>
@@ -148,11 +148,11 @@
                 ?>
                 <div class="d-flex justify-content-between mb-2">
                     <span>Unmatched Credits:</span>
-                    <span class="text-success">₹<?= number_format($total_credits, 2) ?></span>
+                    <span class="text-success"><?= format_amount($total_credits) ?></span>
                 </div>
                 <div class="d-flex justify-content-between">
                     <span>Unmatched Debits:</span>
-                    <span class="text-danger">₹<?= number_format($total_debits, 2) ?></span>
+                    <span class="text-danger"><?= format_amount($total_debits) ?></span>
                 </div>
             </div>
         </div>

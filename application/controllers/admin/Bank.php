@@ -512,11 +512,12 @@ class Bank extends Admin_Controller {
 
             // Use a small tolerance for floating point comparison (0.01 = 1 paisa)
             if ($total > ($txn_amount + 0.01)) {
+                $cs = get_currency_symbol();
                 $error_msg = sprintf(
-                    'Mapped amounts (₹%.2f) exceed transaction amount (₹%.2f) by ₹%.2f. Txn fields: credit=%.2f, debit=%.2f, amount=%.2f',
-                    $total,
-                    $txn_amount,
-                    $total - $txn_amount,
+                    'Mapped amounts (%s%.2f) exceed transaction amount (%s%.2f) by %s%.2f. Txn fields: credit=%.2f, debit=%.2f, amount=%.2f',
+                    $cs, $total,
+                    $cs, $txn_amount,
+                    $cs, $total - $txn_amount,
                     floatval($txn->credit_amount ?? 0),
                     floatval($txn->debit_amount ?? 0),
                     floatval($txn->amount ?? 0)
@@ -1105,7 +1106,7 @@ class Bank extends Admin_Controller {
         foreach ($loans as $loan) {
             $accounts[] = [
                 'id' => 'loan_' . $loan->id,
-                'text' => 'Loan: ' . $loan->loan_number . ' (₹' . number_format($loan->pending_amount, 2) . ')',
+                'text' => 'Loan: ' . $loan->loan_number . ' (' . format_amount($loan->pending_amount) . ')',
                 'type' => 'loan',
                 'account_id' => $loan->id,
                 'account_number' => $loan->loan_number,
@@ -1165,7 +1166,7 @@ class Bank extends Admin_Controller {
                 $installment_list[] = [
                     'id' => $inst->id,
                     'installment_number' => $inst->installment_number,
-                    'due_date' => date('d M Y', strtotime($inst->due_date)),
+                    'due_date' => format_date($inst->due_date),
                     'emi_amount' => $inst->emi_amount,
                     'pending_amount' => $inst->pending_amount
                 ];
@@ -1191,7 +1192,7 @@ class Bank extends Admin_Controller {
                 'fine_amount' => $fine->fine_amount ?? 0,
                 'paid_amount' => $fine->paid_amount ?? 0,
                 'pending_amount' => ($fine->fine_amount ?? 0) - ($fine->paid_amount ?? 0),
-                'fine_date' => isset($fine->fine_date) ? date('d M Y', strtotime($fine->fine_date)) : ''
+                'fine_date' => isset($fine->fine_date) ? format_date($fine->fine_date) : ''
             ];
         }
         

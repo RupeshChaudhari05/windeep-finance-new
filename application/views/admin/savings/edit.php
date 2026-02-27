@@ -37,7 +37,7 @@
                     <div class="row">
                         <div class="col-md-6">
                             <div class="form-group">
-                                <label for="monthly_amount">Monthly Amount (₹) <span class="text-danger">*</span></label>
+                                <label for="monthly_amount">Monthly Amount (<?= get_currency_symbol() ?>) <span class="text-danger">*</span></label>
                                 <input type="number" class="form-control" id="monthly_amount" name="monthly_amount" 
                                        value="<?= set_value('monthly_amount', $account->monthly_amount) ?>" required min="1"
                                        placeholder="Enter monthly deposit amount">
@@ -111,7 +111,7 @@
                 <table class="table table-sm table-borderless">
                     <tr>
                         <td>Monthly Deposit:</td>
-                        <td class="text-right font-weight-bold" id="calcMonthly">₹<?= number_format($account->monthly_amount) ?></td>
+                        <td class="text-right font-weight-bold" id="calcMonthly"><?= format_amount($account->monthly_amount, 0) ?></td>
                     </tr>
                     <tr>
                         <td>Duration:</td>
@@ -138,7 +138,7 @@ $(document).ready(function() {
             var interest = selected.data('interest');
             var duration = selected.data('duration');
 
-            $('#amountRange').text('Min: ₹' + min.toLocaleString() + ' | Max: ₹' + (max || 'No limit').toLocaleString());
+            $('#amountRange').text('Min: <?= get_currency_symbol() ?>' + min.toLocaleString() + ' | Max: <?= get_currency_symbol() ?>' + (max || 'No limit').toLocaleString());
             $('#monthly_amount').attr('min', min).attr('max', max || 99999999);
             $('#duration_months').val(duration || $('#duration_months').val());
 

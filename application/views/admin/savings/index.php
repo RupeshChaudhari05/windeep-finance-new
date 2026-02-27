@@ -40,7 +40,7 @@
             <div class="col-md-3">
                 <div class="small-box bg-info mb-0">
                     <div class="inner py-2 px-3">
-                        <h4>₹<?= number_format($summary['total_balance'] ?? 0) ?></h4>
+                        <h4><?= format_amount($summary['total_balance'] ?? 0, 0) ?></h4>
                         <p class="mb-0">Total Balance</p>
                     </div>
                 </div>
@@ -56,7 +56,7 @@
             <div class="col-md-3">
                 <div class="small-box bg-warning mb-0">
                     <div class="inner py-2 px-3">
-                        <h4>₹<?= number_format($summary['pending_collection'] ?? 0) ?></h4>
+                        <h4><?= format_amount($summary['pending_collection'] ?? 0, 0) ?></h4>
                         <p class="mb-0">Pending Collection</p>
                     </div>
                 </div>
@@ -113,9 +113,9 @@
                             <td>
                                 <span class="badge badge-info"><?= $acc->scheme_name ?></span>
                             </td>
-                            <td class="text-right">₹<?= number_format($acc->monthly_amount) ?></td>
-                            <td class="text-right">₹<?= number_format($acc->total_deposited) ?></td>
-                            <td class="text-right font-weight-bold text-success">₹<?= number_format($acc->current_balance) ?></td>
+                            <td class="text-right"><?= format_amount($acc->monthly_amount, 0) ?></td>
+                            <td class="text-right"><?= format_amount($acc->total_deposited, 0) ?></td>
+                            <td class="text-right font-weight-bold text-success"><?= format_amount($acc->current_balance, 0) ?></td>
                             <td>
                                 <?php
                                 $status_class = [

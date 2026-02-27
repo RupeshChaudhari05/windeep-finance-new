@@ -47,7 +47,7 @@
             <div class="col-md-3">
                 <div class="small-box bg-warning mb-0">
                     <div class="inner py-2 px-3">
-                        <h4>₹<?= number_format($summary['pending_amount'] ?? 0) ?></h4>
+                        <h4><?= format_amount($summary['pending_amount'] ?? 0, 0) ?></h4>
                         <p class="mb-0">Pending Fines</p>
                     </div>
                 </div>
@@ -55,7 +55,7 @@
             <div class="col-md-3">
                 <div class="small-box bg-success mb-0">
                     <div class="inner py-2 px-3">
-                        <h4>₹<?= number_format($summary['collected_amount'] ?? 0) ?></h4>
+                        <h4><?= format_amount($summary['collected_amount'] ?? 0, 0) ?></h4>
                         <p class="mb-0">Collected</p>
                     </div>
                 </div>
@@ -63,7 +63,7 @@
             <div class="col-md-3">
                 <div class="small-box bg-secondary mb-0">
                     <div class="inner py-2 px-3">
-                        <h4>₹<?= number_format($summary['waived_amount'] ?? 0) ?></h4>
+                        <h4><?= format_amount($summary['waived_amount'] ?? 0, 0) ?></h4>
                         <p class="mb-0">Waived</p>
                     </div>
                 </div>
@@ -141,9 +141,9 @@
                                 <?php endif; ?>
                             </td>
                             <td><?= format_date($fine->fine_date) ?></td>
-                            <td class="text-right">₹<?= number_format($fine->fine_amount) ?></td>
-                            <td class="text-right text-success">₹<?= number_format($fine->paid_amount) ?></td>
-                            <td class="text-right font-weight-bold text-danger">₹<?= number_format($fine->balance_amount) ?></td>
+                            <td class="text-right"><?= format_amount($fine->fine_amount, 0) ?></td>
+                            <td class="text-right text-success"><?= format_amount($fine->paid_amount, 0) ?></td>
+                            <td class="text-right font-weight-bold text-danger"><?= format_amount($fine->balance_amount, 0) ?></td>
                             <td>
                                 <?php
                                 $status_class = [

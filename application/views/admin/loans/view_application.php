@@ -26,7 +26,7 @@
                             </tr>
                             <tr>
                                 <td class="text-muted">Requested Amount:</td>
-                                <td class="text-primary font-weight-bold">₹<?= number_format($application->requested_amount) ?></td>
+                                <td class="text-primary font-weight-bold"><?= format_amount($application->requested_amount, 0) ?></td>
                             </tr>
                             <tr>
                                 <td class="text-muted">Requested Tenure:</td>
@@ -48,7 +48,7 @@
                         <table class="table table-borderless table-sm">
                             <tr>
                                 <td class="text-muted">Approved Amount:</td>
-                                <td class="text-success font-weight-bold">₹<?= number_format($application->approved_amount) ?></td>
+                                <td class="text-success font-weight-bold"><?= format_amount($application->approved_amount, 0) ?></td>
                             </tr>
                             <tr>
                                 <td class="text-muted">Approved Tenure:</td>
@@ -60,7 +60,7 @@
                             </tr>
                             <tr>
                                 <td class="text-muted">Approval Date:</td>
-                                <td><?= format_date($application->admin_approved_at, 'd M Y') ?></td>
+                                <td><?= format_date($application->admin_approved_at) ?></td>
                             </tr>
                             <tr>
                                 <td class="text-muted">Approved By:</td>
@@ -161,9 +161,9 @@
                             <tr><td class="text-muted" style="width:45%">Member Code:</td><td><strong><?= $member->member_code ?></strong></td></tr>
                             <tr><td class="text-muted">Full Name:</td><td><strong><?= trim(($member->first_name ?? '') . ' ' . ($member->middle_name ?? '') . ' ' . ($member->last_name ?? '')) ?></strong></td></tr>
                             <tr><td class="text-muted">Father's Name:</td><td><?= $member->father_name ?: '<span class="text-muted">—</span>' ?></td></tr>
-                            <tr><td class="text-muted">Date of Birth:</td><td><?= !empty($member->date_of_birth) ? date('d M Y', strtotime($member->date_of_birth)) : '—' ?></td></tr>
+                            <tr><td class="text-muted">Date of Birth:</td><td><?= !empty($member->date_of_birth) ? format_date($member->date_of_birth) : '—' ?></td></tr>
                             <tr><td class="text-muted">Gender:</td><td><?= !empty($member->gender) ? ucfirst($member->gender) : '—' ?></td></tr>
-                            <tr><td class="text-muted">Join Date:</td><td><?= !empty($member->join_date) ? date('d M Y', strtotime($member->join_date)) : '—' ?></td></tr>
+                            <tr><td class="text-muted">Join Date:</td><td><?= !empty($member->join_date) ? format_date($member->join_date) : '—' ?></td></tr>
                         </table>
                     </div>
                     <div class="col-md-5">
@@ -184,11 +184,11 @@
                     <div class="col-md-4">
                         <h6 class="text-muted border-bottom pb-1 mb-2"><i class="fas fa-chart-bar mr-1"></i> Financial Snapshot</h6>
                         <table class="table table-borderless table-sm mb-0">
-                            <tr><td class="text-muted" style="width:55%">Savings Balance:</td><td class="text-success font-weight-bold">₹<?= number_format($member->savings_summary->current_balance ?? 0, 2) ?></td></tr>
+                            <tr><td class="text-muted" style="width:55%">Savings Balance:</td><td class="text-success font-weight-bold"><?= format_amount($member->savings_summary->current_balance ?? 0) ?></td></tr>
                             <tr><td class="text-muted">Active Loans:</td><td><?= $member->loan_summary->total_loans ?? 0 ?></td></tr>
-                            <tr><td class="text-muted">Outstanding:</td><td class="text-danger">₹<?= number_format($member->loan_summary->outstanding_principal ?? 0, 2) ?></td></tr>
+                            <tr><td class="text-muted">Outstanding:</td><td class="text-danger"><?= format_amount($member->loan_summary->outstanding_principal ?? 0) ?></td></tr>
                             <tr><td class="text-muted">Occupation:</td><td><?= $member->occupation ?: '—' ?></td></tr>
-                            <tr><td class="text-muted">Monthly Income:</td><td><?= !empty($member->monthly_income) ? '₹'.number_format($member->monthly_income, 2) : '—' ?></td></tr>
+                            <tr><td class="text-muted">Monthly Income:</td><td><?= !empty($member->monthly_income) ? format_amount($member->monthly_income) : '—' ?></td></tr>
                         </table>
                     </div>
                     <!-- ID Proof -->
@@ -204,7 +204,7 @@
                             <tr><td class="text-muted" style="width:50%">Aadhaar:</td><td><?= $masked_aadhaar ?></td></tr>
                             <tr><td class="text-muted">PAN:</td><td><?= $masked_pan ?></td></tr>
                             <tr><td class="text-muted">Voter ID:</td><td><?= !empty($member->voter_id) ? $member->voter_id : '—' ?></td></tr>
-                            <tr><td class="text-muted">Max Guarantee:</td><td>₹<?= number_format($member->max_guarantee_amount ?? 100000, 0) ?></td></tr>
+                            <tr><td class="text-muted">Max Guarantee:</td><td><?= format_amount($member->max_guarantee_amount ?? 100000, 0) ?></td></tr>
                             <tr><td class="text-muted">Max Guarantee#:</td><td><?= $member->max_guarantee_count ?? 3 ?></td></tr>
                         </table>
                     </div>
@@ -256,7 +256,7 @@
                                 <small><?= $guarantor->first_name ?> <?= $guarantor->last_name ?></small>
                             </td>
                             <td><?= $guarantor->phone ?></td>
-                            <td class="text-right">₹<?= number_format($guarantor->guarantee_amount) ?></td>
+                            <td class="text-right"><?= format_amount($guarantor->guarantee_amount, 0) ?></td>
                             <td>
                                 <span class="badge badge-<?= $guarantor->consent_status == 'accepted' ? 'success' : ($guarantor->consent_status == 'rejected' ? 'danger' : 'warning') ?>">
                                     <?= ucfirst($guarantor->consent_status ?? 'pending') ?>

@@ -15,7 +15,7 @@
     <div class="col-md-3">
         <div class="small-box bg-primary">
             <div class="inner">
-                <h3>₹<?= number_format($total_emi, 2) ?></h3>
+                <h3><?= format_amount($total_emi) ?></h3>
                 <p>Total EMI Amount</p>
             </div>
             <div class="icon">
@@ -27,7 +27,7 @@
     <div class="col-md-3">
         <div class="small-box bg-success">
             <div class="inner">
-                <h3>₹<?= number_format($total_paid, 2) ?></h3>
+                <h3><?= format_amount($total_paid) ?></h3>
                 <p>Amount Collected</p>
             </div>
             <div class="icon">
@@ -39,7 +39,7 @@
     <div class="col-md-3">
         <div class="small-box bg-warning">
             <div class="inner">
-                <h3>₹<?= number_format($total_pending, 2) ?></h3>
+                <h3><?= format_amount($total_pending) ?></h3>
                 <p>Amount Pending</p>
             </div>
             <div class="icon">
@@ -133,7 +133,7 @@
                                 <tr class="<?= $is_overdue ? 'table-danger' : '' ?> <?= $inst->status == 'paid' ? 'table-success' : '' ?>">
                                     <td><strong>#<?= $inst->installment_number ?></strong></td>
                                     <td>
-                                        <?= format_date($inst->due_date, 'd M Y') ?>
+                                        <?= format_date($inst->due_date) ?>
                                         <?php if ($is_overdue): ?>
                                             <br><small class="text-danger">
                                                 <i class="fas fa-exclamation-circle"></i> 
@@ -153,11 +153,11 @@
                                         <br><small class="text-muted"><?= $inst->member_code ?></small>
                                     </td>
                                     <td><span class="badge badge-info"><?= $inst->product_name ?></span></td>
-                                    <td class="text-right font-weight-bold">₹<?= number_format($inst->emi_amount, 2) ?></td>
-                                    <td class="text-right text-success">₹<?= number_format($inst->total_paid, 2) ?></td>
+                                    <td class="text-right font-weight-bold"><?= format_amount($inst->emi_amount) ?></td>
+                                    <td class="text-right text-success"><?= format_amount($inst->total_paid) ?></td>
                                     <td class="text-right">
                                         <?php if ($balance > 0): ?>
-                                            <span class="text-danger">₹<?= number_format($balance, 2) ?></span>
+                                            <span class="text-danger"><?= format_amount($balance) ?></span>
                                         <?php else: ?>
                                             <span class="text-muted">-</span>
                                         <?php endif; ?>
@@ -196,9 +196,9 @@
                             <tfoot class="bg-light font-weight-bold">
                                 <tr>
                                     <th colspan="5" class="text-right">Total:</th>
-                                    <th class="text-right">₹<?= number_format($total_emi, 2) ?></th>
-                                    <th class="text-right text-success">₹<?= number_format($total_paid, 2) ?></th>
-                                    <th class="text-right text-danger">₹<?= number_format($total_pending, 2) ?></th>
+                                    <th class="text-right"><?= format_amount($total_emi) ?></th>
+                                    <th class="text-right text-success"><?= format_amount($total_paid) ?></th>
+                                    <th class="text-right text-danger"><?= format_amount($total_pending) ?></th>
                                     <th colspan="2"></th>
                                 </tr>
                             </tfoot>

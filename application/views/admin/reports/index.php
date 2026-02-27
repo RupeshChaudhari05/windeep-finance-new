@@ -221,17 +221,17 @@
         <div class="card">
             <div class="card-header">
                 <h3 class="card-title"><i class="fas fa-calendar-day mr-1"></i> Today's Summary</h3>
-                <span class="float-right text-muted"><?= date('d M Y') ?></span>
+                <span class="float-right text-muted"><?= format_date(date('Y-m-d')) ?></span>
             </div>
             <div class="card-body p-0">
                 <table class="table table-striped mb-0">
                     <tr>
                         <td><i class="fas fa-sign-in-alt text-success mr-2"></i> Collections</td>
-                        <td class="text-right font-weight-bold text-success">₹<?= number_format($today_summary['collections'] ?? 0) ?></td>
+                        <td class="text-right font-weight-bold text-success"><?= format_amount($today_summary['collections'] ?? 0, 0) ?></td>
                     </tr>
                     <tr>
                         <td><i class="fas fa-sign-out-alt text-danger mr-2"></i> Disbursements</td>
-                        <td class="text-right font-weight-bold text-danger">₹<?= number_format($today_summary['disbursements'] ?? 0) ?></td>
+                        <td class="text-right font-weight-bold text-danger"><?= format_amount($today_summary['disbursements'] ?? 0, 0) ?></td>
                     </tr>
                     <tr>
                         <td><i class="fas fa-user-plus text-info mr-2"></i> New Members</td>
@@ -256,19 +256,19 @@
                 <table class="table table-striped mb-0">
                     <tr>
                         <td><i class="fas fa-piggy-bank text-success mr-2"></i> Savings Collection</td>
-                        <td class="text-right font-weight-bold text-success">₹<?= number_format($mtd_summary['savings_collection'] ?? 0) ?></td>
+                        <td class="text-right font-weight-bold text-success"><?= format_amount($mtd_summary['savings_collection'] ?? 0, 0) ?></td>
                     </tr>
                     <tr>
                         <td><i class="fas fa-rupee-sign text-primary mr-2"></i> Loan Collection</td>
-                        <td class="text-right font-weight-bold text-primary">₹<?= number_format($mtd_summary['loan_collection'] ?? 0) ?></td>
+                        <td class="text-right font-weight-bold text-primary"><?= format_amount($mtd_summary['loan_collection'] ?? 0, 0) ?></td>
                     </tr>
                     <tr>
                         <td><i class="fas fa-money-bill text-danger mr-2"></i> Loan Disbursed</td>
-                        <td class="text-right font-weight-bold text-danger">₹<?= number_format($mtd_summary['loan_disbursed'] ?? 0) ?></td>
+                        <td class="text-right font-weight-bold text-danger"><?= format_amount($mtd_summary['loan_disbursed'] ?? 0, 0) ?></td>
                     </tr>
                     <tr>
                         <td><i class="fas fa-percentage text-warning mr-2"></i> Interest Earned</td>
-                        <td class="text-right font-weight-bold text-warning">₹<?= number_format($mtd_summary['interest_earned'] ?? 0) ?></td>
+                        <td class="text-right font-weight-bold text-warning"><?= format_amount($mtd_summary['interest_earned'] ?? 0, 0) ?></td>
                     </tr>
                 </table>
             </div>

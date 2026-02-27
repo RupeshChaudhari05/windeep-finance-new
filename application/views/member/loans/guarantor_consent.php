@@ -4,8 +4,8 @@
     <div class="card-body">
         <p><strong>Application:</strong> <?= htmlspecialchars($application->application_number) ?></p>
         <p><strong>Applicant:</strong> <?= htmlspecialchars($application->first_name . ' ' . $application->last_name) ?></p>
-        <p><strong>Amount:</strong> ₹<?= number_format($application->requested_amount, 2) ?></p>
-        <p><strong>Your Requested Guarantee:</strong> ₹<?= number_format($guarantor->guarantee_amount, 2) ?></p>
+        <p><strong>Amount:</strong> <?= format_amount($application->requested_amount) ?></p>
+        <p><strong>Your Requested Guarantee:</strong> <?= format_amount($guarantor->guarantee_amount) ?></p>
         <p><strong>Status:</strong> <?= strtoupper($guarantor->consent_status) ?></p>
 
         <?php if ($guarantor->consent_status === 'pending'): ?>

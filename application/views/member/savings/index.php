@@ -11,7 +11,7 @@
                         <strong><?= $a->account_number ?></strong>
                         <br><small class="text-muted"><?= $a->scheme_name ?></small>
                     </div>
-                    <span class="badge badge-success">₹<?= number_format($a->current_balance ?? 0, 2) ?></span>
+                    <span class="badge badge-success"><?= format_amount($a->current_balance ?? 0) ?></span>
                 </li>
                 <?php endforeach; ?>
             </ul>

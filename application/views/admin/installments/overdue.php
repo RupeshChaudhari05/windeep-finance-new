@@ -7,7 +7,7 @@
                     <strong>Overdue Installments</strong>
                 </h3>
                 <div class="card-tools">
-                    <span class="badge badge-light badge-lg">Total Overdue: ₹<?= number_format($total_overdue, 2) ?></span>
+                    <span class="badge badge-light badge-lg">Total Overdue: <?= format_amount($total_overdue) ?></span>
                 </div>
             </div>
             
@@ -95,7 +95,7 @@ function render_installment_table($installments) {
                 elseif ($inst->days_overdue > 30) $severity_class = 'table-warning';
                 ?>
                 <tr class="<?= $severity_class ?>">
-                    <td><?= format_date($inst->due_date, 'd M Y') ?></td>
+                    <td><?= format_date($inst->due_date) ?></td>
                     <td>
                         <span class="badge badge-danger">
                             <i class="fas fa-exclamation-circle"></i> <?= $inst->days_overdue ?> days
@@ -113,9 +113,9 @@ function render_installment_table($installments) {
                         </a>
                     </td>
                     <td class="text-center"><strong>#<?= $inst->installment_number ?></strong></td>
-                    <td class="text-right font-weight-bold">₹<?= number_format($inst->emi_amount, 2) ?></td>
-                    <td class="text-right text-success">₹<?= number_format($inst->total_paid, 2) ?></td>
-                    <td class="text-right"><strong class="text-danger">₹<?= number_format($balance, 2) ?></strong></td>
+                    <td class="text-right font-weight-bold"><?= format_amount($inst->emi_amount) ?></td>
+                    <td class="text-right text-success"><?= format_amount($inst->total_paid) ?></td>
+                    <td class="text-right"><strong class="text-danger"><?= format_amount($balance) ?></strong></td>
                     <td><a href="tel:<?= $inst->phone ?>"><?= $inst->phone ?></a></td>
                     <td class="text-center">
                         <div class="btn-group btn-group-sm">

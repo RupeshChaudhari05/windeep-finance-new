@@ -12,7 +12,7 @@
         <p><strong>Member Code:</strong> <?= $member->member_code ?></p>
         <p><strong>Name:</strong> <?= htmlspecialchars($member->first_name . ' ' . $member->last_name) ?></p>
         <p><strong>Father's Name:</strong> <?= htmlspecialchars($member->father_name ?: '-') ?></p>
-        <p><strong>Date of Birth:</strong> <?= $member->date_of_birth ? date('d M Y', strtotime($member->date_of_birth)) : '-' ?></p>
+        <p><strong>Date of Birth:</strong> <?= $member->date_of_birth ? format_date($member->date_of_birth) : '-' ?></p>
         <p><strong>Gender:</strong> <?= ucfirst($member->gender ?: '-') ?></p>
         <p><strong>Phone:</strong> <?= $member->phone ?><?php if ($member->alternate_phone): ?> / <?= $member->alternate_phone ?><?php endif; ?></p>
         <p><strong>Email:</strong> <?= $member->email ?: '-' ?></p>

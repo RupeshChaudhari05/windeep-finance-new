@@ -165,7 +165,7 @@
                         </a>
                     </td>
                     <td><?= $import->account_name ?></td>
-                    <td><?= format_date($import->statement_from_date, 'd M Y') ?></td>
+                    <td><?= format_date($import->statement_from_date) ?></td>
                     <td><?= $import->total_transactions ?></td>
                     <td>
                         <span class="badge badge-success">

@@ -53,11 +53,11 @@
                     </tr>
                     <tr>
                         <th>Principal:</th>
-                        <td class="font-weight-bold">₹<?= number_format($loan->principal_amount) ?></td>
+                        <td class="font-weight-bold"><?= format_amount($loan->principal_amount, 0) ?></td>
                     </tr>
                     <tr>
                         <th>EMI:</th>
-                        <td class="font-weight-bold text-primary">₹<?= number_format($loan->emi_amount) ?></td>
+                        <td class="font-weight-bold text-primary"><?= format_amount($loan->emi_amount, 0) ?></td>
                     </tr>
                 </table>
                 
@@ -65,19 +65,19 @@
                 
                 <div class="d-flex justify-content-between mb-2">
                     <span>Outstanding Principal:</span>
-                    <strong class="text-danger">₹<?= number_format($loan->outstanding_principal) ?></strong>
+                    <strong class="text-danger"><?= format_amount($loan->outstanding_principal, 0) ?></strong>
                 </div>
                 <div class="d-flex justify-content-between mb-2">
                     <span>Outstanding Interest:</span>
-                    <strong>₹<?= number_format($loan->outstanding_interest) ?></strong>
+                    <strong><?= format_amount($loan->outstanding_interest, 0) ?></strong>
                 </div>
                 <div class="d-flex justify-content-between mb-2">
                     <span>Pending Fines:</span>
-                    <strong class="text-warning">₹<?= number_format($pending_fines ?? 0) ?></strong>
+                    <strong class="text-warning"><?= format_amount($pending_fines ?? 0, 0) ?></strong>
                 </div>
                 <div class="d-flex justify-content-between border-top pt-2">
                     <span><strong>Total Due:</strong></span>
-                    <strong class="text-danger">₹<?= number_format($loan->outstanding_principal + $loan->outstanding_interest + ($pending_fines ?? 0)) ?></strong>
+                    <strong class="text-danger"><?= format_amount($loan->outstanding_principal + $loan->outstanding_interest + ($pending_fines ?? 0), 0) ?></strong>
                 </div>
                 
                 <?php if ($overdue_emis): ?>
@@ -87,7 +87,7 @@
                         <i class="fas fa-exclamation-triangle mr-1"></i>
                         <strong><?= count($overdue_emis) ?> EMI(s) Overdue</strong>
                         <br>
-                        Amount: ₹<?= number_format(array_sum(array_column($overdue_emis, 'emi_amount'))) ?>
+                        Amount: <?= get_currency_symbol() ?><?= number_format(array_sum(array_column($overdue_emis, 'emi_amount'))) ?>
                     </div>
                 </div>
                 <?php endif; ?>
@@ -113,8 +113,8 @@
                         <?php foreach (array_slice($pending_emis, 0, 6) as $emi): ?>
                         <tr class="<?= safe_timestamp($emi->due_date) < time() ? 'table-danger' : '' ?>">
                             <td><?= $emi->installment_number ?></td>
-                            <td><?= format_date($emi->due_date, 'd M Y') ?></td>
-                            <td class="text-right">₹<?= number_format($emi->emi_amount) ?></td>
+                            <td><?= format_date($emi->due_date) ?></td>
+                            <td class="text-right"><?= format_amount($emi->emi_amount, 0) ?></td>
                         </tr>
                         <?php endforeach; ?>
                     </tbody>
@@ -137,12 +137,12 @@
                     <div class="row">
                         <div class="col-md-6">
                             <div class="form-group">
-                                <label for="amount">Payment Amount (₹) <span class="text-danger">*</span></label>
+                                <label for="amount">Payment Amount (<?= get_currency_symbol() ?>) <span class="text-danger">*</span></label>
                                 <input type="number" class="form-control form-control-lg" id="amount" name="amount" 
                                        value="<?= $loan->emi_amount ?>" required min="1"
                                        placeholder="Enter amount" autofocus>
                                 <small class="form-text text-muted">
-                                    EMI: ₹<?= number_format($loan->emi_amount) ?>
+                                    EMI: <?= format_amount($loan->emi_amount, 0) ?>
                                 </small>
                             </div>
                         </div>
@@ -160,26 +160,26 @@
                         <label class="d-block">Quick Select: <small class="text-muted">(Click to auto-fill amount)</small></label>
                         <div class="d-flex flex-wrap gap-1">
                             <button type="button" class="btn btn-outline-primary btn-sm quick-amount" data-amount="<?= $loan->emi_amount ?>" title="Pay 1 EMI amount">
-                                1 EMI (₹<?= number_format($loan->emi_amount) ?>)
+                                1 EMI (<?= format_amount($loan->emi_amount, 0) ?>)
                             </button>
                             <button type="button" class="btn btn-outline-primary btn-sm quick-amount" data-amount="<?= $loan->emi_amount * 2 ?>" title="Pay 2 EMIs amount">
-                                2 EMIs (₹<?= number_format($loan->emi_amount * 2) ?>)
+                                2 EMIs (<?= format_amount($loan->emi_amount * 2, 0) ?>)
                             </button>
                             <button type="button" class="btn btn-outline-primary btn-sm quick-amount" data-amount="<?= $loan->emi_amount * 3 ?>" title="Pay 3 EMIs amount">
-                                3 EMIs (₹<?= number_format($loan->emi_amount * 3) ?>)
+                                3 EMIs (<?= format_amount($loan->emi_amount * 3, 0) ?>)
                             </button>
                             <button type="button" class="btn btn-outline-primary btn-sm quick-amount" data-amount="<?= $loan->emi_amount * 6 ?>" title="Pay 6 EMIs amount">
-                                6 EMIs (₹<?= number_format($loan->emi_amount * 6) ?>)
+                                6 EMIs (<?= format_amount($loan->emi_amount * 6, 0) ?>)
                             </button>
                             <?php if ($overdue_emis): ?>
                             <button type="button" class="btn btn-outline-danger btn-sm quick-amount"
                                     data-amount="<?= array_sum(array_column($overdue_emis, 'emi_amount')) ?>" title="Pay all overdue EMIs">
-                                All Overdue (₹<?= number_format(array_sum(array_column($overdue_emis, 'emi_amount'))) ?>)
+                                All Overdue (<?= get_currency_symbol() ?><?= number_format(array_sum(array_column($overdue_emis, 'emi_amount'))) ?>)
                             </button>
                             <?php endif; ?>
                             <button type="button" class="btn btn-outline-success btn-sm quick-amount"
                                     data-amount="<?= $loan->outstanding_principal + $loan->outstanding_interest ?>" title="Full loan settlement">
-                                Full Settlement (₹<?= number_format($loan->outstanding_principal + $loan->outstanding_interest) ?>)
+                                Full Settlement (<?= format_amount($loan->outstanding_principal + $loan->outstanding_interest, 0) ?>)
                             </button>
                         </div>
                         <small class="form-text text-muted">Selected option will be highlighted in blue. You can also type amount manually.</small>
@@ -215,15 +215,15 @@
                             <div class="row">
                                 <div class="col-md-4">
                                     <small class="text-muted">Towards Fine:</small>
-                                    <div class="font-weight-bold" id="breakdownFine">₹0</div>
+                                    <div class="font-weight-bold" id="breakdownFine"><?= get_currency_symbol() ?>0</div>
                                 </div>
                                 <div class="col-md-4">
                                     <small class="text-muted">Towards Interest:</small>
-                                    <div class="font-weight-bold text-warning" id="breakdownInterest">₹0</div>
+                                    <div class="font-weight-bold text-warning" id="breakdownInterest"><?= get_currency_symbol() ?>0</div>
                                 </div>
                                 <div class="col-md-4">
                                     <small class="text-muted">Towards Principal:</small>
-                                    <div class="font-weight-bold text-primary" id="breakdownPrincipal">₹0</div>
+                                    <div class="font-weight-bold text-primary" id="breakdownPrincipal"><?= get_currency_symbol() ?>0</div>
                                 </div>
                             </div>
                         </div>
@@ -240,7 +240,7 @@
                             <div class="row">
                                 <div class="col-md-6">
                                     <strong>After Payment:</strong>
-                                    <div>New Outstanding: <span class="font-weight-bold" id="newOutstanding">₹<?= number_format($loan->outstanding_principal) ?></span></div>
+                                    <div>New Outstanding: <span class="font-weight-bold" id="newOutstanding"><?= format_amount($loan->outstanding_principal, 0) ?></span></div>
                                 </div>
                                 <div class="col-md-6">
                                     <strong>EMIs Covered:</strong>
@@ -282,7 +282,7 @@
                         <tr>
                             <td><?= format_date($pmt->payment_date) ?></td>
                             <td><small><?= $pmt->receipt_number ?></small></td>
-                            <td class="text-right">₹<?= number_format($pmt->amount) ?></td>
+                            <td class="text-right"><?= format_amount($pmt->amount, 0) ?></td>
                             <td><small><?= ucfirst($pmt->payment_mode) ?></small></td>
                         </tr>
                         <?php endforeach; ?>
@@ -343,12 +343,12 @@ $(document).ready(function() {
         // Rest to principal
         var toPrincipal = Math.min(remaining, outstandingPrincipal);
         
-        $('#breakdownFine').text('₹' + toFine.toLocaleString());
-        $('#breakdownInterest').text('₹' + toInterest.toLocaleString());
-        $('#breakdownPrincipal').text('₹' + toPrincipal.toLocaleString());
+        $('#breakdownFine').text('<?= get_currency_symbol() ?>' + toFine.toLocaleString());
+        $('#breakdownInterest').text('<?= get_currency_symbol() ?>' + toInterest.toLocaleString());
+        $('#breakdownPrincipal').text('<?= get_currency_symbol() ?>' + toPrincipal.toLocaleString());
         
         var newOutstanding = outstandingPrincipal - toPrincipal;
-        $('#newOutstanding').text('₹' + newOutstanding.toLocaleString());
+        $('#newOutstanding').text('<?= get_currency_symbol() ?>' + newOutstanding.toLocaleString());
         
         var emisCovered = Math.floor(amount / emiAmount);
         $('#emisCovered').text(emisCovered || 'Partial');
@@ -368,7 +368,7 @@ $(document).ready(function() {
         
         Swal.fire({
             title: 'Processing...',
-            text: 'Recording payment of ₹' + amount.toLocaleString(),
+            text: 'Recording payment of <?= get_currency_symbol() ?>' + amount.toLocaleString(),
             allowOutsideClick: false,
             showConfirmButton: false,
             willOpen: () => { Swal.showLoading(); }

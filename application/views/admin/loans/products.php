@@ -48,8 +48,8 @@
                                 <?php endif; ?>
                             </td>
                             <td><span class="badge badge-secondary"><?= $product->code ?></span></td>
-                            <td class="text-right">₹<?= number_format($product->min_amount) ?></td>
-                            <td class="text-right">₹<?= number_format($product->max_amount) ?></td>
+                            <td class="text-right"><?= format_amount($product->min_amount, 0) ?></td>
+                            <td class="text-right"><?= format_amount($product->max_amount, 0) ?></td>
                             <td class="text-right">
                                 <span class="text-success font-weight-bold"><?= $product->interest_rate ?>%</span>
                                 <br><small class="text-muted"><?= $product->interest_type ?? 'Reducing' ?></small>
@@ -132,7 +132,7 @@
                             <div class="form-group">
                                 <label>Minimum Amount <span class="text-danger">*</span></label>
                                 <div class="input-group">
-                                    <div class="input-group-prepend"><span class="input-group-text">₹</span></div>
+                                    <div class="input-group-prepend"><span class="input-group-text"><?= get_currency_symbol() ?></span></div>
                                     <input type="number" name="min_amount" id="min_amount" class="form-control" required min="0">
                                 </div>
                             </div>
@@ -141,7 +141,7 @@
                             <div class="form-group">
                                 <label>Maximum Amount <span class="text-danger">*</span></label>
                                 <div class="input-group">
-                                    <div class="input-group-prepend"><span class="input-group-text">₹</span></div>
+                                    <div class="input-group-prepend"><span class="input-group-text"><?= get_currency_symbol() ?></span></div>
                                     <input type="number" name="max_amount" id="max_amount" class="form-control" required min="0">
                                 </div>
                             </div>
@@ -203,7 +203,7 @@
                                 <label>Fee Type</label>
                                 <select name="processing_fee_type" id="processing_fee_type" class="form-control">
                                     <option value="percentage">Percentage (%)</option>
-                                    <option value="fixed">Fixed Amount (₹)</option>
+                                    <option value="fixed">Fixed Amount (<?= get_currency_symbol() ?>)</option>
                                 </select>
                             </div>
                         </div>

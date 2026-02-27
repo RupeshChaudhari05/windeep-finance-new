@@ -21,9 +21,9 @@
                 <div class="alert alert-info">
                     <i class="fas fa-info-circle mr-2"></i>
                     <strong><?= $total_count ?></strong> installments due between 
-                    <strong><?= format_date('now', 'd M Y') ?></strong> and 
-                    <strong><?= format_date($end_date, 'd M Y') ?></strong>
-                    | Total Expected: <strong>₹<?= number_format($total_amount, 2) ?></strong>
+                    <strong><?= format_date('now') ?></strong> and 
+                    <strong><?= format_date($end_date) ?></strong>
+                    | Total Expected: <strong><?= format_amount($total_amount) ?></strong>
                 </div>
                 
                 <?php if (empty($installments)): ?>
@@ -73,7 +73,7 @@
                                     </td>
                                     <td><span class="badge badge-info"><?= $inst->product_name ?></span></td>
                                     <td class="text-center"><strong>#<?= $inst->installment_number ?></strong></td>
-                                    <td class="text-right font-weight-bold">₹<?= number_format($inst->emi_amount, 2) ?></td>
+                                    <td class="text-right font-weight-bold"><?= format_amount($inst->emi_amount) ?></td>
                                     <td><a href="tel:<?= $inst->phone ?>"><?= $inst->phone ?></a></td>
                                     <td class="text-center">
                                         <div class="btn-group btn-group-sm">
@@ -91,7 +91,7 @@
                             <tfoot class="bg-light font-weight-bold">
                                 <tr>
                                     <th colspan="6" class="text-right">Total Expected:</th>
-                                    <th class="text-right">₹<?= number_format($total_amount, 2) ?></th>
+                                    <th class="text-right"><?= format_amount($total_amount) ?></th>
                                     <th colspan="2"></th>
                                 </tr>
                             </tfoot>

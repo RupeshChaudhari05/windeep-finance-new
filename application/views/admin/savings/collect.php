@@ -14,7 +14,7 @@
                         <option value=""></option>
                         <?php foreach ($active_accounts as $acc): ?>
                         <option value="<?= site_url('admin/savings/collection/' . $acc->id) ?>">
-                            <?= $acc->first_name ?> <?= $acc->last_name ?> &mdash; <?= $acc->phone ?> &mdash; <?= $acc->account_number ?> (<?= $acc->scheme_name ?? 'N/A' ?>) &mdash; Bal: ₹<?= number_format($acc->current_balance) ?>
+                            <?= $acc->first_name ?> <?= $acc->last_name ?> &mdash; <?= $acc->phone ?> &mdash; <?= $acc->account_number ?> (<?= $acc->scheme_name ?? 'N/A' ?>) &mdash; Bal: <?= format_amount($acc->current_balance, 0) ?>
                         </option>
                         <?php endforeach; ?>
                     </select>
@@ -50,8 +50,8 @@
                         <td><?= $acc->phone ?></td>
                         <td><code><?= $acc->account_number ?></code></td>
                         <td><span class="badge badge-info"><?= $acc->scheme_name ?? '-' ?></span></td>
-                        <td class="text-right">₹<?= number_format($acc->monthly_amount) ?></td>
-                        <td class="text-right text-success">₹<?= number_format($acc->current_balance) ?></td>
+                        <td class="text-right"><?= format_amount($acc->monthly_amount, 0) ?></td>
+                        <td class="text-right text-success"><?= format_amount($acc->current_balance, 0) ?></td>
                         <td class="text-center">
                             <a href="<?= site_url('admin/savings/collection/' . $acc->id) ?>" class="btn btn-sm btn-success">
                                 <i class="fas fa-hand-holding-usd mr-1"></i> Collect
@@ -128,7 +128,7 @@ $(document).ready(function() {
                     </tr>
                     <tr>
                         <th>Monthly Amt:</th>
-                        <td class="font-weight-bold text-primary">₹<?= number_format($account->monthly_amount) ?></td>
+                        <td class="font-weight-bold text-primary"><?= format_amount($account->monthly_amount, 0) ?></td>
                     </tr>
                     <?php else: ?>
                     <tr>
@@ -142,11 +142,11 @@ $(document).ready(function() {
                 <?php if ($account): ?>
                 <div class="d-flex justify-content-between mb-2">
                     <span>Current Balance:</span>
-                    <strong class="text-success">₹<?= number_format($account->current_balance) ?></strong>
+                    <strong class="text-success"><?= format_amount($account->current_balance, 0) ?></strong>
                 </div>
                 <div class="d-flex justify-content-between mb-2">
                     <span>Total Deposited:</span>
-                    <strong>₹<?= number_format($account->total_deposited) ?></strong>
+                    <strong><?= format_amount($account->total_deposited, 0) ?></strong>
                 </div>
                 <?php endif; ?>
 
@@ -178,7 +178,7 @@ $(document).ready(function() {
                         <?php foreach (array_slice($pending_dues, 0, 6) as $due): ?>
                         <tr class="<?= safe_timestamp($due->due_date) < time() ? 'table-danger' : '' ?>">
                             <td><?= format_date($due->due_date, 'M Y') ?></td>
-                            <td class="text-right">₹<?= number_format($due->due_amount) ?></td>
+                            <td class="text-right"><?= format_amount($due->due_amount, 0) ?></td>
                             <td>
                                 <?php if (safe_timestamp($due->due_date) < time()): ?>
                                     <span class="badge badge-danger">Overdue</span>
@@ -200,7 +200,7 @@ $(document).ready(function() {
                         <tr>
                             <th>Total:</th>
                             <th class="text-right text-danger">
-                                ₹<?= number_format(array_sum(array_column($pending_dues, 'due_amount'))) ?>
+                                <?= get_currency_symbol() ?><?= number_format(array_sum(array_column($pending_dues, 'due_amount'))) ?>
                             </th>
                             <th></th>
                         </tr>
@@ -226,14 +226,14 @@ $(document).ready(function() {
                     <div class="row">
                         <div class="col-md-6">
                             <div class="form-group">
-                                <label for="amount">Collection Amount (₹) <span class="text-danger">*</span></label>
+                                <label for="amount">Collection Amount (<?= get_currency_symbol() ?>) <span class="text-danger">*</span></label>
                                 <input type="number" class="form-control form-control-lg" id="amount" name="amount" 
                                        value="<?= $account->monthly_amount ?>" required min="1"
                                        placeholder="Enter amount" autofocus>
                                 <small class="form-text text-muted">
-                                    Monthly: ₹<?= number_format($account->monthly_amount) ?>
+                                    Monthly: <?= format_amount($account->monthly_amount, 0) ?>
                                     <?php if ($pending_dues): ?>
-                                        | Pending Total: ₹<?= number_format(array_sum(array_column($pending_dues, 'due_amount'))) ?>
+                                        | Pending Total: <?= get_currency_symbol() ?><?= number_format(array_sum(array_column($pending_dues, 'due_amount'))) ?>
                                     <?php endif; ?>
                                 </small>
                             </div>
@@ -252,17 +252,17 @@ $(document).ready(function() {
                         <label class="d-block">Quick Select:</label>
                         <div class="btn-group btn-group-sm">
                             <button type="button" class="btn btn-outline-primary quick-amount" data-amount="<?= $account->monthly_amount ?>">
-                                1 Month (₹<?= number_format($account->monthly_amount) ?>)
+                                1 Month (<?= format_amount($account->monthly_amount, 0) ?>)
                             </button>
                             <button type="button" class="btn btn-outline-primary quick-amount" data-amount="<?= $account->monthly_amount * 3 ?>">
-                                3 Months (₹<?= number_format($account->monthly_amount * 3) ?>)
+                                3 Months (<?= format_amount($account->monthly_amount * 3, 0) ?>)
                             </button>
                             <button type="button" class="btn btn-outline-primary quick-amount" data-amount="<?= $account->monthly_amount * 6 ?>">
-                                6 Months (₹<?= number_format($account->monthly_amount * 6) ?>)
+                                6 Months (<?= format_amount($account->monthly_amount * 6, 0) ?>)
                             </button>
                             <?php if ($pending_dues): ?>
                             <button type="button" class="btn btn-outline-danger quick-amount" data-amount="<?= array_sum(array_column($pending_dues, 'amount')) ?>">
-                                All Pending (₹<?= number_format(array_sum(array_column($pending_dues, 'amount'))) ?>)
+                                All Pending (<?= get_currency_symbol() ?><?= number_format(array_sum(array_column($pending_dues, 'amount'))) ?>)
                             </button>
                             <?php endif; ?>
                         </div>
@@ -304,7 +304,7 @@ $(document).ready(function() {
                                 <strong>Collection Summary:</strong>
                                 <div class="mt-2">
                                     <span>Amount: </span>
-                                    <span class="font-weight-bold" id="summaryAmount">₹<?= number_format($account->monthly_amount) ?></span>
+                                    <span class="font-weight-bold" id="summaryAmount"><?= format_amount($account->monthly_amount, 0) ?></span>
                                 </div>
                             </div>
                             <div class="col-md-6">
@@ -312,7 +312,7 @@ $(document).ready(function() {
                                 <div class="mt-2">
                                     <span>New Balance: </span>
                                     <span class="font-weight-bold text-success" id="summaryNewBalance">
-                                        ₹<?= number_format($account->current_balance + $account->monthly_amount) ?>
+                                        <?= format_amount($account->current_balance + $account->monthly_amount, 0) ?>
                                     </span>
                                 </div>
                             </div>
@@ -359,7 +359,7 @@ $(document).ready(function() {
                             <td><?= format_date($txn->transaction_date) ?></td>
                             <td><small><?= $txn->receipt_number ?></small></td>
                             <td><span class="badge badge-success"><?= ucfirst($txn->transaction_type) ?></span></td>
-                            <td class="text-right">₹<?= number_format($txn->credit_amount) ?></td>
+                            <td class="text-right"><?= format_amount($txn->credit_amount, 0) ?></td>
                             <td><small><?= ucfirst($txn->payment_mode) ?></small></td>
                         </tr>
                         <?php endforeach; ?>
@@ -392,8 +392,8 @@ $(document).ready(function() {
     
     function updateSummary() {
         var amount = parseFloat($('#amount').val()) || 0;
-        $('#summaryAmount').text('₹' + amount.toLocaleString());
-        $('#summaryNewBalance').text('₹' + (currentBalance + amount).toLocaleString());
+        $('#summaryAmount').text('<?= get_currency_symbol() ?>' + amount.toLocaleString());
+        $('#summaryNewBalance').text('<?= get_currency_symbol() ?>' + (currentBalance + amount).toLocaleString());
     }
     
     // Payment mode change - require reference for non-cash
@@ -418,7 +418,7 @@ $(document).ready(function() {
         
         Swal.fire({
             title: 'Processing...',
-            text: 'Recording payment of ₹' + amount.toLocaleString(),
+            text: 'Recording payment of <?= get_currency_symbol() ?>' + amount.toLocaleString(),
             allowOutsideClick: false,
             showConfirmButton: false,
             willOpen: () => { Swal.showLoading(); }

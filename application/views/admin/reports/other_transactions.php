@@ -67,7 +67,7 @@
                         <div class="info-box bg-light mb-0">
                             <div class="info-box-content px-2 py-1">
                                 <span class="info-box-text text-muted small"><?= ucwords(str_replace('_', ' ', $s->transaction_type)) ?></span>
-                                <span class="info-box-number text-primary">₹<?= number_format($s->total, 2) ?></span>
+                                <span class="info-box-number text-primary"><?= format_amount($s->total) ?></span>
                                 <small class="text-muted"><?= $s->count ?> txns</small>
                             </div>
                         </div>
@@ -77,7 +77,7 @@
                         <div class="info-box bg-primary mb-0">
                             <div class="info-box-content px-2 py-1">
                                 <span class="info-box-text text-white small">Grand Total</span>
-                                <span class="info-box-number text-white">₹<?= number_format($total_all, 2) ?></span>
+                                <span class="info-box-number text-white"><?= format_amount($total_all) ?></span>
                             </div>
                         </div>
                     </div>
@@ -94,7 +94,7 @@
                                 <th>Member Code</th>
                                 <th>Member Name</th>
                                 <th>Transaction Type</th>
-                                <th class="text-right">Amount (₹)</th>
+                                <th class="text-right">Amount (<?= get_currency_symbol() ?>)</th>
                                 <th>Payment Mode</th>
                                 <th>Receipt No</th>
                                 <th>Description</th>
@@ -106,7 +106,7 @@
                                 <?php $sr = 1; $grand_total = 0; foreach ($transactions as $txn): $grand_total += floatval($txn->amount); ?>
                                 <tr>
                                     <td><?= $sr++ ?></td>
-                                    <td><?= date('d M Y', strtotime($txn->transaction_date)) ?></td>
+                                    <td><?= format_date($txn->transaction_date) ?></td>
                                     <td>
                                         <a href="<?= site_url('admin/members/view/' . $txn->member_id) ?>">
                                             <?= htmlspecialchars($txn->member_code ?? '') ?>
@@ -118,7 +118,7 @@
                                             <?= ucwords(str_replace('_', ' ', $txn->transaction_type)) ?>
                                         </span>
                                     </td>
-                                    <td class="text-right font-weight-bold">₹<?= number_format($txn->amount, 2) ?></td>
+                                    <td class="text-right font-weight-bold"><?= format_amount($txn->amount) ?></td>
                                     <td><?= ucfirst($txn->payment_mode ?? '-') ?></td>
                                     <td><?= htmlspecialchars($txn->receipt_number ?? '-') ?></td>
                                     <td><small><?= htmlspecialchars($txn->description ?? '-') ?></small></td>
@@ -142,7 +142,7 @@
                         <tfoot>
                             <tr class="bg-light font-weight-bold">
                                 <td colspan="5" class="text-right">Total:</td>
-                                <td class="text-right">₹<?= number_format($grand_total, 2) ?></td>
+                                <td class="text-right"><?= format_amount($grand_total) ?></td>
                                 <td colspan="4"></td>
                             </tr>
                         </tfoot>

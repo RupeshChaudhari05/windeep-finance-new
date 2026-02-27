@@ -410,7 +410,7 @@ class Loans extends Admin_Controller {
                     $n_title      = 'Loan Approved – Action Required: ' . $approved_app->application_number;
                     $n_message    = 'Your loan application ' . $approved_app->application_number
                         . ' has been approved by the admin.'
-                        . ' Approved Amount: ₹' . number_format($approval_data['approved_amount'], 2)
+                        . ' Approved Amount: ' . format_amount($approval_data['approved_amount'])
                         . ', Tenure: ' . $approval_data['approved_tenure_months'] . ' months'
                         . ', Rate: ' . $approval_data['approved_interest_rate'] . '% p.a.'
                         . ' Please log in and review/accept the terms to proceed to disbursement.';
@@ -422,7 +422,7 @@ class Loans extends Admin_Controller {
                         $html = '<p>Dear ' . htmlspecialchars($applicant->first_name . ' ' . $applicant->last_name) . ',</p>'
                             . '<p>Your loan application <strong>' . $approved_app->application_number . '</strong> has been approved.</p>'
                             . '<ul>'
-                            . '<li><strong>Approved Amount:</strong> ₹' . number_format($approval_data['approved_amount'], 2) . '</li>'
+                            . '<li><strong>Approved Amount:</strong> ' . format_amount($approval_data['approved_amount']) . '</li>'
                             . '<li><strong>Tenure:</strong> ' . $approval_data['approved_tenure_months'] . ' months</li>'
                             . '<li><strong>Interest Rate:</strong> ' . $approval_data['approved_interest_rate'] . '% p.a.</li>'
                             . '</ul>'
@@ -1070,7 +1070,7 @@ class Loans extends Admin_Controller {
                 
                 $message = "Dear " . $member->first_name . ",\n\n";
                 $message .= "This is a friendly reminder regarding your loan " . $loan->loan_number . ".\n\n";
-                $message .= "Outstanding Amount: " . $this->get_setting('currency_symbol', '₹') . number_format($loan->outstanding_principal ?? 0, 2) . "\n";
+                $message .= "Outstanding Amount: " . format_amount($loan->outstanding_principal ?? 0) . "\n";
                 $message .= "Please make your payment at the earliest.\n\n";
                 $message .= "Thank you,\n" . $org_name;
                 

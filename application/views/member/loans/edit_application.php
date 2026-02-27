@@ -13,7 +13,7 @@
 
             <div class="form-row">
                 <div class="form-group col-md-6">
-                    <label>Amount Requested (₹)</label>
+                    <label>Amount Requested (<?= get_currency_symbol() ?>)</label>
                     <input type="number" name="amount_requested" class="form-control" step="0.01" min="1" value="<?= set_value('amount_requested', $application->requested_amount) ?>" required>
                 </div>
                 <div class="form-group col-md-6">

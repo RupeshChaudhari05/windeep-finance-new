@@ -49,8 +49,8 @@
                                 <strong class="text-primary"><?= number_format($product->default_interest_rate ?? $product->interest_rate, 2) ?>%</strong>
                             </td>
                             <td>
-                                ₹<?= number_format($product->min_amount ?? 0) ?> - 
-                                ₹<?= number_format($product->max_amount ?? 0) ?>
+                                <?= format_amount($product->min_amount ?? 0) ?> - 
+                                <?= format_amount($product->max_amount ?? 0, 0) ?>
                             </td>
                             <td><?= $product->max_tenure_months ?? $product->max_term ?? '-' ?> months</td>
                             <td>
@@ -58,14 +58,14 @@
                                 $late_fee_type = $product->late_fee_type ?? 'fixed';
                                 if ($late_fee_type == 'fixed_plus_daily'): ?>
                                 <span class="badge badge-warning">
-                                    ₹<?= number_format($product->late_fee_value ?? 0) ?> + ₹<?= number_format($product->late_fee_per_day ?? 0) ?>/day
+                                    <?= format_amount($product->late_fee_value ?? 0, 0) ?> + <?= format_amount($product->late_fee_per_day ?? 0, 0) ?>/day
                                 </span>
                                 <?php elseif ($late_fee_type == 'per_day'): ?>
-                                <span class="badge badge-warning">₹<?= number_format($product->late_fee_per_day ?? 0) ?>/day</span>
+                                <span class="badge badge-warning"><?= format_amount($product->late_fee_per_day ?? 0, 0) ?>/day</span>
                                 <?php elseif ($late_fee_type == 'percentage'): ?>
-                                <span class="badge badge-warning"><?= number_format($product->late_fee_value ?? 0, 2) ?>%</span>
+                                <span class="badge badge-warning"><?= number_format($product->late_fee_value ?? 0) ?>%</span>
                                 <?php else: ?>
-                                <span class="badge badge-secondary">₹<?= number_format($product->late_fee_value ?? 0) ?></span>
+                                <span class="badge badge-secondary"><?= format_amount($product->late_fee_value ?? 0) ?></span>
                                 <?php endif; ?>
                                 <?php if (($product->grace_period_days ?? 0) > 0): ?>
                                 <small class="text-muted d-block"><?= $product->grace_period_days ?> days grace</small>
@@ -73,9 +73,9 @@
                             </td>
                             <td>
                                 <?php if (($product->processing_fee_type ?? 'percentage') == 'percentage'): ?>
-                                <?= number_format($product->processing_fee ?? $product->processing_fee_value ?? 0, 2) ?>%
+                                <?= number_format($product->processing_fee ?? $product->processing_fee_value ?? 0) ?>%
                                 <?php else: ?>
-                                ₹<?= number_format($product->processing_fee ?? $product->processing_fee_value ?? 0, 2) ?>
+                                <?= format_amount($product->processing_fee ?? $product->processing_fee_value ?? 0) ?>
                                 <?php endif; ?>
                             </td>
                             <td>
@@ -147,7 +147,7 @@
         <div class="small-box bg-primary">
             <div class="inner">
                 <?php $max_amount = count($products) > 0 ? max(array_column($products, 'max_amount')) : 0; ?>
-                <h3>₹<?= number_format($max_amount / 100000, 1) ?>L</h3>
+                <h3><?= format_amount($max_amount / 100000, 1, 0) ?>L</h3>
                 <p>Max Loan Amount</p>
             </div>
             <div class="icon"><i class="fas fa-money-bill-wave"></i></div>
@@ -231,14 +231,14 @@
                     <div class="row">
                         <div class="col-md-3">
                             <div class="form-group">
-                                <label>Min Amount (₹) <span class="text-danger">*</span></label>
+                                <label>Min Amount (<?= get_currency_symbol() ?>) <span class="text-danger">*</span></label>
                                 <input type="number" name="min_amount" id="min_amount" class="form-control" 
                                        step="1000" value="10000" min="0" required>
                             </div>
                         </div>
                         <div class="col-md-3">
                             <div class="form-group">
-                                <label>Max Amount (₹) <span class="text-danger">*</span></label>
+                                <label>Max Amount (<?= get_currency_symbol() ?>) <span class="text-danger">*</span></label>
                                 <input type="number" name="max_amount" id="max_amount" class="form-control" 
                                        step="1000" value="500000" min="0" required>
                             </div>
@@ -299,7 +299,7 @@
                         </div>
                         <div class="col-md-3" id="lateFeeValueGroup">
                             <div class="form-group">
-                                <label>Initial Late Fee (₹)</label>
+                                <label>Initial Late Fee (<?= get_currency_symbol() ?>)</label>
                                 <input type="number" name="late_fee_value" id="late_fee_value" 
                                        class="form-control" step="0.01" value="100">
                                 <small class="text-muted">One-time fine after grace</small>
@@ -307,7 +307,7 @@
                         </div>
                         <div class="col-md-3" id="lateFeeDailyGroup">
                             <div class="form-group">
-                                <label>Per Day Fine (₹)</label>
+                                <label>Per Day Fine (<?= get_currency_symbol() ?>)</label>
                                 <input type="number" name="late_fee_per_day" id="late_fee_per_day" 
                                        class="form-control" step="0.01" value="10">
                                 <small class="text-muted">Added daily</small>
@@ -329,19 +329,19 @@
                             <div class="row">
                                 <div class="col-md-3">
                                     <small class="text-muted">After 10 days late:</small>
-                                    <div class="h6 text-danger mb-0" id="latePreview10">₹0</div>
+                                    <div class="h6 text-danger mb-0" id="latePreview10"><?= get_currency_symbol() ?>0</div>
                                 </div>
                                 <div class="col-md-3">
                                     <small class="text-muted">After 30 days late:</small>
-                                    <div class="h6 text-danger mb-0" id="latePreview30">₹0</div>
+                                    <div class="h6 text-danger mb-0" id="latePreview30"><?= get_currency_symbol() ?>0</div>
                                 </div>
                                 <div class="col-md-3">
                                     <small class="text-muted">After 60 days late:</small>
-                                    <div class="h6 text-danger mb-0" id="latePreview60">₹0</div>
+                                    <div class="h6 text-danger mb-0" id="latePreview60"><?= get_currency_symbol() ?>0</div>
                                 </div>
                                 <div class="col-md-3">
                                     <small class="text-muted">After 90 days late:</small>
-                                    <div class="h6 text-danger mb-0" id="latePreview90">₹0</div>
+                                    <div class="h6 text-danger mb-0" id="latePreview90"><?= get_currency_symbol() ?>0</div>
                                 </div>
                             </div>
                         </div>
@@ -371,7 +371,7 @@ $(document).ready(function() {
     
     // Processing fee type change
     $('#processing_fee_type').change(function() {
-        $('#fee_hint').text($(this).val() == 'percentage' ? '% of loan amount' : 'Fixed amount in ₹');
+        $('#fee_hint').text($(this).val() == 'percentage' ? '% of loan amount' : 'Fixed amount in <?= get_currency_symbol() ?>');
     });
     
     // Late fee type change
@@ -413,7 +413,7 @@ $(document).ready(function() {
                     break;
             }
             
-            $('#latePreview' + days).text('₹' + fee.toFixed(2));
+            $('#latePreview' + days).text('<?= get_currency_symbol() ?>' + fee.toFixed(2));
         });
     }
     

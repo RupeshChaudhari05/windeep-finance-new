@@ -45,7 +45,7 @@ class Fine_model extends MY_Model {
     
     /**
      * Apply Loan Late Fine
-     * Bug #7 Fix: Check date to prevent duplicate fines on same day
+     * One fine row per installment — updates the existing row each day instead of inserting a new one.
      */
     public function apply_loan_late_fine($installment_id, $created_by) {
         // Get installment details
@@ -58,14 +58,6 @@ class Fine_model extends MY_Model {
         
         if (!$installment) return false;
         
-        // Check if already fined for this installment on this date (Bug #7 Fix)
-        $existing = $this->db->where('related_type', 'loan_installment')
-                             ->where('related_id', $installment_id)
-                             ->where('fine_date', date('Y-m-d'))
-                             ->count_all_results($this->table);
-        
-        if ($existing > 0) return false;
-        
         // Days late
         $days_late = floor((safe_timestamp(date('Y-m-d')) - safe_timestamp($installment->due_date)) / 86400);
 
@@ -75,10 +67,7 @@ class Fine_model extends MY_Model {
                 $db->where('min_days <=', $days)
                    ->where('max_days >=', $days);
             } elseif ($this->_has_field('grace_period_days', 'fine_rules')) {
-                // If only grace_period is present, pick rules where grace_period_days <= days_late
                 $db->where('grace_period_days <=', $days);
-            } else {
-                // No days columns present; don't add day constraints
             }
         };
         
@@ -109,25 +98,46 @@ class Fine_model extends MY_Model {
         
         if ($fine_amount <= 0) return false;
         
-        // Create fine
+        // Check if a fine row already exists for this installment (any date)
+        $existing_fine = $this->db->where('related_type', 'loan_installment')
+                                  ->where('related_id', $installment_id)
+                                  ->where_in('status', ['pending', 'partial'])
+                                  ->get($this->table)
+                                  ->row();
+        
+        if ($existing_fine) {
+            // UPDATE the existing fine row with latest days_late and recalculated amount
+            $new_balance = $fine_amount - (float)$existing_fine->paid_amount - (float)$existing_fine->waived_amount;
+            $this->db->where('id', $existing_fine->id)
+                     ->update($this->table, [
+                         'days_late'      => $days_late,
+                         'fine_amount'    => $fine_amount,
+                         'balance_amount' => max(0, $new_balance),
+                         'fine_date'      => date('Y-m-d'),
+                         'updated_at'     => date('Y-m-d H:i:s'),
+                     ]);
+            return $existing_fine->id;
+        }
+        
+        // No existing fine — create a new one
         return $this->create_fine([
-            'member_id' => $installment->member_id,
-            'fine_type' => 'loan_late',
-            'related_type' => 'loan_installment',
-            'related_id' => $installment_id,
-            'fine_rule_id' => $rule->id,
-            'fine_date' => date('Y-m-d'),
-            'due_date' => $installment->due_date,
-            'days_late' => $days_late,
+            'member_id'   => $installment->member_id,
+            'fine_type'   => 'loan_late',
+            'related_type'=> 'loan_installment',
+            'related_id'  => $installment_id,
+            'fine_rule_id'=> $rule->id,
+            'fine_date'   => date('Y-m-d'),
+            'due_date'    => $installment->due_date,
+            'days_late'   => $days_late,
             'fine_amount' => $fine_amount,
-            'remarks' => 'Late payment fine for ' . $installment->loan_number . ' EMI #' . $installment->installment_number,
-            'created_by' => $created_by
+            'remarks'     => 'Late payment fine for ' . $installment->loan_number . ' EMI #' . $installment->installment_number,
+            'created_by'  => $created_by
         ]);
     }
     
     /**
      * Apply Savings Late Fine
-     * Bug #7 Fix: Check date to prevent duplicate fines on same day
+     * One fine row per savings schedule — updates the existing row each day instead of inserting a new one.
      */
     public function apply_savings_late_fine($schedule_id, $created_by) {
         // Get schedule details
@@ -139,14 +149,6 @@ class Fine_model extends MY_Model {
                              ->row();
         
         if (!$schedule) return false;
-        
-        // Check if already fined on this date (Bug #7 Fix)
-        $existing = $this->db->where('related_type', 'savings_schedule')
-                             ->where('related_id', $schedule_id)
-                             ->where('fine_date', date('Y-m-d'))
-                             ->count_all_results($this->table);
-        
-        if ($existing > 0) return false;
         
         $days_late = floor((safe_timestamp(date('Y-m-d')) - safe_timestamp($schedule->due_date)) / 86400);
         
@@ -171,18 +173,40 @@ class Fine_model extends MY_Model {
         
         if ($fine_amount <= 0) return false;
         
+        // Check if a fine row already exists for this schedule (any date)
+        $existing_fine = $this->db->where('related_type', 'savings_schedule')
+                                  ->where('related_id', $schedule_id)
+                                  ->where_in('status', ['pending', 'partial'])
+                                  ->get($this->table)
+                                  ->row();
+        
+        if ($existing_fine) {
+            // UPDATE the existing fine row with latest days_late and recalculated amount
+            $new_balance = $fine_amount - (float)$existing_fine->paid_amount - (float)$existing_fine->waived_amount;
+            $this->db->where('id', $existing_fine->id)
+                     ->update($this->table, [
+                         'days_late'      => $days_late,
+                         'fine_amount'    => $fine_amount,
+                         'balance_amount' => max(0, $new_balance),
+                         'fine_date'      => date('Y-m-d'),
+                         'updated_at'     => date('Y-m-d H:i:s'),
+                     ]);
+            return $existing_fine->id;
+        }
+        
+        // No existing fine — create a new one
         return $this->create_fine([
-            'member_id' => $schedule->member_id,
-            'fine_type' => 'savings_late',
-            'related_type' => 'savings_schedule',
-            'related_id' => $schedule_id,
-            'fine_rule_id' => $rule->id,
-            'fine_date' => date('Y-m-d'),
-            'due_date' => $schedule->due_date,
-            'days_late' => $days_late,
+            'member_id'   => $schedule->member_id,
+            'fine_type'   => 'savings_late',
+            'related_type'=> 'savings_schedule',
+            'related_id'  => $schedule_id,
+            'fine_rule_id'=> $rule->id,
+            'fine_date'   => date('Y-m-d'),
+            'due_date'    => $schedule->due_date,
+            'days_late'   => $days_late,
             'fine_amount' => $fine_amount,
-            'remarks' => 'Late savings payment fine for ' . $schedule->account_number,
-            'created_by' => $created_by
+            'remarks'     => 'Late savings payment fine for ' . $schedule->account_number,
+            'created_by'  => $created_by
         ]);
     }
     
@@ -652,14 +676,13 @@ class Fine_model extends MY_Model {
         // First update existing daily fines
         $this->update_daily_fines($created_by);
         
-        // Loan late fines
+        // Loan late fines — include 'overdue' status in case mark_overdue ran before this job
         $overdue_installments = $this->db->select('li.id')
             ->from('loan_installments li')
             ->join('loans l', 'l.id = li.loan_id')
             ->where('l.status', 'active')
-            ->where('li.status', 'pending')
+            ->where_in('li.status', ['pending', 'overdue'])
             ->where('li.due_date <', date('Y-m-d'))
-            ->where('li.fine_amount', 0)
             ->get()
             ->result();
         
@@ -669,14 +692,13 @@ class Fine_model extends MY_Model {
             }
         }
         
-        // Savings late fines
+        // Savings late fines — include 'overdue' status in case mark_overdue ran before this job
         $overdue_schedules = $this->db->select('sch.id')
             ->from('savings_schedule sch')
             ->join('savings_accounts sa', 'sa.id = sch.savings_account_id')
             ->where('sa.status', 'active')
-            ->where_in('sch.status', ['pending', 'partial'])
+            ->where_in('sch.status', ['pending', 'partial', 'overdue'])
             ->where('sch.due_date <', date('Y-m-d'))
-            ->where('sch.fine_amount', 0)
             ->get()
             ->result();
         

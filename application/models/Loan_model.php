@@ -168,7 +168,7 @@ class Loan_model extends MY_Model {
                 $savings_balance = $member->savings_summary->current_balance ?? 0;
                 
                 if ($savings_balance < $product->min_savings_balance) {
-                    throw new Exception('Member savings balance (₹' . number_format($savings_balance, 2) . ') is below minimum requirement (₹' . number_format($product->min_savings_balance, 2) . ')');
+                    throw new Exception('Member savings balance (' . format_amount($savings_balance) . ') is below minimum requirement (' . format_amount($product->min_savings_balance) . ')');
                 }
             }
             
@@ -181,7 +181,7 @@ class Loan_model extends MY_Model {
                 $max_loan = $savings_balance * $product->max_loan_to_savings_ratio;
                 
                 if ($data['approved_amount'] > $max_loan) {
-                    throw new Exception('Approved amount (₹' . number_format($data['approved_amount'], 2) . ') exceeds maximum based on savings ratio (₹' . number_format($max_loan, 2) . ')');
+                    throw new Exception('Approved amount (' . format_amount($data['approved_amount']) . ') exceeds maximum based on savings ratio (' . format_amount($max_loan) . ')');
                 }
             }
         }

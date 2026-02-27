@@ -131,7 +131,7 @@
                                 <div class="col-md-4">
                                     <div class="form-group">
                                         <label>Currency Symbol</label>
-                                        <input type="text" class="form-control" name="currency_symbol" value="<?= $settings['currency_symbol'] ?? '₹' ?>">
+                                        <input type="text" class="form-control" name="currency_symbol" value="<?= $settings['currency_symbol'] ?? '<?= get_currency_symbol() ?>' ?>">
                                     </div>
                                 </div>
                                 <div class="col-md-4">
@@ -442,8 +442,8 @@
                                 <?php foreach ($financial_years ?? [] as $fy): ?>
                                 <tr>
                                     <td><?= $fy->year_name ?></td>
-                                    <td><?= format_date($fy->start_date, 'd M Y') ?></td>
-                                    <td><?= format_date($fy->end_date, 'd M Y') ?></td>
+                                    <td><?= format_date($fy->start_date) ?></td>
+                                    <td><?= format_date($fy->end_date) ?></td>
                                     <td>
                                         <?php if ($fy->is_current): ?>
                                             <span class="badge badge-success">Current</span>
@@ -496,7 +496,7 @@
                                     <td><?= $prod->product_name ?></td>
                                     <td><?= $prod->interest_rate ?>% p.a.</td>
                                     <td><span class="badge badge-info"><?= ucfirst($prod->interest_type) ?></span></td>
-                                    <td>₹<?= number_format($prod->min_amount) ?> - ₹<?= number_format($prod->max_amount) ?></td>
+                                    <td><?= format_amount($prod->min_amount, 0) ?> - <?= format_amount($prod->max_amount, 0) ?></td>
                                     <td><?= $prod->min_tenure ?> - <?= $prod->max_tenure ?> months</td>
                                     <td>
                                         <span class="badge badge-<?= $prod->is_active ? 'success' : 'secondary' ?>">
@@ -542,7 +542,7 @@
                                 <tr>
                                     <td><?= $scheme->scheme_name ?></td>
                                     <td><?= $scheme->interest_rate ?>% p.a.</td>
-                                    <td>₹<?= number_format($scheme->minimum_amount) ?></td>
+                                    <td><?= format_amount($scheme->minimum_amount, 0) ?></td>
                                     <td><?= $scheme->duration_months ? $scheme->duration_months . ' months' : 'Open-ended' ?></td>
                                     <td>
                                         <span class="badge badge-<?= $scheme->is_active ? 'success' : 'secondary' ?>">
@@ -590,7 +590,7 @@
                                     <td><span class="badge badge-info"><?= ucfirst($rule->calculation_type) ?></span></td>
                                     <td>
                                         <?php if ($rule->calculation_type == 'fixed'): ?>
-                                            ₹<?= number_format($rule->amount) ?>
+                                            <?= format_amount($rule->amount, 0) ?>
                                         <?php else: ?>
                                             <?= $rule->amount ?>%
                                         <?php endif; ?>
@@ -1144,7 +1144,7 @@ $(document).ready(function() {
                         </div>
                         <div class="col-md-6">
                             <div class="form-group">
-                                <label id="fineValueLabel">Fine Amount (₹)</label>
+                                <label id="fineValueLabel">Fine Amount (<?= get_currency_symbol() ?>)</label>
                                 <input type="number" class="form-control" name="fine_amount" value="100" min="0" step="0.01">
                             </div>
                         </div>
@@ -1159,14 +1159,14 @@ $(document).ready(function() {
                         </div>
                         <div class="col-md-6">
                             <div class="form-group">
-                                <label>Max Fine Amount (₹)</label>
+                                <label>Max Fine Amount (<?= get_currency_symbol() ?>)</label>
                                 <input type="number" class="form-control" name="max_fine" value="5000" min="0">
                                 <small class="text-muted">Maximum cap on fine</small>
                             </div>
                         </div>
                     </div>
                     <div class="form-group">
-                        <label>Per Day Amount (₹)</label>
+                        <label>Per Day Amount (<?= get_currency_symbol() ?>)</label>
                         <input type="number" class="form-control" name="per_day_amount" value="0" min="0" step="0.01">
                         <small class="text-muted">Additional amount per day overdue (optional)</small>
                     </div>
@@ -1258,7 +1258,7 @@ $(document).ready(function() {
         if (calcType === 'percentage') {
             $('#fineValueLabel').text('Fine Rate (%)');
         } else {
-            $('#fineValueLabel').text('Fine Amount (₹)');
+            $('#fineValueLabel').text('Fine Amount (<?= get_currency_symbol() ?>)');
         }
     });
 });

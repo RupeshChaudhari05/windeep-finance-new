@@ -774,7 +774,7 @@ class Savings extends Admin_Controller {
                                 </tr>
                                 <tr>
                                     <td style='padding: 8px 0; color: #666;'>Monthly Amount:</td>
-                                    <td style='padding: 8px 0; font-weight: bold;'>₹" . number_format($account->monthly_amount, 2) . "</td>
+                                    <td style='padding: 8px 0; font-weight: bold;'>" . format_amount($account->monthly_amount) . "</td>
                                 </tr>";
             
             if (count($pending_dues) > 0) {
@@ -788,11 +788,11 @@ class Savings extends Admin_Controller {
                                 </tr>
                                 <tr>
                                     <td style='padding: 8px 0; color: #dc3545;'>Total Due Amount:</td>
-                                    <td style='padding: 8px 0; font-weight: bold; color: #dc3545; font-size: 18px;'>₹" . number_format($total_due, 2) . "</td>
+                                    <td style='padding: 8px 0; font-weight: bold; color: #dc3545; font-size: 18px;'>" . format_amount($total_due) . "</td>
                                 </tr>
                                 <tr>
                                     <td style='padding: 8px 0; color: #dc3545;'>Oldest Due Date:</td>
-                                    <td style='padding: 8px 0; color: #dc3545;'>" . date('d M Y', strtotime($oldest_due_date)) . "</td>
+                                    <td style='padding: 8px 0; color: #dc3545;'>" . format_date($oldest_due_date) . "</td>
                                 </tr>";
             }
             
@@ -828,8 +828,8 @@ class Savings extends Admin_Controller {
             'notification_type' => 'savings_reminder',
             'title' => 'Savings Payment Reminder',
             'message' => count($pending_dues) > 0 
-                ? "You have " . count($pending_dues) . " pending installment(s) totaling ₹" . number_format($total_due, 2) . ". Please make your payment soon."
-                : "This is a reminder about your savings account #{$account->account_number}. Monthly amount: ₹" . number_format($account->monthly_amount, 2),
+                ? "You have " . count($pending_dues) . " pending installment(s) totaling " . format_amount($total_due) . ". Please make your payment soon."
+                : "This is a reminder about your savings account #{$account->account_number}. Monthly amount: " . format_amount($account->monthly_amount),
             'data' => [
                 'account_id' => $account->id,
                 'account_number' => $account->account_number,

@@ -86,15 +86,15 @@
                                     </tr>
                                     <tr>
                                         <td><strong>Total Savings Balance:</strong></td>
-                                        <td class="text-success font-weight-bold">₹<?= number_format($member_summary['savings_balance'] ?? 0) ?></td>
+                                        <td class="text-success font-weight-bold"><?= format_amount($member_summary['savings_balance'] ?? 0, 0) ?></td>
                                     </tr>
                                     <tr>
                                         <td><strong>Total Loan Outstanding:</strong></td>
-                                        <td class="text-danger font-weight-bold">₹<?= number_format($member_summary['loan_outstanding'] ?? 0) ?></td>
+                                        <td class="text-danger font-weight-bold"><?= format_amount($member_summary['loan_outstanding'] ?? 0, 0) ?></td>
                                     </tr>
                                     <tr>
                                         <td><strong>Pending Fines:</strong></td>
-                                        <td class="text-warning font-weight-bold">₹<?= number_format($member_summary['pending_fines'] ?? 0) ?></td>
+                                        <td class="text-warning font-weight-bold"><?= format_amount($member_summary['pending_fines'] ?? 0, 0) ?></td>
                                     </tr>
                                 </table>
                             </div>
@@ -107,8 +107,8 @@
         <!-- Statement Period -->
         <div class="alert alert-info mb-4">
             <strong><i class="fas fa-calendar-alt mr-1"></i> Statement Period:</strong> 
-            <?= format_date($filters['start_date'] ?? date('Y-04-01'), 'd M Y') ?> to 
-            <?= format_date($filters['end_date'] ?? date('Y-m-d'), 'd M Y') ?>
+            <?= format_date($filters['start_date'] ?? date('Y-04-01')) ?> to 
+            <?= format_date($filters['end_date'] ?? date('Y-m-d')) ?>
         </div>
         
         <!-- Savings Section -->
@@ -125,7 +125,7 @@
                         <span class="badge badge-info ml-2"><?= $acc->scheme_name ?></span>
                     </div>
                     <div class="text-right">
-                        <strong>Current Balance: <span class="text-success">₹<?= number_format($acc->balance) ?></span></strong>
+                        <strong>Current Balance: <span class="text-success"><?= format_amount($acc->balance, 0) ?></span></strong>
                     </div>
                 </div>
                 <table class="table table-sm table-bordered">
@@ -142,7 +142,7 @@
                     <tbody>
                         <tr class="table-secondary">
                             <td colspan="5"><strong>Opening Balance</strong></td>
-                            <td class="text-right"><strong>₹<?= number_format($acc->opening_balance ?? 0) ?></strong></td>
+                            <td class="text-right"><strong><?= format_amount($acc->opening_balance ?? 0, 0) ?></strong></td>
                         </tr>
                         <?php 
                         $running_balance = $acc->opening_balance ?? 0;
@@ -158,19 +158,19 @@
                             <td><?= $txn->description ?? ucfirst($txn->transaction_type) ?></td>
                             <td><small><?= $txn->receipt_number ?></small></td>
                             <td class="text-right text-success">
-                                <?= $txn->transaction_type == 'deposit' ? '₹' . number_format($txn->amount) : '-' ?>
+                                <?= $txn->transaction_type == 'deposit' ? format_amount($txn->amount, 0) : '-' ?>
                             </td>
                             <td class="text-right text-danger">
-                                <?= $txn->transaction_type == 'withdrawal' ? '₹' . number_format($txn->amount) : '-' ?>
+                                <?= $txn->transaction_type == 'withdrawal' ? format_amount($txn->amount, 0) : '-' ?>
                             </td>
-                            <td class="text-right">₹<?= number_format($running_balance) ?></td>
+                            <td class="text-right"><?= format_amount($running_balance, 0) ?></td>
                         </tr>
                         <?php endforeach; ?>
                     </tbody>
                     <tfoot class="table-primary">
                         <tr>
                             <th colspan="5" class="text-right">Closing Balance:</th>
-                            <th class="text-right">₹<?= number_format($running_balance) ?></th>
+                            <th class="text-right"><?= format_amount($running_balance, 0) ?></th>
                         </tr>
                     </tfoot>
                 </table>
@@ -193,8 +193,8 @@
                         <span class="badge badge-<?= $loan->status == 'closed' ? 'secondary' : 'success' ?> ml-2"><?= ucfirst($loan->status) ?></span>
                     </div>
                     <div class="text-right">
-                        <strong>Principal: ₹<?= number_format($loan->principal_amount) ?></strong>
-                        <span class="ml-3">Outstanding: <span class="text-danger">₹<?= number_format($loan->outstanding_amount) ?></span></span>
+                        <strong>Principal: <?= format_amount($loan->principal_amount, 0) ?></strong>
+                        <span class="ml-3">Outstanding: <span class="text-danger"><?= format_amount($loan->outstanding_amount, 0) ?></span></span>
                     </div>
                 </div>
                 <table class="table table-sm table-bordered">
@@ -217,11 +217,11 @@
                             <td><?= $inst->installment_number ?></td>
                             <td><?= format_date($inst->due_date) ?></td>
                             <td><?= $inst->paid_date ? format_date($inst->paid_date) : '-' ?></td>
-                            <td class="text-right">₹<?= number_format($inst->emi_amount) ?></td>
-                            <td class="text-right">₹<?= number_format($inst->principal_amount) ?></td>
-                            <td class="text-right">₹<?= number_format($inst->interest_amount) ?></td>
-                            <td class="text-right"><?= $inst->fine_amount > 0 ? '₹' . number_format($inst->fine_amount) : '-' ?></td>
-                            <td class="text-right text-success"><?= $inst->amount_paid > 0 ? '₹' . number_format($inst->amount_paid) : '-' ?></td>
+                            <td class="text-right"><?= format_amount($inst->emi_amount, 0) ?></td>
+                            <td class="text-right"><?= format_amount($inst->principal_amount, 0) ?></td>
+                            <td class="text-right"><?= format_amount($inst->interest_amount, 0) ?></td>
+                            <td class="text-right"><?= $inst->fine_amount > 0 ? format_amount($inst->fine_amount, 0) : '-' ?></td>
+                            <td class="text-right text-success"><?= $inst->amount_paid > 0 ? format_amount($inst->amount_paid, 0) : '-' ?></td>
                             <td>
                                 <?php
                                 $status_badges = ['pending' => 'secondary', 'paid' => 'success', 'partial' => 'warning', 'overdue' => 'danger'];
@@ -234,11 +234,11 @@
                     <tfoot class="table-info">
                         <tr>
                             <th colspan="3" class="text-right">Total:</th>
-                            <th class="text-right">₹<?= number_format($loan->total_emi ?? 0) ?></th>
-                            <th class="text-right">₹<?= number_format($loan->principal_amount) ?></th>
-                            <th class="text-right">₹<?= number_format($loan->total_interest ?? 0) ?></th>
-                            <th class="text-right">₹<?= number_format($loan->total_fine ?? 0) ?></th>
-                            <th class="text-right">₹<?= number_format($loan->total_paid ?? 0) ?></th>
+                            <th class="text-right"><?= format_amount($loan->total_emi ?? 0, 0) ?></th>
+                            <th class="text-right"><?= format_amount($loan->principal_amount, 0) ?></th>
+                            <th class="text-right"><?= format_amount($loan->total_interest ?? 0, 0) ?></th>
+                            <th class="text-right"><?= format_amount($loan->total_fine ?? 0, 0) ?></th>
+                            <th class="text-right"><?= format_amount($loan->total_paid ?? 0, 0) ?></th>
                             <th></th>
                         </tr>
                     </tfoot>
@@ -259,15 +259,15 @@
                         <table class="table table-sm">
                             <tr>
                                 <td>Total Savings Deposited:</td>
-                                <td class="text-right text-success">₹<?= number_format($member_summary['total_deposits'] ?? 0) ?></td>
+                                <td class="text-right text-success"><?= format_amount($member_summary['total_deposits'] ?? 0, 0) ?></td>
                             </tr>
                             <tr>
                                 <td>Total Savings Withdrawn:</td>
-                                <td class="text-right text-danger">₹<?= number_format($member_summary['total_withdrawals'] ?? 0) ?></td>
+                                <td class="text-right text-danger"><?= format_amount($member_summary['total_withdrawals'] ?? 0, 0) ?></td>
                             </tr>
                             <tr class="table-success">
                                 <th>Net Savings Balance:</th>
-                                <th class="text-right">₹<?= number_format($member_summary['savings_balance'] ?? 0) ?></th>
+                                <th class="text-right"><?= format_amount($member_summary['savings_balance'] ?? 0, 0) ?></th>
                             </tr>
                         </table>
                     </div>
@@ -275,15 +275,15 @@
                         <table class="table table-sm">
                             <tr>
                                 <td>Total Loans Availed:</td>
-                                <td class="text-right">₹<?= number_format($member_summary['total_loans'] ?? 0) ?></td>
+                                <td class="text-right"><?= format_amount($member_summary['total_loans'] ?? 0, 0) ?></td>
                             </tr>
                             <tr>
                                 <td>Total Repaid (Principal + Interest):</td>
-                                <td class="text-right text-success">₹<?= number_format($member_summary['total_repaid'] ?? 0) ?></td>
+                                <td class="text-right text-success"><?= format_amount($member_summary['total_repaid'] ?? 0, 0) ?></td>
                             </tr>
                             <tr class="table-danger">
                                 <th>Outstanding Loan Amount:</th>
-                                <th class="text-right">₹<?= number_format($member_summary['loan_outstanding'] ?? 0) ?></th>
+                                <th class="text-right"><?= format_amount($member_summary['loan_outstanding'] ?? 0, 0) ?></th>
                             </tr>
                         </table>
                     </div>

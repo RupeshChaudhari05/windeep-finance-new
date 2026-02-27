@@ -51,7 +51,7 @@
                     <p><span class="info-label">Fine Code:</span> <span class="info-value"><?= htmlspecialchars($payment->fine_code ?? '') ?></span></p>
                 <?php endif; ?>
 
-                <p><span class="info-label">Payment Date:</span> <span class="info-value"><?= htmlspecialchars(date('d/m/Y', strtotime($payment->payment_date ?? $payment->created_at ?? date('Y-m-d')))) ?></span></p>
+                <p><span class="info-label">Payment Date:</span> <span class="info-value"><?= htmlspecialchars(format_date($payment->payment_date ?? $payment->created_at ?? date('Y-m-d'))) ?></span></p>
                 <p><span class="info-label">Payment Mode:</span> <span class="info-value"><?= htmlspecialchars($payment->payment_mode ?? ($payment->payment_type ?? '')) ?></span></p>
             </div>
         </div>
@@ -59,7 +59,7 @@
         <div class="amount-box">
             <div class="text-center">
                 <div style="font-size: 14px; color: #666; margin-bottom: 5px;">Total Amount Paid</div>
-                <div class="total-amount">₹<?= number_format($payment->total_amount ?? $payment->amount ?? 0, 2) ?></div>
+                <div class="total-amount"><?= format_amount($payment->total_amount ?? $payment->amount ?? 0) ?></div>
             </div>
         </div>
 

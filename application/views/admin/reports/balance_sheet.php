@@ -154,7 +154,7 @@
             <h5 class="mt-2 mb-0">Balance Sheet is Balanced</h5>
             <?php else: ?>
             <i class="fas fa-exclamation-triangle fa-2x"></i>
-            <h5 class="mt-2 mb-0">Difference: ₹ <?= number_format($diff, 2) ?></h5>
+            <h5 class="mt-2 mb-0">Difference: <?= get_currency_symbol() ?> <?= number_format($diff, 2) ?></h5>
             <?php endif; ?>
         </div>
     </div>

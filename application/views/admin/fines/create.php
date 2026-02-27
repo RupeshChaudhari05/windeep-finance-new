@@ -62,7 +62,7 @@
                     <div class="row">
                         <div class="col-md-6">
                             <div class="form-group">
-                                <label for="fine_amount">Fine Amount (₹) <span class="text-danger">*</span></label>
+                                <label for="fine_amount">Fine Amount (<?= get_currency_symbol() ?>) <span class="text-danger">*</span></label>
                                 <input type="number" class="form-control" id="fine_amount" name="fine_amount" 
                                        value="<?= set_value('fine_amount') ?>" required min="1"
                                        placeholder="Enter fine amount">
@@ -144,7 +144,7 @@
                             <td><?= ucfirst(str_replace('_', ' ', $rule->fine_type)) ?></td>
                             <td class="text-right">
                                 <?php if ($rule->calculation_type == 'fixed'): ?>
-                                    ₹<?= number_format($rule->amount) ?>
+                                    <?= format_amount($rule->amount, 0) ?>
                                 <?php else: ?>
                                     <?= $rule->amount ?>%
                                 <?php endif; ?>
@@ -158,10 +158,10 @@
                 
                 <h6>Common Fine Amounts</h6>
                 <div class="btn-group-vertical w-100">
-                    <button type="button" class="btn btn-outline-secondary btn-sm preset-amount" data-amount="50">₹50</button>
-                    <button type="button" class="btn btn-outline-secondary btn-sm preset-amount" data-amount="100">₹100</button>
-                    <button type="button" class="btn btn-outline-secondary btn-sm preset-amount" data-amount="200">₹200</button>
-                    <button type="button" class="btn btn-outline-secondary btn-sm preset-amount" data-amount="500">₹500</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm preset-amount" data-amount="50"><?= get_currency_symbol() ?>50</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm preset-amount" data-amount="100"><?= get_currency_symbol() ?>100</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm preset-amount" data-amount="200"><?= get_currency_symbol() ?>200</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm preset-amount" data-amount="500"><?= get_currency_symbol() ?>500</button>
                 </div>
             </div>
         </div>
