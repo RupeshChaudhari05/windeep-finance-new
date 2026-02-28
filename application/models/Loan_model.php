@@ -501,6 +501,8 @@ class Loan_model extends MY_Model {
     
     /**
      * Record Loan Payment
+     * Supports regular EMI, interest-only, and other payment types.
+     * For interest_only: pays only interest portion, skips principal, extends tenure.
      */
     public function record_payment($data) {
         $this->db->trans_begin();
@@ -508,37 +510,76 @@ class Loan_model extends MY_Model {
         try {
             $loan = $this->get_by_id($data['loan_id']);
             
-            if (!$loan || $loan->status !== 'active') {
-                throw new Exception('Loan not found or not active');
+            if (!$loan || !in_array($loan->status, ['active', 'overdue', 'disbursed'])) {
+                throw new Exception('Loan not found or not active. Status: ' . ($loan ? $loan->status : 'not found'));
             }
             
             // Generate payment code
             $data['payment_code'] = 'PAY-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -6));
             $data['payment_date'] = $data['payment_date'] ?? date('Y-m-d');
             
-            // Determine payment allocation (Bug #16 Fix: RBI-compliant order)
+            // ─── Interest-Only Payment Mode ───
+            // When member can't afford full EMI, pay only interest and defer principal
+            if (isset($data['payment_type']) && $data['payment_type'] === 'interest_only') {
+                return $this->process_interest_only_payment($data, $loan);
+            }
+            
+            // ─── Regular Payment Allocation (RBI-compliant order) ───
             // RBI Guidelines: Interest → Principal → Fine
             $amount = $data['total_amount'];
             $principal_paid = 0;
             $interest_paid = 0;
             $fine_paid = 0;
             
-            // Pay interest first (RBI compliance)
-            if ($loan->outstanding_interest > 0 && $amount > 0) {
-                $interest_paid = min($loan->outstanding_interest, $amount);
-                $amount -= $interest_paid;
-            }
-            
-            // Pay principal next
-            if ($loan->outstanding_principal > 0 && $amount > 0) {
-                $principal_paid = min($loan->outstanding_principal, $amount);
-                $amount -= $principal_paid;
-            }
-            
-            // Pay fine last
-            if ($loan->outstanding_fine > 0 && $amount > 0) {
-                $fine_paid = min($loan->outstanding_fine, $amount);
-                $amount -= $fine_paid;
+            // If a specific installment is targeted, allocate based on installment amounts
+            // This prevents constraint violations (interest_paid <= interest_amount, etc.)
+            if (!empty($data['installment_id'])) {
+                $target_inst = $this->db->where('id', $data['installment_id'])
+                                        ->get('loan_installments')
+                                        ->row();
+                if ($target_inst) {
+                    $inst_interest_pending = max(0, $target_inst->interest_amount - ($target_inst->interest_paid ?? 0));
+                    $inst_principal_pending = max(0, $target_inst->principal_amount - ($target_inst->principal_paid ?? 0));
+                    
+                    // Pay installment interest first
+                    if ($inst_interest_pending > 0 && $amount > 0) {
+                        $interest_paid = min($inst_interest_pending, $amount);
+                        $amount -= $interest_paid;
+                    }
+                    // Pay installment principal next
+                    if ($inst_principal_pending > 0 && $amount > 0) {
+                        $principal_paid = min($inst_principal_pending, $amount);
+                        $amount -= $principal_paid;
+                    }
+                    // Pay fine last (from loan-level outstanding)
+                    if ($loan->outstanding_fine > 0 && $amount > 0) {
+                        $fine_paid = min($loan->outstanding_fine, $amount);
+                        $amount -= $fine_paid;
+                    }
+                } else {
+                    // Installment not found, fall through to loan-level allocation
+                    goto loan_level_allocation;
+                }
+            } else {
+                // Loan-level allocation when no specific installment
+                loan_level_allocation:
+                // Pay interest first (RBI compliance)
+                if ($loan->outstanding_interest > 0 && $amount > 0) {
+                    $interest_paid = min($loan->outstanding_interest, $amount);
+                    $amount -= $interest_paid;
+                }
+                
+                // Pay principal next
+                if ($loan->outstanding_principal > 0 && $amount > 0) {
+                    $principal_paid = min($loan->outstanding_principal, $amount);
+                    $amount -= $principal_paid;
+                }
+                
+                // Pay fine last
+                if ($loan->outstanding_fine > 0 && $amount > 0) {
+                    $fine_paid = min($loan->outstanding_fine, $amount);
+                    $amount -= $fine_paid;
+                }
             }
             
             $data['principal_component'] = $principal_paid;
@@ -613,9 +654,16 @@ class Loan_model extends MY_Model {
         
         if (!$installment) return false;
         
-        $new_principal_paid = $installment->principal_paid + $principal;
-        $new_interest_paid = $installment->interest_paid + $interest;
-        $new_fine_paid = $installment->fine_paid + $fine;
+        // Cap paid amounts to installment limits to satisfy database constraints
+        // (interest_paid <= interest_amount, principal_paid <= principal_amount)
+        $max_interest = max(0, $installment->interest_amount - ($installment->interest_paid ?? 0));
+        $max_principal = max(0, $installment->principal_amount - ($installment->principal_paid ?? 0));
+        $actual_interest = min($interest, $max_interest);
+        $actual_principal = min($principal, $max_principal);
+        
+        $new_principal_paid = ($installment->principal_paid ?? 0) + $actual_principal;
+        $new_interest_paid = ($installment->interest_paid ?? 0) + $actual_interest;
+        $new_fine_paid = ($installment->fine_paid ?? 0) + $fine;
         $new_total_paid = $new_principal_paid + $new_interest_paid;
         
         $status = 'partial';
@@ -642,6 +690,356 @@ class Loan_model extends MY_Model {
                             'days_late' => $days_late,
                             'updated_at' => date('Y-m-d H:i:s')
                         ]);
+    }
+    
+    /**
+     * Process Interest-Only Payment
+     * 
+     * When a member cannot afford the full EMI, this method:
+     * 1. Pays only the interest portion of the current installment
+     * 2. Marks the installment as 'interest_only' 
+     * 3. Defers the principal to a NEW installment at the end of the schedule
+     * 4. Extends loan tenure by 1 month
+     * 
+     * Example: EMI = ₹100 (Interest ₹30 + Principal ₹70)
+     *          Member pays ₹30 → Interest paid, principal deferred, tenure +1
+     * 
+     * @param array $data Payment data with loan_id, installment_id, total_amount, etc.
+     * @param object $loan The loan object
+     * @return int|false Payment ID on success
+     */
+    private function process_interest_only_payment($data, $loan) {
+        // Installment is required for interest-only payment
+        if (empty($data['installment_id'])) {
+            throw new Exception('Installment must be specified for interest-only payment');
+        }
+        
+        $installment = $this->db->where('id', $data['installment_id'])
+                                ->get('loan_installments')
+                                ->row();
+        
+        if (!$installment) {
+            throw new Exception('Installment not found');
+        }
+        
+        if (!in_array($installment->status, ['pending', 'overdue', 'partial'])) {
+            throw new Exception('Installment is not eligible for interest-only payment (status: ' . $installment->status . ')');
+        }
+        
+        // Check tenure extension limits
+        $extensions_used = $loan->tenure_extensions ?? 0;
+        $max_extensions = $this->get_max_tenure_extensions($loan);
+        
+        if ($extensions_used >= $max_extensions) {
+            throw new Exception("Maximum tenure extensions ({$max_extensions}) reached. Interest-only payment not allowed.");
+        }
+        
+        // Calculate interest portion for this installment
+        $interest_due = $installment->interest_amount - $installment->interest_paid;
+        $amount = $data['total_amount'];
+        
+        if ($amount < $interest_due) {
+            throw new Exception('Payment amount (₹' . number_format($amount, 2) . ') is less than interest due (₹' . number_format($interest_due, 2) . '). Minimum payment must cover the interest.');
+        }
+        
+        // Allocate: Interest only from this installment
+        $interest_paid = $interest_due;
+        $remaining = $amount - $interest_paid;
+        
+        // Any excess goes towards fine if applicable
+        $fine_paid = 0;
+        if ($loan->outstanding_fine > 0 && $remaining > 0) {
+            $fine_paid = min($loan->outstanding_fine, $remaining);
+            $remaining -= $fine_paid;
+        }
+        
+        // Principal is NOT paid - it's deferred
+        $principal_paid = 0;
+        $deferred_principal = $installment->principal_amount - $installment->principal_paid;
+        
+        // Set payment components
+        $data['principal_component'] = $principal_paid;
+        $data['interest_component'] = $interest_paid;
+        $data['fine_component'] = $fine_paid;
+        $data['excess_amount'] = $remaining;
+        
+        // Outstanding amounts - principal stays same, only interest decreases
+        $new_outstanding_principal = $loan->outstanding_principal; // Principal unchanged
+        $new_outstanding_interest = $loan->outstanding_interest - $interest_paid;
+        $new_outstanding_fine = $loan->outstanding_fine - $fine_paid;
+        
+        $data['outstanding_principal_after'] = $new_outstanding_principal;
+        $data['outstanding_interest_after'] = $new_outstanding_interest;
+        $data['narration'] = ($data['narration'] ?? '') . ' [Interest-only: Principal ₹' . number_format($deferred_principal, 2) . ' deferred]';
+        $data['created_at'] = date('Y-m-d H:i:s');
+        
+        // Insert payment record
+        $this->db->insert('loan_payments', $data);
+        $payment_id = $this->db->insert_id();
+        
+        // Mark installment as interest_only
+        $is_late = (safe_timestamp(date('Y-m-d')) > safe_timestamp($installment->due_date));
+        $days_late = 0;
+        if ($is_late) {
+            $days_late = floor((safe_timestamp(date('Y-m-d')) - safe_timestamp($installment->due_date)) / 86400);
+        }
+        
+        $this->db->where('id', $installment->id)
+                 ->update('loan_installments', [
+                     'interest_paid' => $installment->interest_paid + $interest_paid,
+                     'fine_paid' => $installment->fine_paid + $fine_paid,
+                     'total_paid' => $installment->total_paid + $interest_paid + $fine_paid,
+                     'status' => 'interest_only',
+                     'paid_date' => date('Y-m-d'),
+                     'is_late' => $is_late ? 1 : 0,
+                     'days_late' => $days_late,
+                     'deferred_principal' => $deferred_principal,
+                     'remarks' => 'Interest-only payment. Principal ₹' . number_format($deferred_principal, 2) . ' deferred to extended installment.',
+                     'updated_at' => date('Y-m-d H:i:s')
+                 ]);
+        
+        // Extend tenure: add new installment at end of schedule
+        $this->extend_tenure_for_deferred_principal($loan, $installment, $deferred_principal);
+        
+        // Update loan totals
+        $new_tenure = $loan->tenure_months + 1;
+        $loan_update = [
+            'outstanding_interest' => $new_outstanding_interest,
+            'outstanding_fine' => $new_outstanding_fine,
+            'total_amount_paid' => $loan->total_amount_paid + $data['total_amount'],
+            'total_interest_paid' => $loan->total_interest_paid + $interest_paid,
+            'total_fine_paid' => $loan->total_fine_paid + $fine_paid,
+            'tenure_months' => $new_tenure,
+            'tenure_extensions' => $extensions_used + 1,
+            'updated_at' => date('Y-m-d H:i:s')
+        ];
+        
+        // Update last EMI date
+        $last_installment = $this->db->where('loan_id', $loan->id)
+                                     ->order_by('installment_number', 'DESC')
+                                     ->limit(1)
+                                     ->get('loan_installments')
+                                     ->row();
+        if ($last_installment) {
+            $loan_update['last_emi_date'] = $last_installment->due_date;
+        }
+        
+        // Also update outstanding_interest to add interest for the new installment
+        $new_installment_interest = $this->get_last_added_installment_interest($loan->id);
+        if ($new_installment_interest > 0) {
+            $loan_update['outstanding_interest'] = $new_outstanding_interest + $new_installment_interest;
+            $loan_update['total_interest'] = $loan->total_interest + $new_installment_interest;
+            $loan_update['total_payable'] = $loan->total_payable + $new_installment_interest;
+        }
+        
+        $this->db->where('id', $loan->id)
+                 ->update($this->table, $loan_update);
+        
+        if ($this->db->trans_status() === FALSE) {
+            $this->db->trans_rollback();
+            return false;
+        }
+        
+        $this->db->trans_commit();
+        return $payment_id;
+    }
+    
+    /**
+     * Extend Tenure for Deferred Principal
+     * 
+     * Adds a new installment at the end of the loan schedule for the deferred principal.
+     * The new installment includes interest calculated on the deferred principal.
+     * 
+     * @param object $loan The loan object
+     * @param object $original_installment The installment whose principal was deferred
+     * @param float $deferred_principal The principal amount being deferred
+     */
+    private function extend_tenure_for_deferred_principal($loan, $original_installment, $deferred_principal) {
+        // Get the last installment to determine next installment number and due date
+        $last_installment = $this->db->where('loan_id', $loan->id)
+                                     ->order_by('installment_number', 'DESC')
+                                     ->limit(1)
+                                     ->get('loan_installments')
+                                     ->row();
+        
+        $new_installment_number = $last_installment->installment_number + 1;
+        
+        // Next due date = last installment due date + 1 month
+        $next_due_date = new DateTime($last_installment->due_date);
+        $next_due_date->modify('+1 month');
+        
+        // Calculate interest for the new installment
+        $monthly_rate = ($loan->interest_rate / 12) / 100;
+        
+        if ($loan->interest_type === 'flat') {
+            // Flat: same interest per month as original schedule
+            $interest_for_new = $original_installment->interest_amount;
+        } else {
+            // Reducing balance: interest on the outstanding principal at that point
+            // The deferred principal will still be in outstanding, so calculate on it
+            $interest_for_new = round($deferred_principal * $monthly_rate, 2);
+        }
+        
+        $emi_for_new = round($deferred_principal + $interest_for_new, 2);
+        
+        // Outstanding principal context for the new installment
+        $outstanding_before = $last_installment->outstanding_principal_after + $deferred_principal;
+        $outstanding_after = $last_installment->outstanding_principal_after; // After paying the deferred principal
+        
+        $this->db->insert('loan_installments', [
+            'loan_id' => $loan->id,
+            'installment_number' => $new_installment_number,
+            'due_date' => $next_due_date->format('Y-m-d'),
+            'principal_amount' => $deferred_principal,
+            'interest_amount' => $interest_for_new,
+            'emi_amount' => $emi_for_new,
+            'outstanding_principal_before' => round($outstanding_before, 2),
+            'outstanding_principal_after' => round(max(0, $outstanding_after), 2),
+            'status' => 'upcoming',
+            'is_extension' => 1,
+            'extended_from_installment' => $original_installment->id,
+            'remarks' => 'Extended installment for deferred principal from installment #' . $original_installment->installment_number,
+            'created_at' => date('Y-m-d H:i:s')
+        ]);
+        
+        return $this->db->insert_id();
+    }
+    
+    /**
+     * Get interest amount of the last added (extension) installment for a loan
+     */
+    private function get_last_added_installment_interest($loan_id) {
+        $last = $this->db->where('loan_id', $loan_id)
+                         ->where('is_extension', 1)
+                         ->order_by('installment_number', 'DESC')
+                         ->limit(1)
+                         ->get('loan_installments')
+                         ->row();
+        return $last ? (float)$last->interest_amount : 0;
+    }
+    
+    /**
+     * Get Maximum Tenure Extensions Allowed for a Loan
+     * 
+     * Checks loan product setting first, then falls back to system setting.
+     * 
+     * @param object $loan The loan object
+     * @return int Maximum extensions allowed
+     */
+    private function get_max_tenure_extensions($loan) {
+        // Check loan product level override
+        $product = $this->db->where('id', $loan->loan_product_id)
+                            ->get('loan_products')
+                            ->row();
+        
+        if ($product && isset($product->max_interest_only_months) && $product->max_interest_only_months > 0) {
+            return (int)$product->max_interest_only_months;
+        }
+        
+        // Fall back to loan level setting
+        if (isset($loan->max_tenure_extensions) && $loan->max_tenure_extensions > 0) {
+            return (int)$loan->max_tenure_extensions;
+        }
+        
+        // Fall back to system setting
+        $this->load->model('Setting_model');
+        $max = $this->Setting_model->get_setting('max_tenure_extensions', 6);
+        return (int)$max;
+    }
+    
+    /**
+     * Check if Interest-Only Payment is Allowed for a Loan
+     * 
+     * Validates:
+     * 1. Loan product allows it
+     * 2. Extension limit not reached
+     * 3. Loan is active
+     * 
+     * @param int $loan_id Loan ID
+     * @return array ['allowed' => bool, 'reason' => string, 'extensions_used' => int, 'max_extensions' => int, 'interest_amount' => float]
+     */
+    public function check_interest_only_eligibility($loan_id) {
+        $loan = $this->get_by_id($loan_id);
+        
+        if (!$loan || $loan->status !== 'active') {
+            return ['allowed' => false, 'reason' => 'Loan not found or not active'];
+        }
+        
+        // Check product allows it
+        $product = $this->db->where('id', $loan->loan_product_id)
+                            ->get('loan_products')
+                            ->row();
+        
+        if ($product && isset($product->allow_interest_only) && !$product->allow_interest_only) {
+            return ['allowed' => false, 'reason' => 'Interest-only payments not allowed for this loan product'];
+        }
+        
+        // Check extension limits
+        $extensions_used = $loan->tenure_extensions ?? 0;
+        $max_extensions = $this->get_max_tenure_extensions($loan);
+        
+        if ($extensions_used >= $max_extensions) {
+            return [
+                'allowed' => false, 
+                'reason' => "Maximum tenure extensions ({$max_extensions}) already used",
+                'extensions_used' => $extensions_used,
+                'max_extensions' => $max_extensions
+            ];
+        }
+        
+        // Get next pending installment for interest amount info
+        $next_installment = $this->db->where('loan_id', $loan_id)
+                                     ->where_in('status', ['pending', 'overdue'])
+                                     ->order_by('installment_number', 'ASC')
+                                     ->limit(1)
+                                     ->get('loan_installments')
+                                     ->row();
+        
+        $interest_due = 0;
+        $installment_id = null;
+        $principal_deferred = 0;
+        $emi_amount = 0;
+        
+        if ($next_installment) {
+            $interest_due = $next_installment->interest_amount - $next_installment->interest_paid;
+            $principal_deferred = $next_installment->principal_amount - $next_installment->principal_paid;
+            $installment_id = $next_installment->id;
+            $emi_amount = $next_installment->emi_amount;
+        }
+        
+        return [
+            'allowed' => true,
+            'reason' => 'Eligible for interest-only payment',
+            'extensions_used' => $extensions_used,
+            'max_extensions' => $max_extensions,
+            'remaining_extensions' => $max_extensions - $extensions_used,
+            'interest_amount' => round($interest_due, 2),
+            'principal_deferred' => round($principal_deferred, 2),
+            'emi_amount' => round($emi_amount, 2),
+            'installment_id' => $installment_id,
+            'new_tenure' => $loan->tenure_months + 1,
+            'original_tenure' => $loan->original_tenure_months ?? $loan->tenure_months
+        ];
+    }
+    
+    /**
+     * Get Interest-Only Payment History for a Loan
+     * 
+     * @param int $loan_id Loan ID
+     * @return array List of interest-only payments with details
+     */
+    public function get_interest_only_history($loan_id) {
+        return $this->db->select('lp.*, li.installment_number, li.deferred_principal,
+                                  ext.installment_number as extended_to_installment, ext.due_date as extended_due_date')
+                        ->from('loan_payments lp')
+                        ->join('loan_installments li', 'li.id = lp.installment_id', 'left')
+                        ->join('loan_installments ext', 'ext.extended_from_installment = li.id AND ext.loan_id = lp.loan_id', 'left')
+                        ->where('lp.loan_id', $loan_id)
+                        ->where('lp.payment_type', 'interest_only')
+                        ->where('lp.is_reversed', 0)
+                        ->order_by('lp.payment_date', 'ASC')
+                        ->get()
+                        ->result();
     }
     
     /**

@@ -307,11 +307,15 @@
 
     function getTypeBadgeClass(type) {
       switch (type) {
-        case 'emi': return 'primary';
+        case 'emi': case 'loan_payment': return 'primary';
         case 'savings': return 'success';
         case 'fine': return 'danger';
-        case 'expense': return 'warning';
-        default: return 'secondary';
+        case 'expense': case 'bank_charge': return 'warning';
+        case 'disbursement': return 'info';
+        case 'internal_transfer': case 'contra_entry': return 'dark';
+        default:
+          if (type && type.indexOf('other_fee_') === 0) return 'info';
+          return 'secondary';
       }
     }
 
@@ -420,6 +424,264 @@
           $btn.prop('disabled', false).html('<i class="fas fa-check"></i> Save Mapping');
         }
       });
+    });
+
+    // ============================================================
+    // VIEW MAPPING DETAILS (for mapping.php page)
+    // ============================================================
+    $(document).on('click', '.view-mapping-btn', function (e) {
+      e.preventDefault();
+      var txnId = $(this).data('txn-id');
+      if (!config.get_mapping_details_url) return;
+
+      $('#mapping_detail_content').html('<div class="text-center py-3"><i class="fas fa-spinner fa-spin fa-2x"></i></div>');
+      $('#mappingDetailModal').modal('show');
+
+      $.get(config.get_mapping_details_url, { transaction_id: txnId }, function (resp) {
+        if (resp.success && resp.data) {
+          var data = resp.data;
+          var txn = data.transaction;
+          var html = '';
+
+          html += '<div class="alert alert-light border py-2">';
+          html += '<div class="d-flex justify-content-between">';
+          html += '<div><strong>Date:</strong> ' + (txn.date || txn.transaction_date || '') + '</div>';
+          html += '<div><strong>Amount:</strong> ₹' + parseFloat(txn.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 }) + '</div>';
+          html += '<div><strong>Status:</strong> <span class="badge badge-' + (txn.mapping_status === 'mapped' ? 'success' : 'warning') + '">' + (txn.mapping_status || '').toUpperCase() + '</span></div>';
+          html += '</div>';
+          html += '<small class="text-muted">' + (txn.description || '') + '</small>';
+          html += '</div>';
+
+          if (data.mappings && data.mappings.length > 0) {
+            html += '<table class="table table-sm table-bordered table-striped mb-0">';
+            html += '<thead class="thead-light"><tr><th>Member</th><th>Type</th><th>Account</th><th class="text-right">Amount</th><th>Mapped At</th><th width="90">Action</th></tr></thead>';
+            html += '<tbody>';
+            data.mappings.forEach(function (m) {
+              var typeBadge = getTypeBadgeClass(m.mapping_type);
+              html += '<tr>';
+              html += '<td>' + (m.member_code ? m.member_code + ' - ' : '') + (m.member_name || m.full_name || '-') + '</td>';
+              html += '<td><span class="badge badge-' + typeBadge + '">' + (m.mapping_type || '').replace(/_/g, ' ').toUpperCase() + '</span></td>';
+              html += '<td><small>' + (m.account_info || m.narration || '-') + '</small></td>';
+              html += '<td class="text-right">₹' + parseFloat(m.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 }) + '</td>';
+              html += '<td><small>' + (m.mapped_at || m.created_at || '-') + '</small></td>';
+              html += '<td>';
+              if (!parseInt(m.is_reversed)) {
+                html += '<button class="btn btn-danger btn-xs btn-reverse-mapping" data-mapping-id="' + m.id + '"><i class="fas fa-undo"></i> Reverse</button>';
+              } else {
+                html += '<span class="badge badge-danger">Reversed</span>';
+              }
+              html += '</td></tr>';
+            });
+            html += '</tbody></table>';
+          } else {
+            html += '<div class="text-center text-muted py-3">No active mappings found</div>';
+          }
+
+          $('#mapping_detail_content').html(html);
+        } else {
+          $('#mapping_detail_content').html('<div class="text-center text-danger py-3">Failed to load details</div>');
+        }
+      }, 'json').fail(function () {
+        $('#mapping_detail_content').html('<div class="text-center text-danger py-3">Error loading details</div>');
+      });
+    });
+
+    // Reverse mapping
+    $(document).on('click', '.btn-reverse-mapping', function () {
+      var mappingId = $(this).data('mapping-id');
+      if (!config.reverse_mapping_url) return;
+      var reason = prompt('Reason for reversal:');
+      if (!reason) return;
+
+      var $btn = $(this);
+      $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i>');
+
+      $.post(config.reverse_mapping_url, { mapping_id: mappingId, reason: reason }, function (resp) {
+        if (resp.success) {
+          toastr.success(resp.message);
+          $('#mappingDetailModal').modal('hide');
+          setTimeout(function () { location.reload(); }, 800);
+        } else {
+          toastr.error(resp.message || 'Failed to reverse mapping');
+          $btn.prop('disabled', false).html('<i class="fas fa-undo"></i> Reverse');
+        }
+      }, 'json');
+    });
+
+    // ============================================================
+    // DISBURSEMENT MAPPING
+    // ============================================================
+    var selectedLoanId = null;
+
+    $(document).on('click', '.btn-disbursement', function () {
+      var txnId = $(this).data('txn-id') || $(this).data('id');
+      var amount = parseFloat($(this).data('amount') || $(this).closest('tr').data('debit') || 0);
+      selectedLoanId = null;
+
+      $('#disb_transaction_id').val(txnId);
+      $('#disb_amount').text('₹' + amount.toLocaleString('en-IN', { minimumFractionDigits: 2 }));
+      $('#disb_amount_input').val(amount);
+      $('#disb_loans_container').hide();
+      $('#disb_loans_list').empty();
+      $('#disb_remarks').val('');
+      $('#confirmDisbursement').prop('disabled', true);
+
+      if ($('#disb_member_search').data('select2')) {
+        $('#disb_member_search').select2('destroy');
+      }
+      $('#disb_member_search').select2({
+        ajax: {
+          url: config.search_members_url,
+          dataType: 'json',
+          delay: 300,
+          data: function (params) { return { q: params.term, limit: 15 }; },
+          processResults: function (resp) { return { results: resp && resp.data ? resp.data : [] }; }
+        },
+        placeholder: 'Search member...',
+        minimumInputLength: 1,
+        allowClear: true,
+        width: '100%',
+        dropdownParent: $('#disbursementModal')
+      }).val(null).trigger('change');
+
+      $('#disbursementModal').modal('show');
+    });
+
+    $('#disb_member_search').on('select2:select', function (e) {
+      var memberId = e.params.data.id;
+      if (!config.get_disbursable_loans_url) return;
+      $.get(config.get_disbursable_loans_url, { member_id: memberId }, function (resp) {
+        if (resp.success && resp.data && resp.data.length > 0) {
+          var html = '';
+          resp.data.forEach(function (loan) {
+            html += '<div class="border rounded p-2 mb-2 disb-loan-item" data-loan-id="' + loan.id + '" style="cursor: pointer;">';
+            html += '<div class="d-flex justify-content-between align-items-center">';
+            html += '<div><strong>' + loan.loan_number + '</strong><br><small>' + (loan.member_code || '') + ' - ' + (loan.member_name || '') + '</small></div>';
+            html += '<div class="text-right"><span class="badge badge-primary">₹' + parseFloat(loan.net_disbursement || loan.loan_amount || 0).toLocaleString('en-IN') + '</span></div>';
+            html += '</div></div>';
+          });
+          $('#disb_loans_list').html(html);
+          $('#disb_loans_container').show();
+        } else {
+          $('#disb_loans_list').html('<div class="text-muted text-center py-2">No disbursable loans found</div>');
+          $('#disb_loans_container').show();
+        }
+      }, 'json');
+    });
+
+    $(document).on('click', '.disb-loan-item', function () {
+      $('.disb-loan-item').removeClass('border-primary bg-light');
+      $(this).addClass('border-primary bg-light');
+      selectedLoanId = $(this).data('loan-id');
+      $('#confirmDisbursement').prop('disabled', false);
+    });
+
+    $('#confirmDisbursement').click(function () {
+      if (!selectedLoanId || !config.map_disbursement_url) return;
+      var $btn = $(this);
+      $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Saving...');
+
+      $.post(config.map_disbursement_url, {
+        transaction_id: $('#disb_transaction_id').val(),
+        loan_id: selectedLoanId,
+        amount: $('#disb_amount_input').val(),
+        remarks: $('#disb_remarks').val()
+      }, function (resp) {
+        if (resp.success) {
+          toastr.success(resp.message);
+          $('#disbursementModal').modal('hide');
+          setTimeout(function () { location.reload(); }, 800);
+        } else {
+          toastr.error(resp.message || 'Failed');
+          $btn.prop('disabled', false).html('<i class="fas fa-check"></i> Map Disbursement');
+        }
+      }, 'json');
+    });
+
+    // ============================================================
+    // INTERNAL TRANSACTION MAPPING
+    // ============================================================
+    $(document).on('click', '.btn-internal', function () {
+      var txnId = $(this).data('txn-id') || $(this).data('id');
+      var amount = parseFloat($(this).data('amount') || $(this).closest('tr').data('debit') || $(this).closest('tr').data('credit') || 0);
+
+      $('#int_transaction_id').val(txnId);
+      $('#int_amount_display').text('₹' + amount.toLocaleString('en-IN', { minimumFractionDigits: 2 }));
+      $('#int_amount').val(amount);
+      $('#int_type').val('');
+      $('#int_desc').val('');
+      $('#internalModal').modal('show');
+    });
+
+    $('#confirmInternal').click(function () {
+      var type = $('#int_type').val();
+      var amount = parseFloat($('#int_amount').val());
+      if (!type) { toastr.warning('Select a type'); return; }
+      if (!amount || !config.map_internal_url) return;
+
+      var $btn = $(this);
+      $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i>');
+
+      $.post(config.map_internal_url, {
+        transaction_id: $('#int_transaction_id').val(),
+        type: type,
+        amount: amount,
+        description: $('#int_desc').val()
+      }, function (resp) {
+        if (resp.success) {
+          toastr.success(resp.message);
+          $('#internalModal').modal('hide');
+          setTimeout(function () { location.reload(); }, 800);
+        } else {
+          toastr.error(resp.message || 'Failed');
+          $btn.prop('disabled', false).html('<i class="fas fa-check"></i> Map Internal');
+        }
+      }, 'json');
+    });
+
+    // ============================================================
+    // IGNORE / RESTORE
+    // ============================================================
+    $(document).on('click', '.btn-ignore', function () {
+      var txnId = $(this).data('txn-id') || $(this).data('id');
+      $('#ignore_transaction_id').val(txnId);
+      $('#ignore_reason').val('');
+      $('#ignoreModal').modal('show');
+    });
+
+    $('#confirmIgnore').click(function () {
+      if (!config.ignore_transaction_url) return;
+      var $btn = $(this);
+      $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i>');
+
+      $.post(config.ignore_transaction_url, {
+        transaction_id: $('#ignore_transaction_id').val(),
+        reason: $('#ignore_reason').val()
+      }, function (resp) {
+        if (resp.success) {
+          toastr.success(resp.message);
+          $('#ignoreModal').modal('hide');
+          setTimeout(function () { location.reload(); }, 800);
+        } else {
+          toastr.error(resp.message || 'Failed');
+          $btn.prop('disabled', false).html('<i class="fas fa-ban"></i> Ignore');
+        }
+      }, 'json');
+    });
+
+    $(document).on('click', '.btn-restore', function () {
+      var txnId = $(this).data('txn-id') || $(this).data('id');
+      if (!config.restore_transaction_url) return;
+      if (!confirm('Restore this transaction to unmapped status?')) return;
+
+      $.post(config.restore_transaction_url, { transaction_id: txnId }, function (resp) {
+        if (resp.success) {
+          toastr.success(resp.message);
+          setTimeout(function () { location.reload(); }, 800);
+        } else {
+          toastr.error(resp.message || 'Failed');
+        }
+      }, 'json');
     });
 
   });

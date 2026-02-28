@@ -396,6 +396,16 @@
 
                     <li class="nav-header">ADMINISTRATION</li>
 
+                    <!-- Admin Adjustments (Super Admin Only) -->
+                    <?php if (isset($admin) && $admin->role === 'super_admin'): ?>
+                    <li class="nav-item">
+                        <a href="<?= base_url('admin/adjustments') ?>" class="nav-link <?= $this->uri->segment(2) == 'adjustments' ? 'active' : '' ?>">
+                            <i class="nav-icon fas fa-user-shield"></i>
+                            <p>Admin Adjustments</p>
+                        </a>
+                    </li>
+                    <?php endif; ?>
+
                     <!-- Settings -->
                     <li class="nav-item <?= in_array($this->uri->segment(2), ['settings', 'users']) ? 'menu-open' : '' ?>">
                         <a href="#" class="nav-link <?= in_array($this->uri->segment(2), ['settings', 'users']) ? 'active' : '' ?>">

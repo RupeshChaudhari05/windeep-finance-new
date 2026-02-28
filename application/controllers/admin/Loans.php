@@ -701,8 +701,8 @@ class Loans extends Admin_Controller {
                 'payment_mode' => $this->input->post('payment_mode'),
                 'payment_type' => $this->input->post('payment_type') ?: 'regular',
                 'reference_number' => $this->input->post('reference_number'),
-                'remarks' => $this->input->post('remarks'),
-                'received_by' => $this->session->userdata('admin_id')
+                'narration' => $this->input->post('remarks'),
+                'created_by' => $this->session->userdata('admin_id')
             ];
             
             $payment_id = $this->Loan_model->record_payment($payment_data);
@@ -729,6 +729,129 @@ class Loans extends Admin_Controller {
             $this->session->set_flashdata('error', $e->getMessage());
             redirect('admin/loans/collect/' . $this->input->post('loan_id'));
         }
+    }
+    
+    /**
+     * AJAX: Check Interest-Only Payment Eligibility
+     * Returns eligibility status, interest amount, and extension info for a loan.
+     */
+    public function check_interest_only($loan_id = null) {
+        if (!$loan_id) {
+            return $this->output->set_content_type('application/json')
+                               ->set_output(json_encode(['error' => 'Loan ID required']));
+        }
+        
+        $result = $this->Loan_model->check_interest_only_eligibility($loan_id);
+        
+        return $this->output->set_content_type('application/json')
+                           ->set_output(json_encode($result));
+    }
+    
+    /**
+     * Process Interest-Only Payment
+     * When member pays only the interest, principal is deferred and tenure extends.
+     */
+    public function interest_only_payment() {
+        if ($this->input->method() !== 'post') {
+            redirect('admin/loans/collect');
+        }
+        
+        $this->load->library('form_validation');
+        $this->form_validation->set_rules('loan_id', 'Loan', 'required|numeric');
+        $this->form_validation->set_rules('installment_id', 'Installment', 'required|numeric');
+        $this->form_validation->set_rules('total_amount', 'Amount', 'required|numeric|greater_than[0]');
+        $this->form_validation->set_rules('payment_mode', 'Payment Mode', 'required');
+        
+        $loan_id = $this->input->post('loan_id');
+        
+        if ($this->form_validation->run() === FALSE) {
+            if ($this->input->is_ajax_request()) {
+                return $this->output->set_content_type('application/json')
+                                   ->set_output(json_encode(['success' => false, 'message' => validation_errors()]));
+            }
+            $this->session->set_flashdata('error', validation_errors());
+            redirect('admin/loans/collect/' . $loan_id);
+        }
+        
+        try {
+            // Check eligibility first
+            $eligibility = $this->Loan_model->check_interest_only_eligibility($loan_id);
+            if (!$eligibility['allowed']) {
+                throw new Exception($eligibility['reason']);
+            }
+            
+            $payment_data = [
+                'loan_id' => $loan_id,
+                'installment_id' => $this->input->post('installment_id'),
+                'total_amount' => $this->input->post('total_amount'),
+                'payment_mode' => $this->input->post('payment_mode'),
+                'payment_type' => 'interest_only',
+                'payment_date' => $this->input->post('payment_date') ?: date('Y-m-d'),
+                'reference_number' => $this->input->post('reference_number'),
+                'narration' => $this->input->post('remarks') ?: 'Interest-only payment - principal deferred',
+                'created_by' => $this->session->userdata('admin_id')
+            ];
+            
+            $payment_id = $this->Loan_model->record_payment($payment_data);
+            
+            if ($payment_id) {
+                // Post to ledger
+                $loan = $this->Loan_model->get_by_id($loan_id);
+                $this->load->model('Ledger_model');
+                $this->Ledger_model->post_transaction(
+                    'loan_payment',
+                    $payment_id,
+                    $payment_data['total_amount'],
+                    $loan->member_id,
+                    'Interest-only payment for ' . $loan->loan_number . ' (tenure extended)',
+                    $this->session->userdata('admin_id')
+                );
+                
+                $this->log_audit('create', 'loan_payments', 'loan_payments', $payment_id, null, $payment_data);
+                
+                $success_msg = 'Interest-only payment recorded. Principal ₹' . 
+                               number_format($eligibility['principal_deferred'], 2) . 
+                               ' deferred. Loan tenure extended to ' . 
+                               ($loan->tenure_months) . ' months.';
+                
+                if ($this->input->is_ajax_request()) {
+                    return $this->output->set_content_type('application/json')
+                                       ->set_output(json_encode([
+                                           'success' => true, 
+                                           'message' => $success_msg,
+                                           'payment_id' => $payment_id,
+                                           'new_tenure' => $loan->tenure_months,
+                                           'extensions_used' => $loan->tenure_extensions
+                                       ]));
+                }
+                
+                $this->session->set_flashdata('success', $success_msg);
+                redirect('admin/loans/view/' . $loan_id);
+            }
+            
+        } catch (Exception $e) {
+            if ($this->input->is_ajax_request()) {
+                return $this->output->set_content_type('application/json')
+                                   ->set_output(json_encode(['success' => false, 'message' => $e->getMessage()]));
+            }
+            $this->session->set_flashdata('error', $e->getMessage());
+            redirect('admin/loans/collect/' . $loan_id);
+        }
+    }
+    
+    /**
+     * AJAX: Get Interest-Only Payment History for a Loan
+     */
+    public function interest_only_history($loan_id = null) {
+        if (!$loan_id) {
+            return $this->output->set_content_type('application/json')
+                               ->set_output(json_encode(['error' => 'Loan ID required']));
+        }
+        
+        $history = $this->Loan_model->get_interest_only_history($loan_id);
+        
+        return $this->output->set_content_type('application/json')
+                           ->set_output(json_encode(['success' => true, 'history' => $history]));
     }
     
     /**
@@ -1155,7 +1278,7 @@ class Loans extends Admin_Controller {
         
         // Build query - reset query builder first
         $this->db->reset_query();
-        $this->db->select('lp.id, lp.payment_date, lp.total_amount, lp.principal_component, lp.interest_component, lp.fine_component, lp.payment_mode, lp.payment_code, lp.reference_number, lp.payment_type, lp.created_at as payment_created_at, l.loan_number, l.member_id, m.member_code, m.first_name, m.last_name, m.phone');
+        $this->db->select('lp.id, lp.loan_id, lp.payment_date, lp.total_amount, lp.principal_component, lp.interest_component, lp.fine_component, lp.payment_mode, lp.payment_code, lp.reference_number, lp.payment_type, lp.created_at as payment_created_at, l.loan_number, l.member_id, m.member_code, m.first_name, m.last_name, m.phone');
         $this->db->from('loan_payments lp');
         $this->db->join('loans l', 'l.id = lp.loan_id', 'left');
         $this->db->join('members m', 'm.id = l.member_id', 'left');

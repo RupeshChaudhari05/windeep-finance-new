@@ -359,7 +359,7 @@
                                         <tr>
                                             <td><?= format_date($fine->fine_date) ?></td>
                                             <td><?= ucfirst(str_replace('_', ' ', $fine->fine_type)) ?></td>
-                                            <td><small><?= $fine->reason ?></small></td>
+                                            <td><small><?= htmlspecialchars($fine->remarks ?? '') ?></small></td>
                                             <td class="text-right"><?= format_amount($fine->fine_amount, 0) ?></td>
                                             <td class="text-right"><?= format_amount($fine->paid_amount, 0) ?></td>
                                             <td>

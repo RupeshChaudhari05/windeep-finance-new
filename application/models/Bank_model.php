@@ -1146,6 +1146,569 @@ class Bank_model extends MY_Model {
     public function generate_import_code() {
         return 'IMP-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -6));
     }
-    
+
+    // ============================================================
+    // ENHANCED RECONCILIATION & MAPPING METHODS
+    // ============================================================
+
+    /**
+     * Get Mapping Details for a Bank Transaction
+     * Returns all transaction_mappings rows with member/account info
+     */
+    public function get_transaction_mappings($transaction_id) {
+        return $this->db->select('tm.*, 
+                          m.member_code, m.first_name, m.last_name,
+                          CONCAT(m.first_name, " ", m.last_name) as member_name')
+                        ->from('transaction_mappings tm')
+                        ->join('members m', 'm.id = tm.member_id', 'left')
+                        ->where('tm.bank_transaction_id', $transaction_id)
+                        ->where('tm.is_reversed', 0)
+                        ->order_by('tm.mapped_at', 'ASC')
+                        ->get()
+                        ->result();
+    }
+
+    /**
+     * Reverse/Unmap a Transaction Mapping
+     * Reverses financial effects and marks the mapping as reversed
+     */
+    public function reverse_mapping($mapping_id, $reason, $admin_id) {
+        $this->db->trans_begin();
+
+        try {
+            $mapping = $this->db->where('id', $mapping_id)->get('transaction_mappings')->row();
+            if (!$mapping) {
+                throw new Exception('Mapping not found');
+            }
+            if ($mapping->is_reversed) {
+                throw new Exception('Mapping already reversed');
+            }
+
+            $bank_txn = $this->db->where('id', $mapping->bank_transaction_id)
+                                 ->get('bank_transactions')->row();
+
+            // Reverse based on mapping type
+            switch ($mapping->mapping_type) {
+                case 'loan_payment':
+                case 'emi':
+                    if ($mapping->related_id) {
+                        $this->load->model('Loan_model');
+                        // Reverse the loan payment - restore outstanding amounts
+                        $loan_payment = $this->db->where('id', $mapping->related_id)
+                                                 ->get('loan_payments')->row();
+                        if ($loan_payment) {
+                            // Restore loan outstanding balances
+                            $this->db->set('outstanding_principal', 'outstanding_principal + ' . floatval($loan_payment->principal_amount ?? 0), FALSE)
+                                     ->set('outstanding_interest', 'outstanding_interest + ' . floatval($loan_payment->interest_amount ?? 0), FALSE)
+                                     ->set('total_principal_paid', 'total_principal_paid - ' . floatval($loan_payment->principal_amount ?? 0), FALSE)
+                                     ->set('total_interest_paid', 'total_interest_paid - ' . floatval($loan_payment->interest_amount ?? 0), FALSE)
+                                     ->where('id', $loan_payment->loan_id)
+                                     ->update('loans');
+
+                            // Mark payment as reversed
+                            $this->db->where('id', $loan_payment->id)
+                                     ->update('loan_payments', [
+                                         'status' => 'reversed',
+                                         'remarks' => 'Reversed: ' . $reason,
+                                         'updated_at' => date('Y-m-d H:i:s')
+                                     ]);
+
+                            // If installment was marked paid, revert it
+                            if (!empty($loan_payment->installment_id)) {
+                                $this->db->set('total_paid', 'total_paid - ' . floatval($loan_payment->total_amount), FALSE)
+                                         ->set('status', "'pending'", FALSE)
+                                         ->where('id', $loan_payment->installment_id)
+                                         ->update('loan_installments');
+                            }
+                        }
+                    }
+                    break;
+
+                case 'savings':
+                    if ($mapping->related_id) {
+                        $this->load->model('Savings_model');
+                        // Find savings transaction and reverse
+                        $savings_txn = $this->db->where('id', $mapping->related_id)
+                                               ->get('savings_transactions')->row();
+                        if ($savings_txn) {
+                            // Subtract amount from savings account balance
+                            $this->db->set('current_balance', 'current_balance - ' . floatval($savings_txn->amount), FALSE)
+                                     ->set('total_deposited', 'total_deposited - ' . floatval($savings_txn->amount), FALSE)
+                                     ->where('id', $savings_txn->savings_account_id)
+                                     ->update('savings_accounts');
+
+                            // Mark savings transaction as reversed
+                            $this->db->where('id', $savings_txn->id)
+                                     ->update('savings_transactions', [
+                                         'narration' => 'REVERSED: ' . ($savings_txn->narration ?? '') . ' | ' . $reason,
+                                         'updated_at' => date('Y-m-d H:i:s')
+                                     ]);
+                        }
+                    }
+                    break;
+
+                case 'fine':
+                    if ($mapping->related_id) {
+                        // Restore fine balance
+                        $this->db->set('paid_amount', 'paid_amount - ' . floatval($mapping->amount), FALSE)
+                                 ->set('balance_amount', 'balance_amount + ' . floatval($mapping->amount), FALSE)
+                                 ->set('status', "'pending'", FALSE)
+                                 ->where('id', $mapping->related_id)
+                                 ->update('fines');
+                    }
+                    break;
+
+                case 'disbursement':
+                    if ($mapping->related_id) {
+                        // Mark disbursement_tracking as reversed
+                        $this->db->where('id', $mapping->related_id)
+                                 ->update('disbursement_tracking', [
+                                     'status' => 'reversed',
+                                     'remarks' => 'Reversed: ' . $reason,
+                                     'updated_at' => date('Y-m-d H:i:s')
+                                 ]);
+                    }
+                    break;
+
+                case 'internal_transfer':
+                case 'bank_charge':
+                case 'interest_earned':
+                    // Mark internal_transactions as reversed
+                    if ($mapping->related_id) {
+                        $this->db->where('id', $mapping->related_id)
+                                 ->update('internal_transactions', [
+                                     'status' => 'reversed',
+                                     'updated_at' => date('Y-m-d H:i:s')
+                                 ]);
+                    }
+                    break;
+            }
+
+            // Reverse GL entries if Ledger_model is available
+            if ($this->db->table_exists('general_ledger')) {
+                $this->load->model('Ledger_model');
+                // Create reversal GL entries
+                $this->Ledger_model->post_transaction(
+                    'bank_mapping_reversal',
+                    $mapping->bank_transaction_id,
+                    $mapping->amount,
+                    $mapping->member_id,
+                    'Reversal: ' . $reason,
+                    $admin_id
+                );
+            }
+
+            // Mark mapping as reversed
+            $this->db->where('id', $mapping_id)
+                     ->update('transaction_mappings', [
+                         'is_reversed' => 1,
+                         'reversed_at' => date('Y-m-d H:i:s'),
+                         'reversed_by' => $admin_id,
+                         'reversal_reason' => $reason
+                     ]);
+
+            // Recalculate bank transaction mapping status
+            $remaining_mappings = $this->db->where('bank_transaction_id', $mapping->bank_transaction_id)
+                                           ->where('is_reversed', 0)
+                                           ->get('transaction_mappings')
+                                           ->result();
+
+            $total_mapped = 0;
+            foreach ($remaining_mappings as $rm) {
+                $total_mapped += floatval($rm->amount);
+            }
+
+            $txn_amount = floatval($bank_txn->amount ?? 0);
+            $new_status = 'unmapped';
+            if (count($remaining_mappings) > 0) {
+                $new_status = ($total_mapped >= $txn_amount) ? 'mapped' : 'partial';
+            }
+
+            $this->db->where('id', $mapping->bank_transaction_id)
+                     ->update('bank_transactions', [
+                         'mapping_status' => $new_status,
+                         'mapped_amount' => $total_mapped,
+                         'unmapped_amount' => $txn_amount - $total_mapped,
+                         'updated_at' => date('Y-m-d H:i:s')
+                     ]);
+
+            if ($this->db->trans_status() === FALSE) {
+                $this->db->trans_rollback();
+                return false;
+            }
+
+            $this->db->trans_commit();
+            return true;
+
+        } catch (Exception $e) {
+            $this->db->trans_rollback();
+            throw $e;
+        }
+    }
+
+    /**
+     * Record Disbursement Mapping
+     * Maps a debit bank transaction to a loan disbursement
+     */
+    public function map_disbursement($transaction_id, $loan_id, $amount, $admin_id, $remarks = '') {
+        $this->db->trans_begin();
+
+        try {
+            $txn = $this->db->where('id', $transaction_id)->get('bank_transactions')->row();
+            if (!$txn) throw new Exception('Transaction not found');
+
+            $loan = $this->db->where('id', $loan_id)->get('loans')->row();
+            if (!$loan) throw new Exception('Loan not found');
+
+            // Create disbursement tracking record
+            $tracking_data = [
+                'loan_id' => $loan_id,
+                'member_id' => $loan->member_id,
+                'bank_transaction_id' => $transaction_id,
+                'disbursement_amount' => $loan->principal_amount,
+                'processing_fee' => $loan->processing_fee ?? 0,
+                'net_amount' => $amount,
+                'disbursement_date' => $txn->transaction_date,
+                'disbursement_mode' => 'bank_transfer',
+                'reference_number' => $txn->reference_number ?? $txn->utr_number ?? '',
+                'bank_account_id' => $txn->bank_account_id,
+                'status' => 'completed',
+                'remarks' => $remarks,
+                'created_by' => $admin_id
+            ];
+
+            if ($this->db->table_exists('disbursement_tracking')) {
+                $this->db->insert('disbursement_tracking', $tracking_data);
+                $tracking_id = $this->db->insert_id();
+            } else {
+                $tracking_id = $loan_id; // Fallback
+            }
+
+            // Create transaction mapping
+            $this->db->insert('transaction_mappings', [
+                'bank_transaction_id' => $transaction_id,
+                'member_id' => $loan->member_id,
+                'mapping_type' => 'disbursement',
+                'related_type' => 'loan',
+                'related_id' => $tracking_id,
+                'amount' => $amount,
+                'narration' => 'Loan Disbursement: ' . $loan->loan_number . ($remarks ? ' - ' . $remarks : ''),
+                'mapped_by' => $admin_id,
+                'mapped_at' => date('Y-m-d H:i:s')
+            ]);
+
+            // Update loan with bank reference
+            $loan_update = [
+                'disbursement_reference' => $txn->reference_number ?? $txn->utr_number ?? $loan->disbursement_reference,
+                'updated_at' => date('Y-m-d H:i:s')
+            ];
+            if ($this->db->field_exists('disbursement_bank_account', 'loans')) {
+                $loan_update['disbursement_bank_account'] = $txn->bank_account_id;
+            }
+            $this->db->where('id', $loan_id)->update('loans', $loan_update);
+
+            // Update bank transaction
+            $txn_amount = floatval($txn->amount);
+            $existing_mapped = floatval($txn->mapped_amount ?? 0);
+            $new_mapped = $existing_mapped + $amount;
+            $new_status = ($new_mapped >= $txn_amount) ? 'mapped' : 'partial';
+
+            $update_txn = [
+                'mapping_status' => $new_status,
+                'mapped_amount' => $new_mapped,
+                'unmapped_amount' => $txn_amount - $new_mapped,
+                'paid_for_member_id' => $loan->member_id,
+                'transaction_category' => 'disbursement',
+                'updated_by' => $admin_id,
+                'updated_at' => date('Y-m-d H:i:s')
+            ];
+            if ($this->db->field_exists('mapped_by', 'bank_transactions')) {
+                $update_txn['mapped_by'] = $admin_id;
+            }
+            if ($this->db->field_exists('mapped_at', 'bank_transactions')) {
+                $update_txn['mapped_at'] = date('Y-m-d H:i:s');
+            }
+            $this->db->where('id', $transaction_id)->update('bank_transactions', $update_txn);
+
+            // Post GL entry
+            $this->load->model('Ledger_model');
+            $this->Ledger_model->post_transaction(
+                'loan_disbursement',
+                $transaction_id,
+                $amount,
+                $loan->member_id,
+                'Loan Disbursement: ' . $loan->loan_number,
+                $admin_id
+            );
+
+            if ($this->db->trans_status() === FALSE) {
+                $this->db->trans_rollback();
+                return false;
+            }
+
+            $this->db->trans_commit();
+            return $tracking_id;
+
+        } catch (Exception $e) {
+            $this->db->trans_rollback();
+            throw $e;
+        }
+    }
+
+    /**
+     * Record Internal Transaction Mapping
+     * Maps bank transactions to internal events (charges, transfers, interest, etc.)
+     */
+    public function map_internal_transaction($transaction_id, $type, $amount, $admin_id, $details = []) {
+        $this->db->trans_begin();
+
+        try {
+            $txn = $this->db->where('id', $transaction_id)->get('bank_transactions')->row();
+            if (!$txn) throw new Exception('Transaction not found');
+
+            $code = 'INT-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -6));
+
+            $internal_data = [
+                'transaction_code' => $code,
+                'transaction_type' => $type,
+                'from_account_type' => $details['from_account_type'] ?? ($txn->transaction_type === 'debit' ? 'bank_account' : null),
+                'from_account_id' => $details['from_account_id'] ?? ($txn->transaction_type === 'debit' ? $txn->bank_account_id : null),
+                'to_account_type' => $details['to_account_type'] ?? ($txn->transaction_type === 'credit' ? 'bank_account' : null),
+                'to_account_id' => $details['to_account_id'] ?? ($txn->transaction_type === 'credit' ? $txn->bank_account_id : null),
+                'amount' => $amount,
+                'transaction_date' => $txn->transaction_date,
+                'description' => $details['description'] ?? $txn->description,
+                'reference_number' => $txn->reference_number ?? $txn->utr_number,
+                'bank_transaction_id' => $transaction_id,
+                'status' => 'completed',
+                'created_by' => $admin_id
+            ];
+
+            $internal_id = null;
+            if ($this->db->table_exists('internal_transactions')) {
+                $this->db->insert('internal_transactions', $internal_data);
+                $internal_id = $this->db->insert_id();
+            }
+
+            // Create transaction mapping (no member for internal txns)
+            $this->db->insert('transaction_mappings', [
+                'bank_transaction_id' => $transaction_id,
+                'member_id' => null,
+                'mapping_type' => $type,
+                'related_type' => 'internal',
+                'related_id' => $internal_id,
+                'amount' => $amount,
+                'narration' => $details['description'] ?? ucwords(str_replace('_', ' ', $type)),
+                'mapped_by' => $admin_id,
+                'mapped_at' => date('Y-m-d H:i:s')
+            ]);
+
+            // Update bank transaction
+            $txn_amount = floatval($txn->amount);
+            $existing_mapped = floatval($txn->mapped_amount ?? 0);
+            $new_mapped = $existing_mapped + $amount;
+            $new_status = ($new_mapped >= $txn_amount) ? 'mapped' : 'partial';
+
+            $update_txn = [
+                'mapping_status' => $new_status,
+                'mapped_amount' => $new_mapped,
+                'unmapped_amount' => $txn_amount - $new_mapped,
+                'transaction_category' => $type,
+                'updated_by' => $admin_id,
+                'updated_at' => date('Y-m-d H:i:s')
+            ];
+            if ($this->db->field_exists('mapped_by', 'bank_transactions')) {
+                $update_txn['mapped_by'] = $admin_id;
+            }
+            if ($this->db->field_exists('mapped_at', 'bank_transactions')) {
+                $update_txn['mapped_at'] = date('Y-m-d H:i:s');
+            }
+            if ($this->db->field_exists('mapping_remarks', 'bank_transactions')) {
+                $update_txn['mapping_remarks'] = $details['description'] ?? ucwords(str_replace('_', ' ', $type));
+            }
+            $this->db->where('id', $transaction_id)->update('bank_transactions', $update_txn);
+
+            // Post GL entry for expenses/income
+            $this->load->model('Ledger_model');
+            if (in_array($type, ['bank_charge', 'cash_withdrawal'])) {
+                $this->Ledger_model->record_expense($type, $amount, $details['description'] ?? $type, $transaction_id);
+            } elseif (in_array($type, ['interest_earned'])) {
+                $this->Ledger_model->post_transaction('interest_income', $transaction_id, $amount, null, 'Bank Interest Earned', $admin_id);
+            }
+
+            if ($this->db->trans_status() === FALSE) {
+                $this->db->trans_rollback();
+                return false;
+            }
+
+            $this->db->trans_commit();
+            return $internal_id;
+
+        } catch (Exception $e) {
+            $this->db->trans_rollback();
+            throw $e;
+        }
+    }
+
+    /**
+     * Get Reconciliation Statistics for a date range
+     */
+    public function get_reconciliation_stats($filters = []) {
+        $where = [];
+        if (!empty($filters['from_date'])) {
+            $where['bt.transaction_date >='] = $filters['from_date'];
+        }
+        if (!empty($filters['to_date'])) {
+            $where['bt.transaction_date <='] = $filters['to_date'];
+        }
+        if (!empty($filters['bank_id'])) {
+            $where['bt.bank_account_id'] = $filters['bank_id'];
+        }
+
+        $stats = new stdClass();
+
+        // Total counts and amounts by status
+        $this->db->select('
+            COUNT(*) as total_transactions,
+            SUM(CASE WHEN mapping_status = "mapped" THEN 1 ELSE 0 END) as mapped_count,
+            SUM(CASE WHEN mapping_status = "unmapped" THEN 1 ELSE 0 END) as unmapped_count,
+            SUM(CASE WHEN mapping_status = "partial" THEN 1 ELSE 0 END) as partial_count,
+            SUM(CASE WHEN mapping_status = "ignored" THEN 1 ELSE 0 END) as ignored_count,
+            SUM(CASE WHEN transaction_type = "credit" THEN amount ELSE 0 END) as total_credits,
+            SUM(CASE WHEN transaction_type = "debit" THEN amount ELSE 0 END) as total_debits,
+            SUM(CASE WHEN mapping_status = "mapped" AND transaction_type = "credit" THEN amount ELSE 0 END) as mapped_credits,
+            SUM(CASE WHEN mapping_status = "mapped" AND transaction_type = "debit" THEN amount ELSE 0 END) as mapped_debits,
+            SUM(CASE WHEN mapping_status = "unmapped" AND transaction_type = "credit" THEN amount ELSE 0 END) as unmapped_credits,
+            SUM(CASE WHEN mapping_status = "unmapped" AND transaction_type = "debit" THEN amount ELSE 0 END) as unmapped_debits
+        ', FALSE);
+        $this->db->from('bank_transactions bt');
+        foreach ($where as $k => $v) { $this->db->where($k, $v); }
+        $totals = $this->db->get()->row();
+        $stats->totals = $totals;
+
+        // Breakdown by mapping type
+        $this->db->select('tm.mapping_type, COUNT(*) as count, SUM(tm.amount) as total_amount');
+        $this->db->from('transaction_mappings tm');
+        $this->db->join('bank_transactions bt', 'bt.id = tm.bank_transaction_id');
+        $this->db->where('tm.is_reversed', 0);
+        foreach ($where as $k => $v) { $this->db->where($k, $v); }
+        $this->db->group_by('tm.mapping_type');
+        $stats->by_type = $this->db->get()->result();
+
+        // Monthly trend
+        $this->db->select('
+            DATE_FORMAT(bt.transaction_date, "%Y-%m") as month,
+            COUNT(*) as total,
+            SUM(CASE WHEN bt.mapping_status = "mapped" THEN 1 ELSE 0 END) as mapped,
+            SUM(CASE WHEN bt.mapping_status = "unmapped" THEN 1 ELSE 0 END) as unmapped,
+            SUM(CASE WHEN bt.transaction_type = "credit" THEN bt.amount ELSE 0 END) as credits,
+            SUM(CASE WHEN bt.transaction_type = "debit" THEN bt.amount ELSE 0 END) as debits
+        ', FALSE);
+        $this->db->from('bank_transactions bt');
+        foreach ($where as $k => $v) { $this->db->where($k, $v); }
+        $this->db->group_by('DATE_FORMAT(bt.transaction_date, "%Y-%m")');
+        $this->db->order_by('month', 'ASC');
+        $stats->monthly = $this->db->get()->result();
+
+        // Top members by transaction count
+        $this->db->select('
+            tm.member_id,
+            m.member_code,
+            CONCAT(m.first_name, " ", m.last_name) as member_name,
+            COUNT(*) as transaction_count,
+            SUM(tm.amount) as total_amount
+        ', FALSE);
+        $this->db->from('transaction_mappings tm');
+        $this->db->join('members m', 'm.id = tm.member_id', 'left');
+        $this->db->join('bank_transactions bt', 'bt.id = tm.bank_transaction_id');
+        $this->db->where('tm.is_reversed', 0);
+        $this->db->where('tm.member_id IS NOT NULL', null, FALSE);
+        foreach ($where as $k => $v) { $this->db->where($k, $v); }
+        $this->db->group_by('tm.member_id');
+        $this->db->order_by('total_amount', 'DESC');
+        $this->db->limit(10);
+        $stats->top_members = $this->db->get()->result();
+
+        return $stats;
+    }
+
+    /**
+     * Get Disbursable Loans (active loans with debit matches)
+     * Used for disbursement mapping dropdown
+     */
+    public function get_disbursable_loans($member_id = null) {
+        $this->db->select('l.id, l.loan_number, l.member_id, l.principal_amount, l.net_disbursement,
+                          l.disbursement_date, l.disbursement_mode, l.status,
+                          m.member_code, CONCAT(m.first_name, " ", m.last_name) as member_name');
+        $this->db->from('loans l');
+        $this->db->join('members m', 'm.id = l.member_id');
+        $this->db->where('l.status', 'active');
+
+        if ($member_id) {
+            $this->db->where('l.member_id', $member_id);
+        }
+
+        // Exclude loans already tracked in disbursement_tracking
+        if ($this->db->table_exists('disbursement_tracking')) {
+            $this->db->where('l.id NOT IN (SELECT loan_id FROM disbursement_tracking WHERE status = "completed")', null, FALSE);
+        }
+
+        $this->db->order_by('l.disbursement_date', 'DESC');
+        return $this->db->get()->result();
+    }
+
+    /**
+     * Get Disbursement Tracking Records
+     */
+    public function get_disbursement_records($filters = []) {
+        $this->db->select('dt.*, l.loan_number, m.member_code, 
+                          CONCAT(m.first_name, " ", m.last_name) as member_name,
+                          ba.bank_name, ba.account_number as bank_account_number');
+        $this->db->from('disbursement_tracking dt');
+        $this->db->join('loans l', 'l.id = dt.loan_id', 'left');
+        $this->db->join('members m', 'm.id = dt.member_id', 'left');
+        $this->db->join('bank_accounts ba', 'ba.id = dt.bank_account_id', 'left');
+
+        if (!empty($filters['from_date'])) {
+            $this->db->where('dt.disbursement_date >=', $filters['from_date']);
+        }
+        if (!empty($filters['to_date'])) {
+            $this->db->where('dt.disbursement_date <=', $filters['to_date']);
+        }
+        if (!empty($filters['member_id'])) {
+            $this->db->where('dt.member_id', $filters['member_id']);
+        }
+
+        $this->db->order_by('dt.disbursement_date', 'DESC');
+        return $this->db->get()->result();
+    }
+
+    /**
+     * Get Internal Transaction Records
+     */
+    public function get_internal_transactions($filters = []) {
+        if (!$this->db->table_exists('internal_transactions')) {
+            return [];
+        }
+
+        $this->db->select('it.*, ba_from.bank_name as from_bank_name, ba_to.bank_name as to_bank_name');
+        $this->db->from('internal_transactions it');
+        $this->db->join('bank_accounts ba_from', 'ba_from.id = it.from_account_id AND it.from_account_type = "bank_account"', 'left');
+        $this->db->join('bank_accounts ba_to', 'ba_to.id = it.to_account_id AND it.to_account_type = "bank_account"', 'left');
+
+        if (!empty($filters['from_date'])) {
+            $this->db->where('it.transaction_date >=', $filters['from_date']);
+        }
+        if (!empty($filters['to_date'])) {
+            $this->db->where('it.transaction_date <=', $filters['to_date']);
+        }
+        if (!empty($filters['type'])) {
+            $this->db->where('it.transaction_type', $filters['type']);
+        }
+        $this->db->where('it.status !=', 'reversed');
+
+        $this->db->order_by('it.transaction_date', 'DESC');
+        return $this->db->get()->result();
+    }
 
 }

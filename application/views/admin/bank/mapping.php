@@ -260,16 +260,33 @@
                                             </td>
                                             <td>
                                                 <?php if ($txn->mapping_status == 'unmapped'): ?>
-                                                    <button class="btn btn-sm btn-primary btn-xs map-btn" data-txn-id="<?= $txn->id ?>" title="Map Transaction">
+                                    <button class="btn btn-sm btn-primary btn-xs map-btn" data-txn-id="<?= $txn->id ?>" title="Map Transaction">
                                                         <i class="fas fa-link"></i>
                                                     </button>
+                                                    <?php if ($txn->debit_amount > 0): ?>
+                                                    <button class="btn btn-xs btn-disbursement" data-txn-id="<?= $txn->id ?>" data-amount="<?= $txn->debit_amount ?>" title="Map Disbursement" style="background-color: #6f42c1; color: white;">
+                                                        <i class="fas fa-hand-holding-usd"></i>
+                                                    </button>
+                                                    <?php endif; ?>
+                                                    <button class="btn btn-secondary btn-xs btn-internal" data-txn-id="<?= $txn->id ?>" data-amount="<?= max($txn->debit_amount, $txn->credit_amount) ?>" title="Map Internal">
+                                                        <i class="fas fa-exchange-alt"></i>
+                                                    </button>
+                                                    <button class="btn btn-dark btn-xs btn-ignore" data-txn-id="<?= $txn->id ?>" title="Ignore">
+                                                        <i class="fas fa-ban"></i>
+                                                    </button>
                                                 <?php else: ?>
-                                                    <button class="btn btn-sm btn-info btn-xs view-btn" data-txn-id="<?= $txn->id ?>" title="View Mapping">
+                                                    <button class="btn btn-sm btn-info btn-xs view-mapping-btn" data-txn-id="<?= $txn->id ?>" title="View Mapping">
                                                         <i class="fas fa-eye"></i>
                                                     </button>
+                                                    <?php if ($txn->mapping_status != 'ignored'): ?>
                                                     <button class="btn btn-sm btn-warning btn-xs edit-map-btn" data-txn-id="<?= $txn->id ?>" title="Edit Mapping">
                                                         <i class="fas fa-edit"></i>
                                                     </button>
+                                                    <?php else: ?>
+                                                    <button class="btn btn-sm btn-outline-secondary btn-xs btn-restore" data-txn-id="<?= $txn->id ?>" title="Restore">
+                                                        <i class="fas fa-undo"></i>
+                                                    </button>
+                                                    <?php endif; ?>
                                                 <?php endif; ?>
                                             </td>
                                         </tr>
@@ -470,6 +487,133 @@
             </div>
         </div>
 </template>
+
+<!-- Mapping Detail Modal -->
+<div class="modal fade" id="mappingDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-info text-white py-2">
+                <h5 class="modal-title"><i class="fas fa-info-circle mr-2"></i> Mapping Details</h5>
+                <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="mapping_detail_content">
+                    <div class="text-center py-3"><i class="fas fa-spinner fa-spin fa-2x"></i></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Disbursement Mapping Modal -->
+<div class="modal fade" id="disbursementModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header text-white py-2" style="background-color: #6f42c1;">
+                <h5 class="modal-title"><i class="fas fa-hand-holding-usd mr-2"></i> Map Loan Disbursement</h5>
+                <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="disb_transaction_id">
+                <div class="alert alert-info py-2 mb-3">
+                    <strong>Transaction Amount:</strong> <span id="disb_amount" class="h5 mb-0"></span>
+                </div>
+                <div class="form-group">
+                    <label class="font-weight-bold"><i class="fas fa-search mr-1"></i> Search Member</label>
+                    <select id="disb_member_search" class="form-control" style="width: 100%;">
+                        <option value="">Search member to find their loans...</option>
+                    </select>
+                </div>
+                <div id="disb_loans_container" style="display: none;">
+                    <label class="font-weight-bold"><i class="fas fa-file-invoice-dollar mr-1"></i> Select Loan</label>
+                    <div id="disb_loans_list" class="mb-3"></div>
+                </div>
+                <div class="form-group">
+                    <label class="font-weight-bold">Disbursement Amount</label>
+                    <input type="number" id="disb_amount_input" class="form-control" step="0.01" min="0">
+                </div>
+                <div class="form-group">
+                    <label>Remarks</label>
+                    <textarea id="disb_remarks" class="form-control" rows="2" placeholder="Optional remarks..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="confirmDisbursement" disabled style="background-color: #6f42c1; border-color: #6f42c1;">
+                    <i class="fas fa-check"></i> Map Disbursement
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Internal Transaction Modal -->
+<div class="modal fade" id="internalModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-secondary text-white py-2">
+                <h5 class="modal-title"><i class="fas fa-exchange-alt mr-2"></i> Map Internal Transaction</h5>
+                <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="int_transaction_id">
+                <div class="alert alert-info py-2 mb-3">
+                    <strong>Amount:</strong> <span id="int_amount_display" class="h5 mb-0"></span>
+                </div>
+                <div class="form-group">
+                    <label class="font-weight-bold">Transaction Type</label>
+                    <select id="int_type" class="form-control">
+                        <option value="">-- Select Type --</option>
+                        <option value="internal_transfer">Internal Transfer</option>
+                        <option value="bank_charge">Bank Charges / SMS Fee</option>
+                        <option value="interest_earned">Interest Earned</option>
+                        <option value="dividend_paid">Dividend Paid</option>
+                        <option value="cash_deposit">Cash Deposit</option>
+                        <option value="cash_withdrawal">Cash Withdrawal</option>
+                        <option value="contra_entry">Contra Entry</option>
+                        <option value="adjustment">Adjustment</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="font-weight-bold">Amount</label>
+                    <input type="number" id="int_amount" class="form-control" step="0.01" min="0">
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea id="int_desc" class="form-control" rows="2" placeholder="Description..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="confirmInternal"><i class="fas fa-check"></i> Map Internal</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Ignore Transaction Modal -->
+<div class="modal fade" id="ignoreModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white py-2">
+                <h5 class="modal-title"><i class="fas fa-ban mr-2"></i> Ignore Transaction</h5>
+                <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="ignore_transaction_id">
+                <div class="form-group">
+                    <label>Reason for ignoring</label>
+                    <textarea id="ignore_reason" class="form-control" rows="2" placeholder="e.g., Duplicate entry..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-dark btn-sm" id="confirmIgnore"><i class="fas fa-ban"></i> Ignore</button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <script>
 $(document).ready(function() {

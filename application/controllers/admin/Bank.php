@@ -91,7 +91,14 @@ class Bank extends Admin_Controller {
                   "  get_member_details_url: '" . site_url('admin/bank/get_member_details') . "',\n" .
                   "  get_member_accounts_url: '" . site_url('admin/bank/get_member_accounts') . "',\n" .
                   "  save_mapping_url: '" . site_url('admin/bank/save_transaction_mapping') . "',\n" .
-                  "  calculate_fine_url: '" . site_url('admin/bank/calculate_fine_due') . "'\n" .
+                  "  calculate_fine_url: '" . site_url('admin/bank/calculate_fine_due') . "',\n" .
+                  "  get_mapping_details_url: '" . site_url('admin/bank/get_mapping_details') . "',\n" .
+                  "  reverse_mapping_url: '" . site_url('admin/bank/reverse_mapping') . "',\n" .
+                  "  map_disbursement_url: '" . site_url('admin/bank/map_disbursement') . "',\n" .
+                  "  map_internal_url: '" . site_url('admin/bank/map_internal') . "',\n" .
+                  "  get_disbursable_loans_url: '" . site_url('admin/bank/get_disbursable_loans') . "',\n" .
+                  "  ignore_transaction_url: '" . site_url('admin/bank/ignore_transaction') . "',\n" .
+                  "  restore_transaction_url: '" . site_url('admin/bank/restore_transaction') . "'\n" .
                   "};\n" .
                   "</script>";
 
@@ -400,7 +407,14 @@ class Bank extends Admin_Controller {
                   "  get_member_details_url: '" . site_url('admin/bank/get_member_details') . "',\n" .
                   "  get_member_accounts_url: '" . site_url('admin/bank/get_member_accounts') . "',\n" .
                   "  save_mapping_url: '" . site_url('admin/bank/save_transaction_mapping') . "',\n" .
-                  "  calculate_fine_url: '" . site_url('admin/bank/calculate_fine_due') . "'\n" .
+                  "  calculate_fine_url: '" . site_url('admin/bank/calculate_fine_due') . "',\n" .
+                  "  get_mapping_details_url: '" . site_url('admin/bank/get_mapping_details') . "',\n" .
+                  "  reverse_mapping_url: '" . site_url('admin/bank/reverse_mapping') . "',\n" .
+                  "  map_disbursement_url: '" . site_url('admin/bank/map_disbursement') . "',\n" .
+                  "  map_internal_url: '" . site_url('admin/bank/map_internal') . "',\n" .
+                  "  get_disbursable_loans_url: '" . site_url('admin/bank/get_disbursable_loans') . "',\n" .
+                  "  ignore_transaction_url: '" . site_url('admin/bank/ignore_transaction') . "',\n" .
+                  "  restore_transaction_url: '" . site_url('admin/bank/restore_transaction') . "'\n" .
                   "};\n" .
                   "</script>\n" .
                   "<script src='" . base_url('assets/js/admin/bank-mapping.js') . "'></script>";
@@ -697,8 +711,15 @@ class Bank extends Admin_Controller {
                         case 'emi':
                             if (!empty($insert['related_id'])) {
                                 $this->load->model('Loan_model');
+                                // related_id is the installment ID, look up the actual loan_id
+                                $installment = $this->db->select('loan_id')
+                                    ->where('id', $insert['related_id'])
+                                    ->get('loan_installments')
+                                    ->row();
+                                $actual_loan_id = $installment ? $installment->loan_id : $insert['related_id'];
                                 $payment_data = [
-                                    'loan_id' => $insert['related_id'],
+                                    'loan_id' => $actual_loan_id,
+                                    'installment_id' => $insert['related_id'],
                                     'total_amount' => $amount,
                                     'payment_mode' => 'bank_transfer',
                                     'bank_transaction_id' => $transaction_id,
@@ -1046,7 +1067,7 @@ class Bank extends Admin_Controller {
             
             $results = [];
             foreach ($members as $member) {
-                $full_name = (property_exists($member, 'full_name') && !empty($member->full_name)) ? $member->full_name : '';
+                $full_name = trim(($member->first_name ?? '') . ' ' . ($member->last_name ?? ''));
                 $phone = (property_exists($member, 'phone') && !empty($member->phone)) ? $member->phone : '';
                 $display = $member->member_code;
                 if ($full_name !== '') $display .= ' - ' . $full_name;
@@ -1243,5 +1264,375 @@ class Bank extends Admin_Controller {
             'data' => $data
         ]);
         exit;
+    }
+
+    // ============================================================
+    // ENHANCED RECONCILIATION & MAPPING ENDPOINTS
+    // ============================================================
+
+    /**
+     * AJAX: Get Mapping Details for a Transaction
+     * Returns all mappings with member/account info for the detail panel
+     */
+    public function get_mapping_details() {
+        header('Content-Type: application/json');
+        $transaction_id = $this->input->get('transaction_id');
+
+        if (empty($transaction_id)) {
+            $this->ajax_response(false, 'Transaction ID required');
+            return;
+        }
+
+        $txn = $this->db->where('id', $transaction_id)->get('bank_transactions')->row();
+        if (!$txn) {
+            $this->ajax_response(false, 'Transaction not found');
+            return;
+        }
+
+        $mappings = $this->Bank_model->get_transaction_mappings($transaction_id);
+
+        // Enrich mapping details
+        $enriched = [];
+        foreach ($mappings as $m) {
+            $detail = [
+                'id' => $m->id,
+                'member_code' => $m->member_code,
+                'member_name' => $m->member_name ?: ($m->first_name . ' ' . $m->last_name),
+                'mapping_type' => $m->mapping_type,
+                'related_type' => $m->related_type ?? null,
+                'related_id' => $m->related_id,
+                'amount' => $m->amount,
+                'narration' => $m->narration,
+                'mapped_at' => $m->mapped_at,
+                'for_month' => $m->for_month,
+                'is_reversed' => $m->is_reversed,
+                'account_info' => null
+            ];
+
+            // Get related account info
+            if ($m->mapping_type === 'loan_payment' || $m->mapping_type === 'emi') {
+                $related_type = $m->related_type ?? '';
+                if ($related_type === 'loan' && $m->related_id) {
+                    $loan = $this->db->select('loan_number, principal_amount, outstanding_principal')
+                                     ->where('id', $m->related_id)->get('loans')->row();
+                    if ($loan) {
+                        $detail['account_info'] = 'Loan: ' . $loan->loan_number . ' (Outstanding: ' . format_amount($loan->outstanding_principal) . ')';
+                    }
+                }
+                // Check if related_id points to a loan_installment
+                $inst = $this->db->select('li.installment_number, li.emi_amount, li.due_date, l.loan_number')
+                                 ->from('loan_installments li')
+                                 ->join('loans l', 'l.id = li.loan_id')
+                                 ->where('li.id', $m->related_id)
+                                 ->get()->row();
+                if ($inst) {
+                    $detail['account_info'] = 'Loan: ' . $inst->loan_number . ' EMI #' . $inst->installment_number . ' (Due: ' . format_date($inst->due_date) . ')';
+                }
+            } elseif ($m->mapping_type === 'savings') {
+                if ($m->related_id) {
+                    $related_type = $m->related_type ?? '';
+                    $acc = null;
+                    if ($related_type === 'savings') {
+                        $acc = $this->db->select('account_number, current_balance')
+                                        ->where('id', $m->related_id)->get('savings_accounts')->row();
+                    }
+                    if (!$acc) {
+                        $acc = $this->db->select('sa.account_number, sa.current_balance')
+                                        ->from('savings_transactions st')
+                                        ->join('savings_accounts sa', 'sa.id = st.savings_account_id')
+                                        ->where('st.id', $m->related_id)->get()->row();
+                    }
+                    if ($acc) {
+                        $detail['account_info'] = 'Savings: ' . $acc->account_number . ' (Balance: ' . format_amount($acc->current_balance) . ')';
+                    }
+                }
+            } elseif ($m->mapping_type === 'fine') {
+                if ($m->related_id) {
+                    $fine = $this->db->select('fine_type, fine_amount, paid_amount')
+                                     ->where('id', $m->related_id)->get('fines')->row();
+                    if ($fine) {
+                        $detail['account_info'] = 'Fine: ' . $fine->fine_type . ' (' . format_amount($fine->fine_amount) . ')';
+                    }
+                }
+            } elseif ($m->mapping_type === 'disbursement') {
+                if ($m->related_id && $this->db->table_exists('disbursement_tracking')) {
+                    $dt = $this->db->select('dt.*, l.loan_number')
+                                   ->from('disbursement_tracking dt')
+                                   ->join('loans l', 'l.id = dt.loan_id')
+                                   ->where('dt.id', $m->related_id)->get()->row();
+                    if ($dt) {
+                        $detail['account_info'] = 'Disbursement: ' . $dt->loan_number . ' (' . format_amount($dt->net_amount) . ')';
+                    }
+                }
+            } else {
+                // Internal/other types
+                if ($m->related_id && $this->db->table_exists('internal_transactions')) {
+                    $it = $this->db->where('id', $m->related_id)->get('internal_transactions')->row();
+                    if ($it) {
+                        $detail['account_info'] = ucwords(str_replace('_', ' ', $it->transaction_type)) . ': ' . $it->transaction_code;
+                    }
+                }
+            }
+
+            $enriched[] = $detail;
+        }
+
+        $this->ajax_response(true, 'Mapping details loaded', [
+            'transaction' => [
+                'id' => $txn->id,
+                'date' => $txn->transaction_date,
+                'amount' => $txn->amount,
+                'type' => $txn->transaction_type,
+                'description' => $txn->description,
+                'mapping_status' => $txn->mapping_status,
+                'mapped_amount' => $txn->mapped_amount ?? 0,
+                'unmapped_amount' => $txn->unmapped_amount ?? ($txn->amount - ($txn->mapped_amount ?? 0)),
+                'mapping_remarks' => $txn->mapping_remarks ?? ''
+            ],
+            'mappings' => $enriched
+        ]);
+    }
+
+    /**
+     * AJAX: Reverse/Unmap a Transaction Mapping
+     */
+    public function reverse_mapping() {
+        if (!$this->input->post()) {
+            $this->ajax_response(false, 'Invalid request');
+            return;
+        }
+
+        $mapping_id = $this->input->post('mapping_id');
+        $reason = $this->input->post('reason') ?: 'Manual reversal';
+        $admin_id = $this->session->userdata('admin_id');
+
+        if (empty($mapping_id)) {
+            $this->ajax_response(false, 'Mapping ID required');
+            return;
+        }
+
+        try {
+            $result = $this->Bank_model->reverse_mapping($mapping_id, $reason, $admin_id);
+            if ($result) {
+                $this->log_activity('bank_mapping_reversed', "Reversed mapping #{$mapping_id}: {$reason}");
+                $this->ajax_response(true, 'Mapping reversed successfully. Financial effects have been rolled back.');
+            } else {
+                $this->ajax_response(false, 'Failed to reverse mapping');
+            }
+        } catch (Exception $e) {
+            $this->ajax_response(false, 'Error: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * AJAX: Map Disbursement (Debit transaction -> Loan disbursement)
+     */
+    public function map_disbursement() {
+        if (!$this->input->post()) {
+            $this->ajax_response(false, 'Invalid request');
+            return;
+        }
+
+        $transaction_id = $this->input->post('transaction_id');
+        $loan_id = $this->input->post('loan_id');
+        $amount = floatval($this->input->post('amount'));
+        $remarks = $this->input->post('remarks') ?: '';
+        $admin_id = $this->session->userdata('admin_id');
+
+        if (empty($transaction_id) || empty($loan_id) || $amount <= 0) {
+            $this->ajax_response(false, 'Transaction ID, Loan ID and amount are required');
+            return;
+        }
+
+        try {
+            $result = $this->Bank_model->map_disbursement($transaction_id, $loan_id, $amount, $admin_id, $remarks);
+            if ($result) {
+                $this->log_activity('bank_disbursement_mapped', "Mapped disbursement: Txn #{$transaction_id} -> Loan #{$loan_id} ({$amount})");
+                $this->ajax_response(true, 'Disbursement mapped successfully');
+            } else {
+                $this->ajax_response(false, 'Failed to map disbursement');
+            }
+        } catch (Exception $e) {
+            $this->ajax_response(false, 'Error: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * AJAX: Map Internal Transaction
+     */
+    public function map_internal() {
+        if (!$this->input->post()) {
+            $this->ajax_response(false, 'Invalid request');
+            return;
+        }
+
+        $transaction_id = $this->input->post('transaction_id');
+        $type = $this->input->post('type');
+        $amount = floatval($this->input->post('amount'));
+        $description = $this->input->post('description') ?: '';
+        $admin_id = $this->session->userdata('admin_id');
+
+        $valid_types = ['internal_transfer', 'bank_charge', 'interest_earned', 'dividend_paid', 
+                        'cash_deposit', 'cash_withdrawal', 'contra_entry', 'adjustment', 'other'];
+
+        if (empty($transaction_id) || empty($type) || $amount <= 0) {
+            $this->ajax_response(false, 'Transaction ID, type and amount are required');
+            return;
+        }
+        if (!in_array($type, $valid_types)) {
+            $this->ajax_response(false, 'Invalid internal transaction type');
+            return;
+        }
+
+        try {
+            $result = $this->Bank_model->map_internal_transaction($transaction_id, $type, $amount, $admin_id, [
+                'description' => $description
+            ]);
+            if ($result !== false) {
+                $this->log_activity('bank_internal_mapped', "Mapped internal txn: #{$transaction_id} as {$type} ({$amount})");
+                $this->ajax_response(true, 'Internal transaction mapped successfully');
+            } else {
+                $this->ajax_response(false, 'Failed to map internal transaction');
+            }
+        } catch (Exception $e) {
+            $this->ajax_response(false, 'Error: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * AJAX: Get Disbursable Loans for mapping dropdown
+     */
+    public function get_disbursable_loans() {
+        header('Content-Type: application/json');
+        $member_id = $this->input->get('member_id');
+        $loans = $this->Bank_model->get_disbursable_loans($member_id ?: null);
+        $this->ajax_response(true, 'Loans loaded', $loans);
+    }
+
+    /**
+     * AJAX: Ignore/Skip a bank transaction
+     */
+    public function ignore_transaction() {
+        if (!$this->input->post()) {
+            $this->ajax_response(false, 'Invalid request');
+            return;
+        }
+
+        $transaction_id = $this->input->post('transaction_id');
+        $reason = $this->input->post('reason') ?: 'Manually ignored';
+        $admin_id = $this->session->userdata('admin_id');
+
+        if (empty($transaction_id)) {
+            $this->ajax_response(false, 'Transaction ID required');
+            return;
+        }
+
+        $result = $this->Bank_model->skip_transaction($transaction_id, $reason, $admin_id);
+        if ($result) {
+            // Also update mapped_by/mapped_at fields
+            $update = ['updated_at' => date('Y-m-d H:i:s')];
+            if ($this->db->field_exists('mapped_by', 'bank_transactions')) {
+                $update['mapped_by'] = $admin_id;
+            }
+            if ($this->db->field_exists('mapped_at', 'bank_transactions')) {
+                $update['mapped_at'] = date('Y-m-d H:i:s');
+            }
+            if ($this->db->field_exists('mapping_remarks', 'bank_transactions')) {
+                $update['mapping_remarks'] = 'Ignored: ' . $reason;
+            }
+            $this->db->where('id', $transaction_id)->update('bank_transactions', $update);
+
+            $this->log_activity('bank_transaction_ignored', "Ignored bank transaction #{$transaction_id}: {$reason}");
+            $this->ajax_response(true, 'Transaction ignored successfully');
+        } else {
+            $this->ajax_response(false, 'Failed to ignore transaction');
+        }
+    }
+
+    /**
+     * AJAX: Restore ignored transaction back to unmapped
+     */
+    public function restore_transaction() {
+        if (!$this->input->post()) {
+            $this->ajax_response(false, 'Invalid request');
+            return;
+        }
+
+        $transaction_id = $this->input->post('transaction_id');
+
+        if (empty($transaction_id)) {
+            $this->ajax_response(false, 'Transaction ID required');
+            return;
+        }
+
+        $result = $this->db->where('id', $transaction_id)
+                           ->update('bank_transactions', [
+                               'mapping_status' => 'unmapped',
+                               'remarks' => null,
+                               'mapping_remarks' => null,
+                               'updated_at' => date('Y-m-d H:i:s')
+                           ]);
+
+        if ($result) {
+            $this->log_activity('bank_transaction_restored', "Restored bank transaction #{$transaction_id} to unmapped");
+            $this->ajax_response(true, 'Transaction restored to unmapped');
+        } else {
+            $this->ajax_response(false, 'Failed to restore transaction');
+        }
+    }
+
+    /**
+     * Reconciliation Report Page
+     */
+    public function reconciliation() {
+        $this->data['page_title'] = 'Bank Reconciliation Report';
+        $this->data['breadcrumb'] = [
+            ['label' => 'Bank', 'link' => site_url('admin/bank/import')],
+            ['label' => 'Reconciliation']
+        ];
+
+        // Load financial years
+        $this->load->model('Financial_year_model');
+        $financial_years = $this->Financial_year_model->get_all_years();
+        $this->data['financial_years'] = $financial_years;
+
+        $active_fy = $this->Financial_year_model->get_active();
+
+        $fy_id = $this->input->get('fy_id');
+        $selected_fy = null;
+        if ($fy_id) {
+            foreach ($financial_years as $fy) {
+                if ($fy->id == $fy_id) { $selected_fy = $fy; break; }
+            }
+        }
+        if (!$selected_fy && $active_fy) $selected_fy = $active_fy;
+        if (!$selected_fy && !empty($financial_years)) $selected_fy = $financial_years[0];
+        $this->data['selected_fy'] = $selected_fy;
+
+        $this->data['bank_accounts'] = $this->Bank_model->get_accounts();
+
+        $filters = [
+            'bank_id' => $this->input->get('bank_id'),
+            'from_date' => $selected_fy ? $selected_fy->start_date : date('Y-04-01'),
+            'to_date' => $selected_fy ? $selected_fy->end_date : date('Y-03-31', strtotime('+1 year'))
+        ];
+
+        $this->data['filters'] = $filters;
+        $this->data['stats'] = $this->Bank_model->get_reconciliation_stats($filters);
+
+        // Get disbursement records for the period
+        if ($this->db->table_exists('disbursement_tracking')) {
+            $this->data['disbursements'] = $this->Bank_model->get_disbursement_records($filters);
+        } else {
+            $this->data['disbursements'] = [];
+        }
+
+        // Get internal transactions
+        $this->data['internal_transactions'] = $this->Bank_model->get_internal_transactions($filters);
+
+        $this->load->view('admin/layouts/header', $this->data);
+        $this->load->view('admin/layouts/sidebar', $this->data);
+        $this->load->view('admin/bank/reconciliation', $this->data);
+        $this->load->view('admin/layouts/footer', $this->data);
     }
 }
