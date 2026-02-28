@@ -275,6 +275,12 @@
                                     <p>Bank Accounts</p>
                                 </a>
                             </li>
+                            <li class="nav-item">
+                                <a href="<?= base_url('admin/bank/ca_report') ?>" class="nav-link <?= ($this->uri->segment(3) == 'ca_report') ? 'active' : '' ?>">
+                                    <i class="far fa-circle nav-icon"></i>
+                                    <p>CA Report</p>
+                                </a>
+                            </li>
                         </ul>
                     </li>
 

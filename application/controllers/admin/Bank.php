@@ -1635,4 +1635,482 @@ class Bank extends Admin_Controller {
         $this->load->view('admin/bank/reconciliation', $this->data);
         $this->load->view('admin/layouts/footer', $this->data);
     }
+
+    // ============================================================
+    // CA BANK STATEMENT REPORT (Passbook vs System Mapping)
+    // ============================================================
+
+    /**
+     * CA Report - Bank Statement with Mapping Details
+     * Industry-standard report showing all bank transactions with their
+     * system-level mapping (loan, savings, fine, disbursement, internal)
+     */
+    public function ca_report() {
+        $this->data['page_title'] = 'CA Bank Statement Report';
+        $this->data['breadcrumb'] = [
+            ['label' => 'Bank', 'link' => site_url('admin/bank/import')],
+            ['label' => 'CA Report']
+        ];
+
+        // Load financial years
+        $this->load->model('Financial_year_model');
+        $financial_years = $this->Financial_year_model->get_all_years();
+        $this->data['financial_years'] = $financial_years;
+
+        $active_fy = $this->Financial_year_model->get_active();
+        $fy_id = $this->input->get('fy_id');
+        $selected_fy = null;
+        if ($fy_id) {
+            foreach ($financial_years as $fy) {
+                if ($fy->id == $fy_id) { $selected_fy = $fy; break; }
+            }
+        }
+        if (!$selected_fy && $active_fy) $selected_fy = $active_fy;
+        if (!$selected_fy && !empty($financial_years)) $selected_fy = $financial_years[0];
+        $this->data['selected_fy'] = $selected_fy;
+
+        $this->data['bank_accounts'] = $this->Bank_model->get_accounts();
+
+        $filters = [
+            'bank_id' => $this->input->get('bank_id'),
+            'from_date' => $this->input->get('from_date') ?: ($selected_fy ? $selected_fy->start_date : date('Y-04-01')),
+            'to_date' => $this->input->get('to_date') ?: ($selected_fy ? $selected_fy->end_date : date('Y-03-31', strtotime('+1 year'))),
+            'mapping_status' => $this->input->get('mapping_status')
+        ];
+        $this->data['filters'] = $filters;
+
+        // Fetch all bank transactions for the period
+        $transactions = $this->_get_ca_report_data($filters);
+        $this->data['transactions'] = $transactions;
+
+        // Summary stats
+        $summary = $this->_compute_ca_summary($transactions);
+        $this->data['summary'] = $summary;
+
+        // Organization info
+        $this->data['org_name'] = get_setting('organization_name', 'WinDeep Finance');
+
+        $this->load->view('admin/layouts/header', $this->data);
+        $this->load->view('admin/layouts/sidebar', $this->data);
+        $this->load->view('admin/bank/ca_report', $this->data);
+        $this->load->view('admin/layouts/footer', $this->data);
+    }
+
+    /**
+     * Export CA Report to Excel
+     */
+    public function ca_report_export() {
+        require_once FCPATH . 'vendor/autoload.php';
+
+        $filters = [
+            'bank_id' => $this->input->get('bank_id'),
+            'from_date' => $this->input->get('from_date') ?: date('Y-04-01'),
+            'to_date' => $this->input->get('to_date') ?: date('Y-03-31', strtotime('+1 year')),
+            'mapping_status' => $this->input->get('mapping_status')
+        ];
+
+        $transactions = $this->_get_ca_report_data($filters);
+        $summary = $this->_compute_ca_summary($transactions);
+        $org_name = get_setting('organization_name', 'WinDeep Finance');
+
+        // Get selected bank name
+        $bank_label = 'All Bank Accounts';
+        if (!empty($filters['bank_id'])) {
+            $bank = $this->db->where('id', $filters['bank_id'])->get('bank_accounts')->row();
+            if ($bank) $bank_label = $bank->bank_name . ' - ' . $bank->account_number;
+        }
+
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $spreadsheet->getProperties()
+            ->setCreator($org_name)
+            ->setTitle('CA Bank Statement Report')
+            ->setSubject('Bank Statement Mapping Report for CA')
+            ->setDescription('System-generated bank reconciliation report');
+
+        // ── Sheet 1: Passbook Statement with Mapping ──
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Bank Statement');
+
+        // Title block
+        $sheet->setCellValue('A1', $org_name);
+        $sheet->mergeCells('A1:L1');
+        $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
+        $sheet->getStyle('A1')->getAlignment()->setHorizontal('center');
+
+        $sheet->setCellValue('A2', 'Bank Statement Mapping Report (For CA Review)');
+        $sheet->mergeCells('A2:L2');
+        $sheet->getStyle('A2')->getFont()->setBold(true)->setSize(11);
+        $sheet->getStyle('A2')->getAlignment()->setHorizontal('center');
+
+        $sheet->setCellValue('A3', 'Bank: ' . $bank_label . '  |  Period: ' . $filters['from_date'] . ' to ' . $filters['to_date']);
+        $sheet->mergeCells('A3:L3');
+        $sheet->getStyle('A3')->getAlignment()->setHorizontal('center');
+        $sheet->getStyle('A3')->getFont()->setItalic(true);
+
+        $sheet->setCellValue('A4', 'Generated: ' . date('d-M-Y H:i'));
+        $sheet->mergeCells('A4:L4');
+        $sheet->getStyle('A4')->getAlignment()->setHorizontal('center');
+
+        // Headers (row 6)
+        $headers = [
+            'Sr.No', 'Date', 'Value Date', 'Description', 'Reference/UTR',
+            'Debit (₹)', 'Credit (₹)', 'Balance (₹)',
+            'Mapping Status', 'Category', 'Mapped To', 'Member/Narration'
+        ];
+        $headerRow = 6;
+        foreach ($headers as $col => $h) {
+            $cell = $sheet->getCellByColumnAndRow($col + 1, $headerRow);
+            $cell->setValue($h);
+        }
+
+        // Style header row
+        $headerRange = 'A' . $headerRow . ':L' . $headerRow;
+        $sheet->getStyle($headerRange)->getFont()->setBold(true);
+        $sheet->getStyle($headerRange)->getFill()
+            ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
+            ->getStartColor()->setRGB('4472C4');
+        $sheet->getStyle($headerRange)->getFont()->getColor()->setRGB('FFFFFF');
+        $sheet->getStyle($headerRange)->getBorders()->getAllBorders()
+            ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
+
+        // Data rows
+        $row = $headerRow + 1;
+        $sr = 1;
+        foreach ($transactions as $txn) {
+            $sheet->setCellValueByColumnAndRow(1, $row, $sr);
+            $sheet->setCellValueByColumnAndRow(2, $row, $txn->transaction_date);
+            $sheet->setCellValueByColumnAndRow(3, $row, $txn->value_date ?? $txn->transaction_date);
+            $sheet->setCellValueByColumnAndRow(4, $row, $txn->description);
+            $sheet->setCellValueByColumnAndRow(5, $row, $txn->reference_number ?? $txn->utr_number ?? $txn->cheque_number ?? '');
+            $sheet->setCellValueByColumnAndRow(6, $row, $txn->debit_amount > 0 ? floatval($txn->debit_amount) : '');
+            $sheet->setCellValueByColumnAndRow(7, $row, $txn->credit_amount > 0 ? floatval($txn->credit_amount) : '');
+            $sheet->setCellValueByColumnAndRow(8, $row, $txn->running_balance ?? $txn->balance_after ?? '');
+            $sheet->setCellValueByColumnAndRow(9, $row, ucfirst($txn->mapping_status));
+            $sheet->setCellValueByColumnAndRow(10, $row, ucfirst(str_replace('_', ' ', $txn->transaction_category ?? '')));
+            $sheet->setCellValueByColumnAndRow(11, $row, $txn->mapped_to_display ?? '');
+            $sheet->setCellValueByColumnAndRow(12, $row, $txn->mapping_narration ?? '');
+
+            // Number format for amounts
+            foreach ([6, 7, 8] as $c) {
+                $sheet->getStyleByColumnAndRow($c, $row)->getNumberFormat()
+                    ->setFormatCode('#,##0.00');
+            }
+
+            // Color-code mapping status
+            $statusColors = ['mapped' => 'C6EFCE', 'unmapped' => 'FFC7CE', 'partial' => 'FFEB9C', 'ignored' => 'D9D9D9'];
+            $statusColor = $statusColors[$txn->mapping_status] ?? 'FFFFFF';
+            $sheet->getStyleByColumnAndRow(9, $row)->getFill()
+                ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
+                ->getStartColor()->setRGB($statusColor);
+
+            // Borders
+            $sheet->getStyle('A' . $row . ':L' . $row)->getBorders()->getAllBorders()
+                ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
+
+            $row++;
+            $sr++;
+        }
+
+        // Totals row
+        $totalRow = $row;
+        $sheet->setCellValueByColumnAndRow(4, $totalRow, 'TOTAL');
+        $sheet->setCellValueByColumnAndRow(6, $totalRow, $summary['total_debit']);
+        $sheet->setCellValueByColumnAndRow(7, $totalRow, $summary['total_credit']);
+        $sheet->getStyle('A' . $totalRow . ':L' . $totalRow)->getFont()->setBold(true);
+        $sheet->getStyle('A' . $totalRow . ':L' . $totalRow)->getFill()
+            ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
+            ->getStartColor()->setRGB('D9E2F3');
+        foreach ([6, 7] as $c) {
+            $sheet->getStyleByColumnAndRow($c, $totalRow)->getNumberFormat()
+                ->setFormatCode('#,##0.00');
+        }
+
+        // Auto-size columns
+        foreach (range('A', 'L') as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
+        }
+
+        // ── Sheet 2: Mapping Summary (Category-wise) ──
+        $sheet2 = $spreadsheet->createSheet(1);
+        $sheet2->setTitle('Category Summary');
+
+        $sheet2->setCellValue('A1', $org_name . ' - Mapping Category Summary');
+        $sheet2->mergeCells('A1:D1');
+        $sheet2->getStyle('A1')->getFont()->setBold(true)->setSize(12);
+
+        $sheet2->setCellValue('A2', 'Period: ' . $filters['from_date'] . ' to ' . $filters['to_date']);
+        $sheet2->mergeCells('A2:D2');
+
+        $catHeaders = ['Category', 'Count', 'Total Debit (₹)', 'Total Credit (₹)'];
+        foreach ($catHeaders as $c => $h) {
+            $sheet2->setCellValueByColumnAndRow($c + 1, 4, $h);
+        }
+        $sheet2->getStyle('A4:D4')->getFont()->setBold(true);
+        $sheet2->getStyle('A4:D4')->getFill()
+            ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
+            ->getStartColor()->setRGB('4472C4');
+        $sheet2->getStyle('A4:D4')->getFont()->getColor()->setRGB('FFFFFF');
+
+        $catRow = 5;
+        foreach ($summary['by_category'] as $cat => $data) {
+            $sheet2->setCellValueByColumnAndRow(1, $catRow, ucfirst(str_replace('_', ' ', $cat ?: 'Uncategorized')));
+            $sheet2->setCellValueByColumnAndRow(2, $catRow, $data['count']);
+            $sheet2->setCellValueByColumnAndRow(3, $catRow, $data['debit']);
+            $sheet2->setCellValueByColumnAndRow(4, $catRow, $data['credit']);
+            foreach ([3, 4] as $c) {
+                $sheet2->getStyleByColumnAndRow($c, $catRow)->getNumberFormat()->setFormatCode('#,##0.00');
+            }
+            $sheet2->getStyle('A' . $catRow . ':D' . $catRow)->getBorders()->getAllBorders()
+                ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
+            $catRow++;
+        }
+
+        foreach (range('A', 'D') as $col) {
+            $sheet2->getColumnDimension($col)->setAutoSize(true);
+        }
+
+        // ── Sheet 3: Status Summary ──
+        $sheet3 = $spreadsheet->createSheet(2);
+        $sheet3->setTitle('Status Summary');
+
+        $sheet3->setCellValue('A1', $org_name . ' - Mapping Status Summary');
+        $sheet3->mergeCells('A1:D1');
+        $sheet3->getStyle('A1')->getFont()->setBold(true)->setSize(12);
+
+        $stHeaders = ['Status', 'Count', 'Debit (₹)', 'Credit (₹)'];
+        foreach ($stHeaders as $c => $h) {
+            $sheet3->setCellValueByColumnAndRow($c + 1, 3, $h);
+        }
+        $sheet3->getStyle('A3:D3')->getFont()->setBold(true);
+        $sheet3->getStyle('A3:D3')->getFill()
+            ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
+            ->getStartColor()->setRGB('4472C4');
+        $sheet3->getStyle('A3:D3')->getFont()->getColor()->setRGB('FFFFFF');
+
+        $stRow = 4;
+        foreach ($summary['by_status'] as $status => $data) {
+            $sheet3->setCellValueByColumnAndRow(1, $stRow, ucfirst($status));
+            $sheet3->setCellValueByColumnAndRow(2, $stRow, $data['count']);
+            $sheet3->setCellValueByColumnAndRow(3, $stRow, $data['debit']);
+            $sheet3->setCellValueByColumnAndRow(4, $stRow, $data['credit']);
+            foreach ([3, 4] as $c) {
+                $sheet3->getStyleByColumnAndRow($c, $stRow)->getNumberFormat()->setFormatCode('#,##0.00');
+            }
+            $stRow++;
+        }
+
+        foreach (range('A', 'D') as $col) {
+            $sheet3->getColumnDimension($col)->setAutoSize(true);
+        }
+
+        // ── Sheet 4: Detailed Mapping Ledger ──
+        $sheet4 = $spreadsheet->createSheet(3);
+        $sheet4->setTitle('Mapping Ledger');
+
+        $sheet4->setCellValue('A1', $org_name . ' - Detailed Mapping Ledger');
+        $sheet4->mergeCells('A1:J1');
+        $sheet4->getStyle('A1')->getFont()->setBold(true)->setSize(12);
+
+        $mlHeaders = ['Txn Date', 'Bank Description', 'Txn Amount (₹)', 'Mapping Type',
+                      'Member Code', 'Member Name', 'Account/Ref', 'Mapped Amount (₹)',
+                      'Mapped By', 'Mapped At'];
+        foreach ($mlHeaders as $c => $h) {
+            $sheet4->setCellValueByColumnAndRow($c + 1, 3, $h);
+        }
+        $sheet4->getStyle('A3:J3')->getFont()->setBold(true);
+        $sheet4->getStyle('A3:J3')->getFill()
+            ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
+            ->getStartColor()->setRGB('4472C4');
+        $sheet4->getStyle('A3:J3')->getFont()->getColor()->setRGB('FFFFFF');
+
+        // Fetch all mapping rows in date range
+        $mappings = $this->_get_mapping_ledger($filters);
+        $mlRow = 4;
+        foreach ($mappings as $m) {
+            $sheet4->setCellValueByColumnAndRow(1, $mlRow, $m->transaction_date);
+            $sheet4->setCellValueByColumnAndRow(2, $mlRow, $m->description);
+            $sheet4->setCellValueByColumnAndRow(3, $mlRow, floatval($m->txn_amount));
+            $sheet4->setCellValueByColumnAndRow(4, $mlRow, ucfirst(str_replace('_', ' ', $m->mapping_type)));
+            $sheet4->setCellValueByColumnAndRow(5, $mlRow, $m->member_code ?? '');
+            $sheet4->setCellValueByColumnAndRow(6, $mlRow, trim(($m->first_name ?? '') . ' ' . ($m->last_name ?? '')));
+            $sheet4->setCellValueByColumnAndRow(7, $mlRow, $m->narration ?? '');
+            $sheet4->setCellValueByColumnAndRow(8, $mlRow, floatval($m->amount));
+            $sheet4->setCellValueByColumnAndRow(9, $mlRow, $m->admin_name ?? '');
+            $sheet4->setCellValueByColumnAndRow(10, $mlRow, $m->mapped_at);
+            foreach ([3, 8] as $c) {
+                $sheet4->getStyleByColumnAndRow($c, $mlRow)->getNumberFormat()->setFormatCode('#,##0.00');
+            }
+            $sheet4->getStyle('A' . $mlRow . ':J' . $mlRow)->getBorders()->getAllBorders()
+                ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
+            $mlRow++;
+        }
+
+        foreach (range('A', 'J') as $col) {
+            $sheet4->getColumnDimension($col)->setAutoSize(true);
+        }
+
+        // Set active sheet back to first
+        $spreadsheet->setActiveSheetIndex(0);
+
+        // Output
+        $filename = 'CA_Bank_Report_' . $filters['from_date'] . '_to_' . $filters['to_date'] . '.xlsx';
+        header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Cache-Control: max-age=0');
+        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+        $writer->save('php://output');
+        exit;
+    }
+
+    /**
+     * Fetch bank transactions with mapping details for CA report
+     */
+    private function _get_ca_report_data($filters) {
+        $this->db->select('
+            bt.id, bt.transaction_date, bt.value_date, bt.description, bt.description2,
+            bt.reference_number, bt.utr_number, bt.cheque_number,
+            bt.transaction_type, bt.amount,
+            IF(bt.transaction_type = "debit", bt.amount, 0) as debit_amount,
+            IF(bt.transaction_type = "credit", bt.amount, 0) as credit_amount,
+            bt.running_balance, bt.balance_after,
+            bt.mapping_status, bt.mapped_amount, bt.unmapped_amount,
+            bt.transaction_category, bt.mapping_remarks,
+            ba.bank_name, ba.account_number as bank_account_number,
+            ba.branch_name,
+            COALESCE(m_by.first_name, "") as paid_by_name,
+            COALESCE(m_for.first_name, "") as paid_for_name
+        ', false);
+        $this->db->from('bank_transactions bt');
+        $this->db->join('bank_accounts ba', 'ba.id = bt.bank_account_id', 'left');
+        $this->db->join('members m_by', 'm_by.id = bt.paid_by_member_id', 'left');
+        $this->db->join('members m_for', 'm_for.id = bt.paid_for_member_id', 'left');
+
+        if (!empty($filters['bank_id'])) {
+            $this->db->where('bt.bank_account_id', $filters['bank_id']);
+        }
+        if (!empty($filters['from_date'])) {
+            $this->db->where('bt.transaction_date >=', $filters['from_date']);
+        }
+        if (!empty($filters['to_date'])) {
+            $this->db->where('bt.transaction_date <=', $filters['to_date']);
+        }
+        if (!empty($filters['mapping_status'])) {
+            $this->db->where('bt.mapping_status', $filters['mapping_status']);
+        }
+
+        $this->db->order_by('bt.transaction_date', 'ASC');
+        $this->db->order_by('bt.id', 'ASC');
+        $transactions = $this->db->get()->result();
+
+        // Enrich each transaction with mapping summary
+        foreach ($transactions as &$txn) {
+            $mappings = $this->db->select('tm.mapping_type, tm.amount, tm.narration,
+                                           m.member_code, m.first_name, m.last_name')
+                                 ->from('transaction_mappings tm')
+                                 ->join('members m', 'm.id = tm.member_id', 'left')
+                                 ->where('tm.bank_transaction_id', $txn->id)
+                                 ->where('tm.is_reversed', 0)
+                                 ->get()->result();
+
+            $mapped_labels = [];
+            $mapped_narrations = [];
+            foreach ($mappings as $mp) {
+                $type_label = ucfirst(str_replace('_', ' ', $mp->mapping_type));
+                $member_label = $mp->member_code ? ($mp->member_code . ' - ' . trim($mp->first_name . ' ' . $mp->last_name)) : '';
+                $mapped_labels[] = $type_label . ($member_label ? ' (' . $member_label . ')' : '');
+                if ($mp->narration) $mapped_narrations[] = $mp->narration;
+            }
+            $txn->mapped_to_display = implode('; ', $mapped_labels);
+            $txn->mapping_narration = implode('; ', $mapped_narrations);
+
+            // Fill category if not set
+            if (empty($txn->transaction_category) && !empty($mappings)) {
+                $txn->transaction_category = $mappings[0]->mapping_type;
+            }
+        }
+
+        return $transactions;
+    }
+
+    /**
+     * Compute summary stats for CA report
+     */
+    private function _compute_ca_summary($transactions) {
+        $summary = [
+            'total_debit' => 0,
+            'total_credit' => 0,
+            'total_transactions' => count($transactions),
+            'mapped_count' => 0,
+            'unmapped_count' => 0,
+            'partial_count' => 0,
+            'ignored_count' => 0,
+            'by_category' => [],
+            'by_status' => []
+        ];
+
+        foreach ($transactions as $txn) {
+            $debit = floatval($txn->debit_amount);
+            $credit = floatval($txn->credit_amount);
+            $summary['total_debit'] += $debit;
+            $summary['total_credit'] += $credit;
+
+            // By status
+            $st = $txn->mapping_status ?: 'unmapped';
+            if (!isset($summary['by_status'][$st])) {
+                $summary['by_status'][$st] = ['count' => 0, 'debit' => 0, 'credit' => 0];
+            }
+            $summary['by_status'][$st]['count']++;
+            $summary['by_status'][$st]['debit'] += $debit;
+            $summary['by_status'][$st]['credit'] += $credit;
+
+            // Status counters
+            if ($st === 'mapped') $summary['mapped_count']++;
+            elseif ($st === 'unmapped') $summary['unmapped_count']++;
+            elseif ($st === 'partial') $summary['partial_count']++;
+            elseif ($st === 'ignored') $summary['ignored_count']++;
+
+            // By category
+            $cat = $txn->transaction_category ?: 'uncategorized';
+            if (!isset($summary['by_category'][$cat])) {
+                $summary['by_category'][$cat] = ['count' => 0, 'debit' => 0, 'credit' => 0];
+            }
+            $summary['by_category'][$cat]['count']++;
+            $summary['by_category'][$cat]['debit'] += $debit;
+            $summary['by_category'][$cat]['credit'] += $credit;
+        }
+
+        return $summary;
+    }
+
+    /**
+     * Fetch detailed mapping ledger for Excel Sheet 4
+     */
+    private function _get_mapping_ledger($filters) {
+        $this->db->select('
+            bt.transaction_date, bt.description,
+            bt.amount as txn_amount, bt.transaction_type,
+            tm.mapping_type, tm.amount, tm.narration, tm.mapped_at,
+            m.member_code, m.first_name, m.last_name,
+            COALESCE(a.full_name, a.username, "") as admin_name
+        ', false);
+        $this->db->from('transaction_mappings tm');
+        $this->db->join('bank_transactions bt', 'bt.id = tm.bank_transaction_id');
+        $this->db->join('members m', 'm.id = tm.member_id', 'left');
+        $this->db->join('admin_users a', 'a.id = tm.mapped_by', 'left');
+        $this->db->where('tm.is_reversed', 0);
+
+        if (!empty($filters['bank_id'])) {
+            $this->db->where('bt.bank_account_id', $filters['bank_id']);
+        }
+        if (!empty($filters['from_date'])) {
+            $this->db->where('bt.transaction_date >=', $filters['from_date']);
+        }
+        if (!empty($filters['to_date'])) {
+            $this->db->where('bt.transaction_date <=', $filters['to_date']);
+        }
+
+        $this->db->order_by('bt.transaction_date', 'ASC');
+        $this->db->order_by('tm.mapped_at', 'ASC');
+        return $this->db->get()->result();
+    }
 }
