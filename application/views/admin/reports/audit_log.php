@@ -40,7 +40,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <?php $i = 1; foreach ($logs['data'] ?? $logs ?? [] as $log): ?>
+                    <?php $i = (($logs['current_page'] ?? 1) - 1) * ($logs['per_page'] ?? 50) + 1; foreach ($logs['data'] ?? $logs ?? [] as $log): ?>
                     <tr>
                         <td><?= $i++ ?></td>
                         <td>
@@ -97,9 +97,16 @@
             </table>
         </div>
     </div>
-    <?php if (isset($pagination)): ?>
-    <div class="card-footer">
-        <?= $pagination ?>
+    <?php if (!empty($pagination)): ?>
+    <div class="card-footer clearfix">
+        <div class="float-left">
+            <small class="text-muted">Showing <?= number_format(($logs['current_page'] ?? 1 - 1) * ($logs['per_page'] ?? 50) + 1) ?>
+                to <?= number_format(min(($logs['current_page'] ?? 1) * ($logs['per_page'] ?? 50), $logs['total'] ?? 0)) ?>
+                of <?= number_format($logs['total'] ?? 0) ?> records</small>
+        </div>
+        <div class="float-right">
+            <?= $pagination ?>
+        </div>
     </div>
     <?php endif; ?>
 </div>
@@ -126,7 +133,8 @@
 $(document).ready(function() {
     $('#auditTable').DataTable({
         "order": [[1, "desc"]],
-        "pageLength": 50,
+        "paging": false,
+        "info": false,
         "searching": true
     });
     

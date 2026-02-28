@@ -136,11 +136,12 @@ class Bank_model extends MY_Model {
                 }
             }
             
-            // Update import record
+            // BANK-8: Use post-dedup count so total matches what user actually sees
+            $actual_imported = $total - $duplicates;
             $this->db->where('id', $import_id)
                      ->update('bank_statement_imports', [
                          'status' => 'completed',
-                         'total_transactions' => $total,
+                         'total_transactions' => $actual_imported,
                          'mapped_count' => $matched,
                          'unmapped_count' => $unmatched,
                          'completed_at' => date('Y-m-d H:i:s')
@@ -284,6 +285,12 @@ class Bank_model extends MY_Model {
                     'transaction_type' => $type
                 ];
 
+                // BANK-7: Skip rows with unparseable dates
+                if ($txn['transaction_date'] === null) {
+                    log_message('error', 'Skipping CSV row with unparseable date: ' . ($date_raw ?? ''));
+                    continue;
+                }
+
                 if ($txn['amount'] != 0) {
                     $transactions[] = $txn;
                 }
@@ -393,6 +400,12 @@ class Bank_model extends MY_Model {
                     'transaction_type' => $type
                 ];
 
+                // BANK-7: Skip rows with unparseable dates
+                if ($txn['transaction_date'] === null) {
+                    log_message('error', 'Skipping Excel row with unparseable date: ' . ($date_raw ?? ''));
+                    continue;
+                }
+
                 if ($txn['amount'] != 0) {
                     $transactions[] = $txn;
                 }
@@ -426,7 +439,10 @@ class Bank_model extends MY_Model {
             return date('Y-m-d', $timestamp);
         }
         
-        return date('Y-m-d');
+        // BANK-7: Return null instead of today's date for unparseable dates.
+        // Caller must skip rows with null dates to avoid corrupting financial records.
+        log_message('error', 'Unparseable date in bank statement: "' . $date_str . '"');
+        return null;
     }
     
     /**
@@ -767,6 +783,18 @@ class Bank_model extends MY_Model {
                     $target_loan_id = $related_id ?: ($data['related_id'] ?? null);
                     if (!empty($target_loan_id)) {
                         $this->load->model('Loan_model');
+                        // BANK-5: related_id may be an installment ID, not a loan ID.
+                        // Look up the actual loan_id from loan_installments first.
+                        $installment_id = null;
+                        $installment = $this->db->select('loan_id')
+                            ->where('id', $target_loan_id)
+                            ->get('loan_installments')
+                            ->row();
+                        if ($installment) {
+                            $installment_id = $target_loan_id;
+                            $target_loan_id = $installment->loan_id;
+                        }
+
                         $payment_data = [
                             'loan_id' => $target_loan_id,
                             'total_amount' => $amount,
@@ -775,6 +803,9 @@ class Bank_model extends MY_Model {
                             'payment_type' => 'regular',
                             'created_by' => $admin_id
                         ];
+                        if ($installment_id) {
+                            $payment_data['installment_id'] = $installment_id;
+                        }
                         $payment_id = $this->Loan_model->record_payment($payment_data);
                         if (!$payment_id) {
                             throw new Exception('Loan_model::record_payment failed');
@@ -1009,6 +1040,13 @@ class Bank_model extends MY_Model {
      * Get Account Balance
      */
     public function get_account_balance($account_id) {
+        // BANK-6: Include opening_balance from bank_accounts
+        $account = $this->db->select('opening_balance')
+                            ->where('id', $account_id)
+                            ->get('bank_accounts')
+                            ->row();
+        $opening_balance = $account ? floatval($account->opening_balance) : 0;
+
         $credits = $this->db->select_sum('amount')
                             ->where('bank_account_id', $account_id)
                             ->where('transaction_type', 'credit')
@@ -1023,7 +1061,7 @@ class Bank_model extends MY_Model {
                            ->row()
                            ->amount ?? 0;
         
-        return $credits - $debits;
+        return $opening_balance + $credits - $debits;
     }
     
     /**
@@ -1354,11 +1392,40 @@ class Bank_model extends MY_Model {
         $this->db->trans_begin();
 
         try {
-            $txn = $this->db->where('id', $transaction_id)->get('bank_transactions')->row();
+            // Lock the transaction row to prevent double-mapping (BANK-1 pattern)
+            $txn = $this->db->query(
+                'SELECT * FROM bank_transactions WHERE id = ? FOR UPDATE',
+                [$transaction_id]
+            )->row();
             if (!$txn) throw new Exception('Transaction not found');
+
+            // Reject if already fully mapped (BANK-2 pattern)
+            if ($txn->mapping_status === 'mapped') {
+                throw new Exception('This transaction is already fully mapped');
+            }
 
             $loan = $this->db->where('id', $loan_id)->get('loans')->row();
             if (!$loan) throw new Exception('Loan not found');
+
+            // BANK-3: Validate disbursement amount against loan
+            $net_disbursement = floatval($loan->principal_amount) - floatval($loan->processing_fee ?? 0);
+            if ($amount > ($net_disbursement + 0.01)) {
+                throw new Exception(sprintf(
+                    'Disbursement amount (%.2f) exceeds loan net disbursement (%.2f = principal %.2f - processing fee %.2f)',
+                    $amount, $net_disbursement, floatval($loan->principal_amount), floatval($loan->processing_fee ?? 0)
+                ));
+            }
+
+            // Validate against remaining unmapped transaction amount
+            $txn_amount = floatval($txn->amount);
+            $already_mapped = floatval($txn->mapped_amount ?? 0);
+            $available = $txn_amount - $already_mapped;
+            if ($amount > ($available + 0.01)) {
+                throw new Exception(sprintf(
+                    'Disbursement amount (%.2f) exceeds available unmapped amount (%.2f)',
+                    $amount, $available
+                ));
+            }
 
             // Create disbursement tracking record
             $tracking_data = [

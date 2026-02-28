@@ -44,6 +44,10 @@ if (!function_exists('format_date')) {
         if ($value === null || $value === '' || (is_string($value) && trim($value) === '')) {
             return $default;
         }
+        // Treat MySQL zero-dates as invalid
+        if (is_string($value) && preg_match('/^0000-00-00/', $value)) {
+            return $default;
+        }
 
         // Resolve format from settings when not explicitly provided
         if ($format === null) {

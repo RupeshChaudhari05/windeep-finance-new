@@ -15,6 +15,7 @@ class Savings extends Admin_Controller {
      * List Savings Accounts
      */
     public function index() {
+        $this->check_permission('savings_view');
         $data['title'] = 'Savings Accounts';
         $data['page_title'] = 'Savings Management';
         $data['breadcrumb'] = [
@@ -108,6 +109,7 @@ class Savings extends Admin_Controller {
      * View Savings Account
      */
     public function view($id) {
+        $this->check_permission('savings_view');
         $account = $this->db->select('sa.*, ss.scheme_name, ss.interest_rate, m.member_code, m.first_name, m.last_name, m.phone')
                             ->from('savings_accounts sa')
                             ->join('savings_schemes ss', 'ss.id = sa.scheme_id')
@@ -172,6 +174,7 @@ class Savings extends Admin_Controller {
      * Create Savings Account Form
      */
     public function create() {
+        $this->check_permission('savings_create');
         $data['title'] = 'Create Savings Account';
         $data['page_title'] = 'Open Savings Account';
         $data['breadcrumb'] = [
@@ -193,6 +196,7 @@ class Savings extends Admin_Controller {
      * Store Savings Account
      */
     public function store() {
+        $this->check_permission('savings_create');
         if ($this->input->method() !== 'post') {
             redirect('admin/savings/create');
         }
@@ -233,6 +237,7 @@ class Savings extends Admin_Controller {
      * Collect Savings Payment
      */
     public function collect($id = null) {
+        $this->check_permission('savings_collect');
         $data['title'] = 'Collect Savings';
         $data['page_title'] = 'Collect Savings Payment';
         $data['breadcrumb'] = [
@@ -290,6 +295,7 @@ class Savings extends Admin_Controller {
      * Record Savings Payment
      */
     public function record_payment() {
+        $this->check_permission('savings_collect');
         if ($this->input->method() !== 'post') {
             redirect('admin/savings/collect');
         }
@@ -312,6 +318,7 @@ class Savings extends Admin_Controller {
                 'payment_mode' => $this->input->post('payment_mode'),
                 'reference_number' => $this->input->post('reference_number'),
                 'schedule_id' => $this->input->post('schedule_id'),
+                'transaction_date' => $this->input->post('transaction_date') ?: date('Y-m-d'),
                 'remarks' => $this->input->post('remarks'),
                 'received_by' => $this->session->userdata('admin_id')
             ];
@@ -348,6 +355,7 @@ class Savings extends Admin_Controller {
      * Edit Savings Account
      */
     public function edit($id = null) {
+        $this->check_permission('savings_edit');
         $data['title'] = 'Edit Savings Account';
         $data['page_title'] = 'Edit Savings Account';
         $data['breadcrumb'] = [
@@ -384,6 +392,7 @@ class Savings extends Admin_Controller {
      * Update Savings Account
      */
     public function update($id = null) {
+        $this->check_permission('savings_edit');
         if ($this->input->method() !== 'post') {
             redirect('admin/savings/edit/' . $id);
         }
@@ -416,6 +425,7 @@ class Savings extends Admin_Controller {
      * Pending Dues
      */
     public function pending() {
+        $this->check_permission('savings_view');
         $data['title'] = 'Pending Savings Dues';
         $data['page_title'] = 'Pending Dues';
         $data['breadcrumb'] = [
@@ -442,6 +452,7 @@ class Savings extends Admin_Controller {
      * Overdue List
      */
     public function overdue() {
+        $this->check_permission('savings_view');
         $data['title'] = 'Overdue Savings';
         $data['page_title'] = 'Overdue Payments';
         $data['breadcrumb'] = [
@@ -459,6 +470,7 @@ class Savings extends Admin_Controller {
      * Set a scheme as the default for new member auto-enrollment
      */
     public function set_default_scheme($id) {
+        $this->check_permission('savings_manage_schemes');
         $scheme = $this->db->where('id', $id)->get('savings_schemes')->row();
         if (!$scheme) {
             $this->session->set_flashdata('error', 'Scheme not found.');
@@ -475,6 +487,7 @@ class Savings extends Admin_Controller {
      * Manage Schemes
      */
     public function schemes() {
+        $this->check_permission('savings_manage_schemes');
         $data['title'] = 'Savings Schemes';
         $data['page_title'] = 'Manage Savings Schemes';
         $data['breadcrumb'] = [
@@ -504,6 +517,7 @@ class Savings extends Admin_Controller {
      * Enroll Members to Scheme (Bulk)
      */
     public function enroll_members() {
+        $this->check_permission('savings_manage_schemes');
         if ($this->input->method() !== 'post') {
             redirect('admin/savings/schemes');
         }
@@ -592,6 +606,7 @@ class Savings extends Admin_Controller {
      * Enroll All Members to Scheme (Bulk)
      */
     public function enroll_all_members() {
+        $this->check_permission('savings_manage_schemes');
         if ($this->input->method() !== 'post') {
             redirect('admin/savings/schemes');
         }
@@ -664,6 +679,7 @@ class Savings extends Admin_Controller {
      * Print Account Statement
      */
     public function statement($id) {
+        $this->check_permission('savings_view');
         $account = $this->db->select('sa.*, ss.scheme_name, m.member_code, m.first_name, m.last_name, m.phone, m.address_line1, m.city')
                             ->from('savings_accounts sa')
                             ->join('savings_schemes ss', 'ss.id = sa.scheme_id')
@@ -688,6 +704,7 @@ class Savings extends Admin_Controller {
      * Send Payment Reminder (Email + Notification)
      */
     public function send_reminder() {
+        $this->check_permission('savings_collect');
         $this->load->model('Notification_model');
         $this->load->helper('email');
         

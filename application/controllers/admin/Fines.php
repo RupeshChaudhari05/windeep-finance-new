@@ -137,6 +137,18 @@ class Fines extends Admin_Controller {
         $per_day = (float)($fine->rule_per_day_amount ?? 0);
         $max_cap = (float)($fine->rule_max_fine ?? 0);
         
+        // FINE-4 FIX: Look up the base due amount from the related entity for percentage calculation
+        $base_due_amount = 0;
+        if (isset($fine->related_type) && isset($fine->related_id)) {
+            if ($fine->related_type === 'loan_installment') {
+                $related = $this->db->select('emi_amount')->where('id', $fine->related_id)->get('loan_installments')->row();
+                $base_due_amount = $related ? (float) $related->emi_amount : 0;
+            } elseif ($fine->related_type === 'savings_schedule') {
+                $related = $this->db->select('due_amount')->where('id', $fine->related_id)->get('savings_schedule')->row();
+                $base_due_amount = $related ? (float) $related->due_amount : 0;
+            }
+        }
+
         // Recalculate step by step
         $steps = [];
         $steps[] = ['label' => 'Due Date', 'value' => format_date($fine->due_date)];
@@ -151,9 +163,11 @@ class Fines extends Admin_Controller {
             $steps[] = ['label' => 'Calculation Type', 'value' => 'Fixed Amount'];
             $steps[] = ['label' => 'Fixed Fine', 'value' => format_amount($rule_value)];
         } elseif ($calc_type === 'percentage') {
+            $correct_amount = $base_due_amount * ($rule_value / 100);
             $steps[] = ['label' => 'Calculation Type', 'value' => 'Percentage'];
             $steps[] = ['label' => 'Rate', 'value' => $rule_value . '%'];
-            $correct_amount = $rule_value;
+            $steps[] = ['label' => 'Base Due Amount', 'value' => format_amount($base_due_amount)];
+            $steps[] = ['label' => 'Calculation', 'value' => format_amount($base_due_amount) . ' x ' . $rule_value . '% = ' . format_amount($correct_amount)];
         } elseif ($calc_type === 'per_day') {
             $steps[] = ['label' => 'Calculation Type', 'value' => 'Per Day (Fixed + Daily)'];
             $steps[] = ['label' => 'Initial Fixed Amount', 'value' => format_amount($rule_value)];
@@ -273,10 +287,23 @@ class Fines extends Admin_Controller {
         }
         
         if ($this->input->method() === 'post') {
-            $amount = $this->input->post('amount');
+            $amount = (float) $this->input->post('amount');
             $payment_mode = $this->input->post('payment_mode');
             $reference = $this->input->post('reference_number');
-            
+
+            // FINE-1 FIX: Validate payment amount
+            if ($amount <= 0) {
+                $this->session->set_flashdata('error', 'Payment amount must be greater than zero.');
+                redirect('admin/fines/collect/' . $id);
+            }
+            if ($amount > $fine->balance_amount) {
+                $this->session->set_flashdata('error', 'Payment amount (' . number_format($amount, 2) . ') exceeds outstanding balance (' . number_format($fine->balance_amount, 2) . ').');
+                redirect('admin/fines/collect/' . $id);
+            }
+
+            // FINE-3 FIX: Wrap payment + GL posting in a single transaction
+            $this->db->trans_begin();
+
             $result = $this->Fine_model->record_payment(
                 $id, 
                 $amount, 
@@ -286,7 +313,7 @@ class Fines extends Admin_Controller {
             );
             
             if ($result) {
-                // Post to ledger
+                // Post to ledger — now inside the same transaction
                 $this->load->model('Ledger_model');
                 $this->Ledger_model->post_transaction(
                     'fine_income',
@@ -297,9 +324,16 @@ class Fines extends Admin_Controller {
                     $this->session->userdata('admin_id')
                 );
                 
-                $this->log_audit('payment', 'fines', 'fines', $id, null, ['amount' => $amount]);
-                $this->session->set_flashdata('success', 'Payment recorded successfully.');
+                if ($this->db->trans_status() === FALSE) {
+                    $this->db->trans_rollback();
+                    $this->session->set_flashdata('error', 'Fine payment or ledger posting failed. Transaction rolled back.');
+                } else {
+                    $this->db->trans_commit();
+                    $this->log_audit('payment', 'fines', 'fines', $id, null, ['amount' => $amount]);
+                    $this->session->set_flashdata('success', 'Payment recorded successfully.');
+                }
             } else {
+                $this->db->trans_rollback();
                 $this->session->set_flashdata('error', 'Fine payment could not be recorded. Please check the payment amount and try again.');
             }
             

@@ -58,8 +58,8 @@ class Fine_model extends MY_Model {
         
         if (!$installment) return false;
         
-        // Days late
-        $days_late = floor((safe_timestamp(date('Y-m-d')) - safe_timestamp($installment->due_date)) / 86400);
+        // FINE-7 FIX: Use DateTime::diff() instead of / 86400 to avoid DST boundary issues
+        $days_late = (new DateTime(date('Y-m-d')))->diff(new DateTime($installment->due_date))->days;
 
         // Helper to add days range conditionally depending on schema
         $add_days_conditions = function($db, $days) {
@@ -150,7 +150,8 @@ class Fine_model extends MY_Model {
         
         if (!$schedule) return false;
         
-        $days_late = floor((safe_timestamp(date('Y-m-d')) - safe_timestamp($schedule->due_date)) / 86400);
+        // FINE-7 FIX: Use DateTime::diff() instead of / 86400
+        $days_late = (new DateTime(date('Y-m-d')))->diff(new DateTime($schedule->due_date))->days;
         
         // Build query with conditional day constraints
         $query = $this->db->where_in('applies_to', ['savings', 'both'])
@@ -216,9 +217,19 @@ class Fine_model extends MY_Model {
     public function record_payment($fine_id, $amount, $payment_mode, $reference = null, $received_by = null) {
         $this->db->trans_begin();
         
-        $fine = $this->get_by_id($fine_id);
+        // FINE-2 FIX: Lock the fine row to prevent concurrent payment corruption
+        $fine = $this->db->query(
+            "SELECT * FROM {$this->table} WHERE id = ? FOR UPDATE",
+            [$fine_id]
+        )->row();
         
         if (!$fine || $fine->status === 'paid') {
+            $this->db->trans_rollback();
+            return false;
+        }
+
+        // FINE-1 FIX (model-level guard): Validate amount
+        if ($amount <= 0 || $amount > $fine->balance_amount) {
             $this->db->trans_rollback();
             return false;
         }
@@ -255,11 +266,26 @@ class Fine_model extends MY_Model {
     
     /**
      * Waive Fine
+     * FINE-5 FIX: Wrapped in transaction for atomicity
      */
     public function waive_fine($fine_id, $waive_amount, $reason, $waived_by) {
-        $fine = $this->get_by_id($fine_id);
+        $this->db->trans_begin();
+
+        // Lock the fine row
+        $fine = $this->db->query(
+            "SELECT * FROM {$this->table} WHERE id = ? FOR UPDATE",
+            [$fine_id]
+        )->row();
         
-        if (!$fine) return false;
+        if (!$fine) {
+            $this->db->trans_rollback();
+            return false;
+        }
+
+        if ($waive_amount <= 0 || $waive_amount > $fine->balance_amount) {
+            $this->db->trans_rollback();
+            return false;
+        }
         
         $new_waived = $fine->waived_amount + $waive_amount;
         $new_balance = $fine->balance_amount - $waive_amount;
@@ -270,16 +296,24 @@ class Fine_model extends MY_Model {
             $new_balance = 0;
         }
         
-        return $this->db->where('id', $fine_id)
-                        ->update($this->table, [
-                            'waived_amount' => $new_waived,
-                            'balance_amount' => $new_balance,
-                            'waive_reason' => $reason,
-                            'waived_by' => $waived_by,
-                            'waived_at' => date('Y-m-d H:i:s'),
-                            'status' => $status,
-                            'updated_at' => date('Y-m-d H:i:s')
-                        ]);
+        $this->db->where('id', $fine_id)
+                 ->update($this->table, [
+                     'waived_amount' => $new_waived,
+                     'balance_amount' => $new_balance,
+                     'waive_reason' => $reason,
+                     'waived_by' => $waived_by,
+                     'waived_at' => date('Y-m-d H:i:s'),
+                     'status' => $status,
+                     'updated_at' => date('Y-m-d H:i:s')
+                 ]);
+
+        if ($this->db->trans_status() === FALSE) {
+            $this->db->trans_rollback();
+            return false;
+        }
+
+        $this->db->trans_commit();
+        return true;
     }
     
     /**
@@ -567,6 +601,11 @@ class Fine_model extends MY_Model {
                 $initial = $rule->fine_value ?? 0;
                 $per_day = $rule->per_day_amount ?? 0;
                 $fine_amount = $initial + ($per_day * max(0, $effective_days - 1));
+                break;
+
+            // FINE-6 FIX: Default to fixed calculation instead of returning 0
+            default:
+                $fine_amount = $rule->fine_value ?? ($rule->fine_amount ?? 0);
                 break;
         }
         

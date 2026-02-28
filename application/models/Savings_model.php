@@ -11,16 +11,21 @@ class Savings_model extends MY_Model {
     
     /**
      * Generate Account Number
+     * SAV-5 FIX: Accept actual insert_id to avoid MAX(id)+1 race condition.
+     * If $insert_id is null, falls back to MAX(id)+1 (pre-insert estimate only).
      */
-    public function generate_account_number() {
+    public function generate_account_number($insert_id = null) {
         $prefix = 'SAV';
         $year = date('Y');
         
-        $max = $this->db->select_max('id')
-                        ->get($this->table)
-                        ->row();
-        
-        $next = ($max->id ?? 0) + 1;
+        if ($insert_id) {
+            $next = $insert_id;
+        } else {
+            $max = $this->db->select_max('id')
+                            ->get($this->table)
+                            ->row();
+            $next = ($max->id ?? 0) + 1;
+        }
         
         return $prefix . $year . str_pad($next, 6, '0', STR_PAD_LEFT);
     }
@@ -74,9 +79,9 @@ class Savings_model extends MY_Model {
         $this->db->trans_begin();
         
         try {
-            // Generate account number
+            // SAV-5 FIX: Insert with a temporary account number, then update with real insert_id
             if (empty($data['account_number'])) {
-                $data['account_number'] = $this->generate_account_number();
+                $data['account_number'] = 'SAV-TEMP-' . uniqid();
             }
             
             $data['created_at'] = date('Y-m-d H:i:s');
@@ -84,8 +89,13 @@ class Savings_model extends MY_Model {
             $this->db->insert($this->table, $data);
             $account_id = $this->db->insert_id();
             
-            // Generate schedule for upcoming months
             if ($account_id) {
+                // Now generate the real account number from the guaranteed-unique insert_id
+                $real_account_number = $this->generate_account_number($account_id);
+                $this->db->where('id', $account_id)
+                         ->update($this->table, ['account_number' => $real_account_number]);
+
+                // Generate schedule for upcoming months
                 $this->generate_schedule($account_id, $data['start_date'], $data['monthly_amount']);
             }
             
@@ -170,19 +180,38 @@ class Savings_model extends MY_Model {
         $this->db->trans_begin();
         
         try {
-            $account = $this->get_by_id($data['savings_account_id']);
+            // SAV-2 FIX: Lock the account row to prevent concurrent balance corruption
+            $account = $this->db->query(
+                "SELECT * FROM {$this->table} WHERE id = ? FOR UPDATE",
+                [$data['savings_account_id']]
+            )->row();
             
             if (!$account) {
                 throw new Exception('Savings account not found');
+            }
+
+            // SAV-7 FIX: Verify account is active before accepting payment
+            if ($account->status !== 'active') {
+                throw new Exception('Cannot record payment: account status is "' . $account->status . '". Only active accounts accept deposits/withdrawals.');
+            }
+
+            // SAV-10: Validate amount > 0
+            if (!isset($data['amount']) || $data['amount'] <= 0) {
+                throw new Exception('Payment amount must be greater than zero.');
             }
             
             // Generate transaction code
             $data['transaction_code'] = 'STX-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -6));
             
-            // Calculate new balance
+            // Calculate new balance using the locked row's current value
             $new_balance = $account->current_balance;
             
             if ($data['transaction_type'] === 'deposit') {
+                // SAV-6 FIX: Cap deposits at 10x monthly amount as sanity check
+                $max_deposit = $account->monthly_amount * 10;
+                if ($max_deposit > 0 && $data['amount'] > $max_deposit) {
+                    throw new Exception('Deposit amount (' . number_format($data['amount'], 2) . ') exceeds 10x the monthly amount (' . number_format($max_deposit, 2) . '). Please verify.');
+                }
                 $new_balance += $data['amount'];
             } elseif ($data['transaction_type'] === 'withdrawal') {
                 if ($data['amount'] > $account->current_balance) {
@@ -204,6 +233,11 @@ class Savings_model extends MY_Model {
                 unset($data['received_by']);
             }
 
+            // Default transaction_date to today if not provided
+            if (empty($data['transaction_date'])) {
+                $data['transaction_date'] = date('Y-m-d');
+            }
+
             // Whitelist only columns that exist in savings_transactions
             $allowed = ['transaction_code', 'savings_account_id', 'schedule_id', 'transaction_type',
                         'amount', 'balance_after', 'payment_mode', 'reference_number',
@@ -215,15 +249,25 @@ class Savings_model extends MY_Model {
             $this->db->insert('savings_transactions', $insert);
             $transaction_id = $this->db->insert_id();
             
-            // Update account balance
-            $update_data = ['current_balance' => $new_balance, 'updated_at' => date('Y-m-d H:i:s')];
-            
+            // SAV-2 FIX: Use atomic SQL update instead of PHP-side arithmetic
             if ($data['transaction_type'] === 'deposit') {
-                $update_data['total_deposited'] = $account->total_deposited + $data['amount'];
+                $this->db->query(
+                    "UPDATE {$this->table}
+                        SET current_balance = current_balance + ?,
+                            total_deposited = total_deposited + ?,
+                            updated_at = NOW()
+                      WHERE id = ?",
+                    [$data['amount'], $data['amount'], $data['savings_account_id']]
+                );
+            } elseif ($data['transaction_type'] === 'withdrawal') {
+                $this->db->query(
+                    "UPDATE {$this->table}
+                        SET current_balance = current_balance - ?,
+                            updated_at = NOW()
+                      WHERE id = ?",
+                    [$data['amount'], $data['savings_account_id']]
+                );
             }
-            
-            $this->db->where('id', $data['savings_account_id'])
-                     ->update($this->table, $update_data);
             
             // Update schedule if applicable
             if (!empty($data['schedule_id'])) {
@@ -246,15 +290,21 @@ class Savings_model extends MY_Model {
     
     /**
      * Update Schedule Payment
+     * SAV-8 FIX: Carry forward overpayment to the next pending schedule entry
      */
     private function update_schedule_payment($schedule_id, $amount) {
-        $schedule = $this->db->where('id', $schedule_id)
-                             ->get('savings_schedule')
-                             ->row();
+        $schedule = $this->db->query(
+            "SELECT * FROM savings_schedule WHERE id = ? FOR UPDATE",
+            [$schedule_id]
+        )->row();
         
         if (!$schedule) return false;
         
-        $new_paid = $schedule->paid_amount + $amount;
+        $remaining_due = $schedule->due_amount - $schedule->paid_amount;
+        $applied = min($amount, max(0, $remaining_due));
+        $overpayment = $amount - $applied;
+
+        $new_paid = $schedule->paid_amount + $applied;
         $status = 'partial';
         
         if ($new_paid >= $schedule->due_amount) {
@@ -269,15 +319,33 @@ class Savings_model extends MY_Model {
             $days_late = floor((safe_timestamp(date('Y-m-d')) - safe_timestamp($schedule->due_date)) / 86400);
         }
         
-        return $this->db->where('id', $schedule_id)
-                        ->update('savings_schedule', [
-                            'paid_amount' => $new_paid,
-                            'status' => $status,
-                            'paid_date' => date('Y-m-d'),
-                            'is_late' => $is_late ? 1 : 0,
-                            'days_late' => $days_late,
-                            'updated_at' => date('Y-m-d H:i:s')
-                        ]);
+        $this->db->where('id', $schedule_id)
+                 ->update('savings_schedule', [
+                     'paid_amount' => $new_paid,
+                     'status' => $status,
+                     'paid_date' => date('Y-m-d'),
+                     'is_late' => $is_late ? 1 : 0,
+                     'days_late' => $days_late,
+                     'updated_at' => date('Y-m-d H:i:s')
+                 ]);
+
+        // SAV-8: If there is overpayment, apply it to the next pending schedule entry
+        if ($overpayment > 0) {
+            $next_schedule = $this->db->where('savings_account_id', $schedule->savings_account_id)
+                                      ->where('id !=', $schedule_id)
+                                      ->where_in('status', ['pending', 'partial', 'overdue'])
+                                      ->order_by('due_date', 'ASC')
+                                      ->get('savings_schedule')
+                                      ->row();
+
+            if ($next_schedule) {
+                // Recursive call to apply excess to next schedule entry
+                $this->update_schedule_payment($next_schedule->id, $overpayment);
+            }
+            // If no next schedule, the excess just stays in the account balance (already added)
+        }
+
+        return true;
     }
     
     /**
@@ -400,41 +468,63 @@ class Savings_model extends MY_Model {
      * Apply Late Fine
      */
     public function apply_late_fine($schedule_id, $fine_amount, $created_by) {
-        $schedule = $this->db->where('id', $schedule_id)
-                             ->get('savings_schedule')
-                             ->row();
-        
-        if (!$schedule) return false;
-        
-        // Update schedule
-        $this->db->where('id', $schedule_id)
-                 ->update('savings_schedule', [
-                     'fine_amount' => $schedule->fine_amount + $fine_amount,
-                     'status' => 'overdue',
-                     'updated_at' => date('Y-m-d H:i:s')
-                 ]);
-        
-        // Get account and member
-        $account = $this->get_by_id($schedule->savings_account_id);
-        
-        // Create fine record
-        $this->db->insert('fines', [
-            'fine_code' => 'FIN-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -6)),
-            'member_id' => $account->member_id,
-            'fine_type' => 'savings_late',
-            'related_type' => 'savings_schedule',
-            'related_id' => $schedule_id,
-            'fine_date' => date('Y-m-d'),
-            'due_date' => $schedule->due_date,
-            'days_late' => floor((safe_timestamp(date('Y-m-d')) - safe_timestamp($schedule->due_date)) / 86400),
-            'fine_amount' => $fine_amount,
-            'balance_amount' => $fine_amount,
-            'status' => 'pending',
-            'created_by' => $created_by,
-            'created_at' => date('Y-m-d H:i:s')
-        ]);
-        
-        return $this->db->insert_id();
+        // SAV-3 FIX: Wrap in transaction for atomicity
+        $this->db->trans_begin();
+
+        try {
+            $schedule = $this->db->query(
+                "SELECT * FROM savings_schedule WHERE id = ? FOR UPDATE",
+                [$schedule_id]
+            )->row();
+
+            if (!$schedule) {
+                $this->db->trans_rollback();
+                return false;
+            }
+
+            // Update schedule
+            $this->db->where('id', $schedule_id)
+                     ->update('savings_schedule', [
+                         'fine_amount' => $schedule->fine_amount + $fine_amount,
+                         'status' => 'overdue',
+                         'updated_at' => date('Y-m-d H:i:s')
+                     ]);
+
+            // Get account and member
+            $account = $this->get_by_id($schedule->savings_account_id);
+
+            // Create fine record
+            $this->db->insert('fines', [
+                'fine_code' => 'FIN-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -6)),
+                'member_id' => $account->member_id,
+                'fine_type' => 'savings_late',
+                'related_type' => 'savings_schedule',
+                'related_id' => $schedule_id,
+                'fine_date' => date('Y-m-d'),
+                'due_date' => $schedule->due_date,
+                'days_late' => floor((safe_timestamp(date('Y-m-d')) - safe_timestamp($schedule->due_date)) / 86400),
+                'fine_amount' => $fine_amount,
+                'balance_amount' => $fine_amount,
+                'status' => 'pending',
+                'created_by' => $created_by,
+                'created_at' => date('Y-m-d H:i:s')
+            ]);
+
+            $fine_id = $this->db->insert_id();
+
+            if ($this->db->trans_status() === FALSE) {
+                $this->db->trans_rollback();
+                return false;
+            }
+
+            $this->db->trans_commit();
+            return $fine_id;
+
+        } catch (Exception $e) {
+            $this->db->trans_rollback();
+            log_message('error', 'apply_late_fine failed for schedule ' . $schedule_id . ': ' . $e->getMessage());
+            return false;
+        }
     }
     
     /**
@@ -448,6 +538,150 @@ class Savings_model extends MY_Model {
         return $this->db->get('savings_schemes')->result();
     }
     
+    /**
+     * Calculate monthly interest for a single savings account.
+     * Uses simple interest: (balance * annual_rate / 100) / 12
+     *
+     * @param int $account_id
+     * @return float Interest amount for the month
+     */
+    public function calculate_monthly_interest($account_id) {
+        $account = $this->db->select('sa.current_balance, ss.interest_rate')
+                            ->from('savings_accounts sa')
+                            ->join('savings_schemes ss', 'ss.id = sa.scheme_id')
+                            ->where('sa.id', $account_id)
+                            ->where('sa.status', 'active')
+                            ->get()
+                            ->row();
+
+        if (!$account || $account->current_balance <= 0 || $account->interest_rate <= 0) {
+            return 0.00;
+        }
+
+        return round(($account->current_balance * $account->interest_rate / 100) / 12, 2);
+    }
+
+    /**
+     * Accrue (calculate + post) monthly interest for ALL active savings accounts.
+     * Intended to be called by a monthly cron job or CLI command.
+     *
+     * @param string $for_month  YYYY-MM-01 date string (defaults to current month)
+     * @param int    $created_by Admin user ID performing the accrual
+     * @return array  Summary with 'processed', 'credited', 'total_interest', 'errors'
+     */
+    public function accrue_monthly_interest($for_month = null, $created_by = null) {
+        if (!$for_month) {
+            $for_month = date('Y-m-01');
+        }
+
+        $accounts = $this->db->select('sa.id, sa.current_balance, sa.total_interest_earned, sa.member_id, sa.account_number, ss.interest_rate')
+                             ->from('savings_accounts sa')
+                             ->join('savings_schemes ss', 'ss.id = sa.scheme_id')
+                             ->where('sa.status', 'active')
+                             ->where('ss.interest_rate >', 0)
+                             ->get()
+                             ->result();
+
+        $summary = ['processed' => 0, 'credited' => 0, 'total_interest' => 0, 'errors' => []];
+
+        foreach ($accounts as $acc) {
+            $summary['processed']++;
+
+            // Skip if interest already credited for this month
+            $already = $this->db->where('savings_account_id', $acc->id)
+                                ->where('transaction_type', 'interest_credit')
+                                ->where('for_month', $for_month)
+                                ->count_all_results('savings_transactions');
+            if ($already > 0) {
+                continue;
+            }
+
+            $interest = round(($acc->current_balance * $acc->interest_rate / 100) / 12, 2);
+            if ($interest <= 0) {
+                continue;
+            }
+
+            $result = $this->post_interest_credit($acc->id, $interest, $for_month, $created_by);
+            if ($result) {
+                $summary['credited']++;
+                $summary['total_interest'] += $interest;
+            } else {
+                $summary['errors'][] = 'Account ' . $acc->account_number . ': failed to credit interest';
+            }
+        }
+
+        return $summary;
+    }
+
+    /**
+     * Post an interest credit transaction for a single savings account.
+     *
+     * @param int    $account_id
+     * @param float  $interest_amount
+     * @param string $for_month  YYYY-MM-01
+     * @param int    $created_by
+     * @return int|false  Transaction ID on success
+     */
+    public function post_interest_credit($account_id, $interest_amount, $for_month, $created_by = null) {
+        $this->db->trans_begin();
+
+        try {
+            // Lock the account row
+            $account = $this->db->query(
+                "SELECT * FROM {$this->table} WHERE id = ? FOR UPDATE",
+                [$account_id]
+            )->row();
+
+            if (!$account || $account->status !== 'active') {
+                $this->db->trans_rollback();
+                return false;
+            }
+
+            $new_balance = $account->current_balance + $interest_amount;
+            $new_interest_earned = ($account->total_interest_earned ?? 0) + $interest_amount;
+
+            // Insert interest credit transaction
+            $tx_code = 'INT-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -6));
+            $this->db->insert('savings_transactions', [
+                'transaction_code'   => $tx_code,
+                'savings_account_id' => $account_id,
+                'transaction_type'   => 'interest_credit',
+                'amount'             => $interest_amount,
+                'balance_after'      => $new_balance,
+                'payment_mode'       => 'auto',
+                'transaction_date'   => date('Y-m-d'),
+                'for_month'          => $for_month,
+                'narration'          => 'Monthly interest credit for ' . date('M Y', strtotime($for_month)),
+                'created_by'         => $created_by,
+                'created_at'         => date('Y-m-d H:i:s')
+            ]);
+            $tx_id = $this->db->insert_id();
+
+            // Update account balance and interest earned atomically
+            $this->db->query(
+                "UPDATE {$this->table}
+                    SET current_balance = current_balance + ?,
+                        total_interest_earned = total_interest_earned + ?,
+                        updated_at = NOW()
+                  WHERE id = ?",
+                [$interest_amount, $interest_amount, $account_id]
+            );
+
+            if ($this->db->trans_status() === FALSE) {
+                $this->db->trans_rollback();
+                return false;
+            }
+
+            $this->db->trans_commit();
+            return $tx_id;
+
+        } catch (Exception $e) {
+            $this->db->trans_rollback();
+            log_message('error', 'Interest credit failed for account ' . $account_id . ': ' . $e->getMessage());
+            return false;
+        }
+    }
+
     /**
      * Get Dashboard Stats
      */

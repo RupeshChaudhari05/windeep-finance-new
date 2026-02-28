@@ -229,7 +229,7 @@ class Reports extends Admin_Controller {
             ['title' => 'Profit & Loss', 'url' => '']
         ];
         
-        $from_date = $this->input->get('from_date') ?: date('Y-04-01');
+        $from_date = $this->input->get('from_date') ?: $this->_get_fiscal_year_start();
         $to_date = $this->input->get('to_date') ?: date('Y-m-d');
         
         $data['report'] = $this->Ledger_model->get_profit_loss($from_date, $to_date);
@@ -607,12 +607,11 @@ class Reports extends Admin_Controller {
             $sheet->getColumnDimensionByColumn($col + 1)->setAutoSize(true);
         }
         
-        // Write data rows
+        // Write data rows — extract only columns matching headers (RPT-3 FIX)
         $row = 2;
         if (is_array($data) || is_object($data)) {
             foreach ($data as $item) {
-                $arr = (array) $item;
-                $values = array_values($arr);
+                $values = $this->_get_row_values($type, $item);
                 foreach ($values as $col => $value) {
                     $sheet->setCellValueByColumnAndRow($col + 1, $row, $value);
                 }
@@ -689,7 +688,7 @@ class Reports extends Admin_Controller {
     }
     
     /**
-     * Audit Log Report
+     * Audit Log Report (RPT-4 FIX: server-side pagination + filters)
      */
     public function audit_log() {
         $data['title'] = 'Audit Trail';
@@ -699,9 +698,71 @@ class Reports extends Admin_Controller {
             ['title' => 'Reports', 'url' => 'admin/reports'],
             ['title' => 'Audit Trail', 'url' => '']
         ];
-        
-        $data['logs'] = $this->Audit_model->search_audit_logs();
-        
+
+        $this->load->model('Audit_model');
+
+        $page = max(1, (int) ($this->input->get('page') ?: 1));
+        $per_page = 50;
+
+        $filters = [
+            'module'    => $this->input->get('table'),
+            'action'    => $this->input->get('action'),
+            'from_date' => $this->input->get('from_date'),
+            'to_date'   => $this->input->get('to_date')
+        ];
+
+        $result = $this->Audit_model->search_audit_logs($filters, $page, $per_page);
+
+        $data['logs'] = $result;
+
+        // Distinct tables/modules for filter dropdown
+        $data['tables'] = $this->db->distinct()
+            ->select('module')
+            ->where('module IS NOT NULL', null, false)
+            ->where('module !=', '')
+            ->order_by('module', 'ASC')
+            ->get('audit_logs')
+            ->result_array();
+        $data['tables'] = array_column($data['tables'], 'module');
+
+        // Build Bootstrap 4 pagination
+        $total_pages = $result['total_pages'] ?? 1;
+        $current_page = $result['current_page'] ?? 1;
+        $pagination = '';
+        if ($total_pages > 1) {
+            // Preserve existing query params
+            $query_params = $this->input->get();
+            $pagination = '<ul class="pagination pagination-sm m-0 justify-content-center">';
+            // Previous
+            if ($current_page > 1) {
+                $query_params['page'] = $current_page - 1;
+                $pagination .= '<li class="page-item"><a class="page-link" href="' . site_url('admin/reports/audit_log') . '?' . http_build_query($query_params) . '">&laquo;</a></li>';
+            } else {
+                $pagination .= '<li class="page-item disabled"><span class="page-link">&laquo;</span></li>';
+            }
+            // Page numbers (show max 7 pages around current)
+            $start = max(1, $current_page - 3);
+            $end = min($total_pages, $current_page + 3);
+            for ($p = $start; $p <= $end; $p++) {
+                $query_params['page'] = $p;
+                if ($p == $current_page) {
+                    $pagination .= '<li class="page-item active"><span class="page-link">' . $p . '</span></li>';
+                } else {
+                    $pagination .= '<li class="page-item"><a class="page-link" href="' . site_url('admin/reports/audit_log') . '?' . http_build_query($query_params) . '">' . $p . '</a></li>';
+                }
+            }
+            // Next
+            if ($current_page < $total_pages) {
+                $query_params['page'] = $current_page + 1;
+                $pagination .= '<li class="page-item"><a class="page-link" href="' . site_url('admin/reports/audit_log') . '?' . http_build_query($query_params) . '">&raquo;</a></li>';
+            } else {
+                $pagination .= '<li class="page-item disabled"><span class="page-link">&raquo;</span></li>';
+            }
+            $pagination .= '</ul>';
+        }
+        $data['pagination'] = $pagination;
+        $data['total_records'] = $result['total'] ?? 0;
+
         $this->load_view('admin/reports/audit_log', $data);
     }
     
@@ -760,7 +821,7 @@ class Reports extends Admin_Controller {
     }
 
     /**
-     * Send Report via Email (AJAX)
+     * Send Report via Email (AJAX) — RPT-5 FIX: forwards user date filters
      */
     public function send_email() {
         if (!$this->input->is_ajax_request()) {
@@ -770,14 +831,17 @@ class Reports extends Admin_Controller {
         $report_type = $this->input->post('report_type');
         $recipients = $this->input->post('recipients');
         $additional_message = $this->input->post('additional_message');
+        $from_date = $this->input->post('from_date');
+        $to_date = $this->input->post('to_date');
+        $month = $this->input->post('month');
 
         if (empty($report_type) || empty($recipients)) {
             echo json_encode(['success' => false, 'message' => 'Report type and recipients are required']);
             return;
         }
 
-        // Get report data based on type
-        $report_data = $this->get_report_data_for_email($report_type);
+        // Get report data based on type with date filters
+        $report_data = $this->_get_report_data_for_email($report_type, $from_date, $to_date, $month);
 
         if ($report_data === false) {
             echo json_encode(['success' => false, 'message' => 'Invalid report type']);
@@ -794,44 +858,62 @@ class Reports extends Admin_Controller {
     }
 
     /**
-     * Get report data for email sending
+     * Get report data for email sending — RPT-5 FIX: accepts and forwards date filters
+     *
+     * @param string      $report_type Report identifier
+     * @param string|null $from_date   Start date (Y-m-d)
+     * @param string|null $to_date     End date (Y-m-d)
+     * @param string|null $month       Month (Y-m-01) for demand/monthly-summary
+     * @return mixed Report data or false
      */
-    private function get_report_data_for_email($report_type) {
+    private function _get_report_data_for_email($report_type, $from_date = null, $to_date = null, $month = null) {
+        // Sensible defaults for date-range reports
+        $from_date = $from_date ?: $this->_get_fiscal_year_start();
+        $to_date   = $to_date ?: date('Y-m-d');
+        $month     = $month ?: date('Y-m-01');
+
         switch ($report_type) {
+            // --- Date-range reports ---
+            case 'collection':
+                return $this->Report_model->get_collection_report($from_date, $to_date);
+            case 'disbursement':
+                return $this->Report_model->get_disbursement_report($from_date, $to_date);
+            case 'cash-book':
+                return $this->Report_model->get_cash_book($from_date, $to_date);
+            case 'profit-loss':
+                return $this->Ledger_model->get_profit_loss($from_date, $to_date);
+
+            // --- Point-in-time reports (use to_date as as_on) ---
+            case 'trial-balance':
+                return $this->Ledger_model->get_trial_balance($to_date);
+            case 'balance-sheet':
+                return $this->Ledger_model->get_balance_sheet($to_date);
+
+            // --- Month-based reports ---
+            case 'demand':
+                return $this->Report_model->get_demand_report($month);
+            case 'monthly-summary':
+                return $this->Report_model->get_monthly_summary(
+                    date('Y', strtotime($month)),
+                    date('m', strtotime($month))
+                );
+
+            // --- No date filters needed ---
             case 'member-summary':
                 return $this->Report_model->get_member_summary_report();
             case 'kyc-pending':
                 return $this->Report_model->get_kyc_pending_report();
             case 'ageing':
                 return $this->Report_model->get_ageing_report();
-            case 'cash-book':
-                return $this->Report_model->get_cash_book();
             case 'bank-reconciliation':
                 return $this->Report_model->get_bank_reconciliation();
-            case 'trial-balance':
-                return $this->Ledger_model->get_trial_balance();
-            case 'profit-loss':
-                return $this->Ledger_model->get_profit_loss();
-            case 'balance-sheet':
-                return $this->Ledger_model->get_balance_sheet();
-            case 'general-ledger':
-                return $this->Ledger_model->get_general_ledger();
-            case 'account-statement':
-                return $this->Ledger_model->get_account_statement();
-            case 'monthly-summary':
-                return $this->Ledger_model->get_monthly_summary();
-            case 'disbursement':
-                return $this->Report_model->get_disbursement_report();
             case 'npa':
                 return $this->Report_model->get_npa_report();
-            case 'demand':
-                return $this->Report_model->get_demand_report();
             case 'guarantor':
                 return $this->Report_model->get_guarantor_report();
-            case 'overdue':
-                return $this->Report_model->get_overdue_report();
-            case 'audit-log':
-                return $this->Report_model->get_audit_log_report();
+            case 'outstanding':
+                return $this->Report_model->get_outstanding_report();
+
             default:
                 return false;
         }
@@ -1109,6 +1191,107 @@ class Reports extends Admin_Controller {
                 $sheet->setCellValueByColumnAndRow($col + 1, $row, $val);
             }
             $row++;
+        }
+    }
+
+    // =========================================================================
+    //  PRIVATE HELPERS
+    // =========================================================================
+
+    /**
+     * RPT-2 FIX: Get fiscal year start date from system_settings.
+     * Defaults to April 1 (Indian Financial Year) if not configured.
+     *
+     * @return string  Y-m-d formatted date
+     */
+    private function _get_fiscal_year_start() {
+        $row = $this->db
+            ->where('setting_key', 'fiscal_year_start_month')
+            ->get('system_settings')
+            ->row();
+
+        $month = $row ? (int) $row->setting_value : 4; // April default
+        $year  = (int) date('Y');
+
+        // If we haven't reached the fiscal start month yet, FY started last year
+        if ((int) date('n') < $month) {
+            $year--;
+        }
+
+        return $year . '-' . str_pad($month, 2, '0', STR_PAD_LEFT) . '-01';
+    }
+
+    /**
+     * RPT-3 FIX: Extract row values matching header columns for a given report type.
+     * Prevents column misalignment in Excel exports.
+     *
+     * @param string $type  Report type identifier
+     * @param object $row   Data row object
+     * @return array  Ordered values matching the header columns
+     */
+    private function _get_row_values($type, $row) {
+        switch ($type) {
+            case 'outstanding':
+                return [
+                    $row->loan_number ?? '',
+                    $row->member_code ?? '',
+                    ($row->first_name ?? '') . ' ' . ($row->last_name ?? ''),
+                    $row->product_name ?? '',
+                    $row->principal_amount ?? 0,
+                    $row->outstanding_principal ?? 0,
+                    $row->outstanding_interest ?? 0,
+                    $row->overdue_amount ?? 0
+                ];
+
+            case 'collection':
+                return [
+                    $row->payment_date ?? $row->date ?? '',
+                    $row->member_code ?? '',
+                    ($row->first_name ?? '') . ' ' . ($row->last_name ?? ''),
+                    $row->payment_type ?? $row->type ?? '',
+                    $row->total_amount ?? $row->amount ?? 0,
+                    $row->payment_mode ?? '',
+                    $row->reference_number ?? ''
+                ];
+
+            case 'demand':
+                return [
+                    $row->loan_number ?? '',
+                    $row->member_code ?? '',
+                    ($row->first_name ?? '') . ' ' . ($row->last_name ?? ''),
+                    $row->due_date ?? '',
+                    $row->emi_amount ?? 0,
+                    $row->days_overdue ?? 0,
+                    $row->phone ?? ''
+                ];
+
+            case 'npa':
+                return [
+                    $row->loan_number ?? '',
+                    $row->member_code ?? '',
+                    ($row->first_name ?? '') . ' ' . ($row->last_name ?? ''),
+                    $row->principal_amount ?? 0,
+                    $row->outstanding_amount ?? 0,
+                    $row->days_overdue ?? 0,
+                    $row->npa_category ?? ''
+                ];
+
+            case 'other_transactions':
+                return [
+                    $row->transaction_date ?? '',
+                    $row->member_code ?? '',
+                    ($row->first_name ?? '') . ' ' . ($row->last_name ?? ''),
+                    $row->phone ?? '',
+                    ucwords(str_replace('_', ' ', $row->transaction_type ?? '')),
+                    $row->amount ?? 0,
+                    $row->payment_mode ?? '',
+                    $row->receipt_number ?? '',
+                    $row->description ?? '',
+                    $row->status ?? ''
+                ];
+
+            default:
+                return array_values((array) $row);
         }
     }
 }

@@ -25,8 +25,18 @@ class Member_model extends MY_Model {
     /**
      * Generate New Member Code - Format: MEMB000001, MEMB000002, etc.
      */
-    public function generate_member_code() {
-        // Get the highest member code number
+    /**
+     * MEM-4 FIX: Generate race-safe member code from actual inserted ID.
+     * If $member_id is provided, derives code from it (no race). 
+     * Fallback to MAX+1 only for display/preview (never for actual inserts).
+     */
+    public function generate_member_code($member_id = null) {
+        if ($member_id) {
+            // Race-safe: derive code from the auto-increment ID
+            return 'MEMB' . str_pad($member_id, 6, '0', STR_PAD_LEFT);
+        }
+
+        // Fallback for preview/display only
         $result = $this->db->select("CAST(SUBSTRING(member_code, 5) AS UNSIGNED) as max_num")
                            ->where("member_code REGEXP", '^MEMB[0-9]+$')
                            ->order_by('max_num', 'DESC')
@@ -57,15 +67,15 @@ class Member_model extends MY_Model {
         }
 
         if (empty($data['member_code'])) {
-            $data['member_code'] = $this->generate_member_code();
+            // MEM-4 FIX: Use a temporary placeholder; will be replaced post-insert
+            $data['member_code'] = 'MEMB_TEMP_' . uniqid();
         }
         
         if (!empty($data['password'])) {
             $data['password'] = password_hash($data['password'], PASSWORD_DEFAULT);
         } else {
-            // Default password = member code; force change on first login
-            $data['password'] = password_hash($data['member_code'], PASSWORD_DEFAULT);
-            $data['must_change_password'] = 1;
+            // Default password set after member_code is finalized below
+            $data['_needs_default_password'] = true;
         }
         
         // Remap alternate field names used by controller to actual DB column names
@@ -106,9 +116,41 @@ class Member_model extends MY_Model {
         }
 
         $data['created_at'] = date('Y-m-d H:i:s');
-        
+
+        // MEM-7 FIX: Wrap insert in a transaction so partial failures don't leave orphan rows
+        $this->db->trans_begin();
+
+        // Handle deferred password flag
+        $needs_default_password = false;
+        if (!empty($data['_needs_default_password'])) {
+            $needs_default_password = true;
+            unset($data['_needs_default_password']);
+            // Temporary password — will be updated after member_code is finalized
+            $data['password'] = password_hash('temp', PASSWORD_DEFAULT);
+            $data['must_change_password'] = 1;
+        }
+
         $this->db->insert($this->table, $data);
-        return $this->db->insert_id();
+        $insert_id = $this->db->insert_id();
+
+        // MEM-4 FIX: Generate race-safe member code from the actual auto-increment ID
+        if ($insert_id && strpos($data['member_code'], 'MEMB_TEMP_') === 0) {
+            $member_code = $this->generate_member_code($insert_id);
+            $update = ['member_code' => $member_code];
+            if ($needs_default_password) {
+                // Default password = member code
+                $update['password'] = password_hash($member_code, PASSWORD_DEFAULT);
+            }
+            $this->db->where('id', $insert_id)->update($this->table, $update);
+        }
+
+        if ($this->db->trans_status() === FALSE || !$insert_id) {
+            $this->db->trans_rollback();
+            return false;
+        }
+
+        $this->db->trans_commit();
+        return $insert_id;
     }
     
     /**

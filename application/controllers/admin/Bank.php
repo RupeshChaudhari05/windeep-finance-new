@@ -485,11 +485,26 @@ class Bank extends Admin_Controller {
         // If mappings array present, handle multi-mapping
         $mappings = $payload['mappings'] ?? null;
         if ($mappings && is_array($mappings)) {
-            $txn = $this->db->where('id', $transaction_id)->get('bank_transactions')->row();
+            // Start transaction FIRST then lock the row to prevent double-mapping (BANK-1)
+            $this->db->trans_begin();
+
+            // SELECT ... FOR UPDATE to prevent concurrent mapping of the same transaction
+            $txn = $this->db->query(
+                'SELECT * FROM bank_transactions WHERE id = ? FOR UPDATE',
+                [$transaction_id]
+            )->row();
             if (!$txn) { 
+                $this->db->trans_rollback();
                 log_message('error', 'Transaction not found: ID=' . $transaction_id);
                 $this->ajax_response(false, 'Transaction not found'); 
                 return; 
+            }
+
+            // BANK-2: Reject if transaction is already fully mapped
+            if ($txn->mapping_status === 'mapped') {
+                $this->db->trans_rollback();
+                $this->ajax_response(false, 'This transaction is already fully mapped. Unmap it first to re-map.');
+                return;
             }
 
             // Determine transaction amount - try multiple fields
@@ -501,6 +516,10 @@ class Bank extends Admin_Controller {
             } elseif (isset($txn->amount) && $txn->amount > 0) {
                 $txn_amount = floatval($txn->amount);
             }
+
+            // Account for already-mapped amount (partial mappings)
+            $already_mapped = floatval($txn->mapped_amount ?? 0);
+            $available_amount = $txn_amount - $already_mapped;
 
             // Calculate total mapped amount
             $total = 0;
@@ -520,21 +539,22 @@ class Bank extends Admin_Controller {
             log_message('debug', 'Transaction Mapping Details:');
             log_message('debug', '  Transaction ID: ' . $transaction_id);
             log_message('debug', '  Transaction Amount: ' . $txn_amount);
-            log_message('debug', '  Total Mapped: ' . $total);
+            log_message('debug', '  Already Mapped: ' . $already_mapped);
+            log_message('debug', '  Available: ' . $available_amount);
+            log_message('debug', '  Total New Mapped: ' . $total);
             log_message('debug', '  Mappings: ' . json_encode($mapping_details));
             log_message('debug', '  Transaction Object: ' . json_encode($txn));
 
             // Use a small tolerance for floating point comparison (0.01 = 1 paisa)
-            if ($total > ($txn_amount + 0.01)) {
+            if ($total > ($available_amount + 0.01)) {
+                $this->db->trans_rollback();
                 $cs = get_currency_symbol();
                 $error_msg = sprintf(
-                    'Mapped amounts (%s%.2f) exceed transaction amount (%s%.2f) by %s%.2f. Txn fields: credit=%.2f, debit=%.2f, amount=%.2f',
+                    'Mapped amounts (%s%.2f) exceed available amount (%s%.2f). Transaction total: %s%.2f, already mapped: %s%.2f.',
                     $cs, $total,
+                    $cs, $available_amount,
                     $cs, $txn_amount,
-                    $cs, $total - $txn_amount,
-                    floatval($txn->credit_amount ?? 0),
-                    floatval($txn->debit_amount ?? 0),
-                    floatval($txn->amount ?? 0)
+                    $cs, $already_mapped
                 );
                 log_message('error', 'Mapping validation failed: ' . $error_msg);
                 $this->ajax_response(false, $error_msg);
@@ -542,12 +562,11 @@ class Bank extends Admin_Controller {
             }
 
             if ($txn_amount == 0) {
+                $this->db->trans_rollback();
                 log_message('error', 'Transaction amount is zero. Cannot map. Transaction: ' . json_encode($txn));
                 $this->ajax_response(false, 'Transaction amount is zero. Cannot proceed with mapping.');
                 return;
             }
-
-            $this->db->trans_begin();
 
             try {
                 foreach ($mappings as $m) {
@@ -761,11 +780,12 @@ class Bank extends Admin_Controller {
                 }
 
                 // Update bank transaction mapping status
-                $new_status = ($total == $txn_amount) ? 'mapped' : 'partial';
+                $new_total_mapped = $already_mapped + $total;
+                $new_status = ($new_total_mapped >= ($txn_amount - 0.01)) ? 'mapped' : 'partial';
                 $update = [
                     'mapping_status' => $new_status,
-                    'mapped_amount' => $total,
-                    'unmapped_amount' => $txn_amount - $total,
+                    'mapped_amount' => $new_total_mapped,
+                    'unmapped_amount' => max(0, $txn_amount - $new_total_mapped),
                     'updated_by' => $admin_id,
                     'updated_at' => date('Y-m-d H:i:s')
                 ];

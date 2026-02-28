@@ -236,7 +236,13 @@ class Members extends Admin_Controller {
 
             // Auto-enroll in default savings scheme
             $this->load->model('Savings_model');
-            $this->Savings_model->enroll_in_default_scheme($member_id, $this->session->userdata('admin_id'));
+            $enrollment_result = $this->Savings_model->enroll_in_default_scheme($member_id, $this->session->userdata('admin_id'));
+
+            // MEM-8 FIX: Surface enrollment failure as a warning instead of silently ignoring it
+            if ($enrollment_result === false) {
+                log_message('error', 'Auto-enrollment in default savings scheme failed for member ID: ' . $member_id);
+                $this->session->set_flashdata('warning', 'Member created, but auto-enrollment in the default savings scheme failed. Please enroll manually from the Savings module.');
+            }
 
             $this->session->set_flashdata('success', 'Member created successfully.');
             redirect('admin/members/view/' . $member_id);
@@ -577,7 +583,7 @@ class Members extends Admin_Controller {
      */
     public function search() {
         $query = $this->input->get('q');
-        $members = $this->Member_model->search_members($query, 20);
+        $members = $this->Member_model->search_members($query, null, 20);
         
         $results = [];
         foreach ($members as $m) {
@@ -632,16 +638,16 @@ class Members extends Admin_Controller {
         // Data
         foreach ($members as $m) {
             fputcsv($output, [
-                $m->member_code,
-                $m->first_name,
-                $m->last_name,
-                $m->phone,
-                $m->email,
+                $this->_csv_safe($m->member_code),
+                $this->_csv_safe($m->first_name),
+                $this->_csv_safe($m->last_name),
+                $this->_csv_safe($m->phone),
+                $this->_csv_safe($m->email),
                 $m->date_of_birth,
                 $m->gender,
-                $m->address_line1 . ' ' . $m->address_line2,
-                $m->city,
-                $m->state,
+                $this->_csv_safe(($m->address_line1 ?? '') . ' ' . ($m->address_line2 ?? '')),
+                $this->_csv_safe($m->city),
+                $this->_csv_safe($m->state),
                 $m->status,
                 format_date($m->created_at, 'Y-m-d', '')
             ]);
@@ -649,6 +655,21 @@ class Members extends Admin_Controller {
         
         fclose($output);
         exit;
+    }
+
+    /**
+     * MEM-6 FIX: Sanitize a value for CSV export to prevent formula injection.
+     * Prefixes a leading apostrophe if the value starts with =, +, -, @, Tab, or CR.
+     */
+    private function _csv_safe($value) {
+        if ($value === null || $value === '') {
+            return $value;
+        }
+        $first = substr($value, 0, 1);
+        if (in_array($first, ['=', '+', '-', '@', "\t", "\r"], true)) {
+            return "'" . $value;
+        }
+        return $value;
     }
     
     /**

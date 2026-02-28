@@ -11,16 +11,22 @@ class Loan_model extends MY_Model {
     
     /**
      * Generate Loan Number
+     * LOAN-8 FIX: Generate from actual loan_id (post-insert) to prevent race condition
      */
-    public function generate_loan_number() {
+    public function generate_loan_number($loan_id = null) {
         $prefix = 'LN';
         $year = date('Y');
         
-        $max = $this->db->select_max('id')
-                        ->get($this->table)
+        if ($loan_id) {
+            // Race-safe: use actual auto-increment ID
+            return $prefix . $year . str_pad($loan_id, 6, '0', STR_PAD_LEFT);
+        }
+        
+        // Fallback (should not be used in concurrent scenarios)
+        $max = $this->db->query('SELECT MAX(id) as max_id FROM ' . $this->table . ' FOR UPDATE')
                         ->row();
         
-        $next = ($max->id ?? 0) + 1;
+        $next = ($max->max_id ?? 0) + 1;
         
         return $prefix . $year . str_pad($next, 6, '0', STR_PAD_LEFT);
     }
@@ -321,9 +327,9 @@ class Loan_model extends MY_Model {
             
             $net_disbursement = $principal - $processing_fee;
             
-            // Create loan record
+            // Create loan record — loan_number generated post-insert (LOAN-8 fix)
             $loan_data = [
-                'loan_number' => $this->generate_loan_number(),
+                'loan_number' => 'TEMP-' . uniqid(), // Temporary, replaced after insert
                 'loan_application_id' => $application_id,
                 'member_id' => $application->member_id,
                 'loan_product_id' => $application->loan_product_id,
@@ -350,6 +356,11 @@ class Loan_model extends MY_Model {
             
             $this->db->insert($this->table, $loan_data);
             $loan_id = $this->db->insert_id();
+            
+            // LOAN-8 FIX: Generate race-safe loan number from actual ID
+            $loan_number = $this->generate_loan_number($loan_id);
+            $this->db->where('id', $loan_id)
+                     ->update($this->table, ['loan_number' => $loan_number]);
             
             // Generate installment schedule
             $this->generate_installment_schedule($loan_id, $principal, $rate, $tenure, $interest_type, $calc['emi'], $disbursement_data['first_emi_date']);
@@ -503,15 +514,41 @@ class Loan_model extends MY_Model {
      * Record Loan Payment
      * Supports regular EMI, interest-only, and other payment types.
      * For interest_only: pays only interest portion, skips principal, extends tenure.
+     * 
+     * FIXES APPLIED:
+     * - LOAN-1:  SELECT FOR UPDATE to prevent concurrent payment corruption
+     * - LOAN-2:  Fixed status check to use valid ENUM values only
+     * - LOAN-10: Validate payment amount is positive
+     * - LOAN-11: Duplicate payment detection (same loan, amount, date within 60s)
      */
     public function record_payment($data) {
+        // LOAN-10 FIX: Validate payment amount
+        if (empty($data['total_amount']) || $data['total_amount'] <= 0) {
+            throw new Exception('Payment amount must be greater than zero');
+        }
+        
         $this->db->trans_begin();
         
         try {
-            $loan = $this->get_by_id($data['loan_id']);
+            // LOAN-1 FIX: Lock loan row to prevent concurrent payment corruption
+            $loan = $this->db->query(
+                'SELECT * FROM ' . $this->table . ' WHERE id = ? FOR UPDATE',
+                [$data['loan_id']]
+            )->row();
             
-            if (!$loan || !in_array($loan->status, ['active', 'overdue', 'disbursed'])) {
+            // LOAN-2 FIX: Only check valid DB ENUM values ('active','npa' accept payments)
+            if (!$loan || !in_array($loan->status, ['active', 'npa'])) {
                 throw new Exception('Loan not found or not active. Status: ' . ($loan ? $loan->status : 'not found'));
+            }
+            
+            // LOAN-11 FIX: Duplicate payment detection (same loan, same amount, within 60 seconds)
+            $recent_dup = $this->db->where('loan_id', $data['loan_id'])
+                                   ->where('total_amount', $data['total_amount'])
+                                   ->where('is_reversed', 0)
+                                   ->where('created_at >', date('Y-m-d H:i:s', time() - 60))
+                                   ->count_all_results('loan_payments');
+            if ($recent_dup > 0) {
+                throw new Exception('Duplicate payment detected. A payment of the same amount was recorded within the last 60 seconds.');
             }
             
             // Generate payment code
@@ -533,11 +570,20 @@ class Loan_model extends MY_Model {
             
             // If a specific installment is targeted, allocate based on installment amounts
             // This prevents constraint violations (interest_paid <= interest_amount, etc.)
+            $use_loan_level = true; // LOAN-14 FIX: Replace goto with flag
+            
             if (!empty($data['installment_id'])) {
                 $target_inst = $this->db->where('id', $data['installment_id'])
                                         ->get('loan_installments')
                                         ->row();
+                
+                // LOAN-12 FIX: Verify installment belongs to this loan
+                if ($target_inst && (int)$target_inst->loan_id !== (int)$data['loan_id']) {
+                    throw new Exception('Installment #' . $data['installment_id'] . ' does not belong to loan #' . $data['loan_id']);
+                }
+                
                 if ($target_inst) {
+                    $use_loan_level = false;
                     $inst_interest_pending = max(0, $target_inst->interest_amount - ($target_inst->interest_paid ?? 0));
                     $inst_principal_pending = max(0, $target_inst->principal_amount - ($target_inst->principal_paid ?? 0));
                     
@@ -556,13 +602,12 @@ class Loan_model extends MY_Model {
                         $fine_paid = min($loan->outstanding_fine, $amount);
                         $amount -= $fine_paid;
                     }
-                } else {
-                    // Installment not found, fall through to loan-level allocation
-                    goto loan_level_allocation;
                 }
-            } else {
+                // If installment not found, fall through to loan-level allocation
+            }
+            
+            if ($use_loan_level) {
                 // Loan-level allocation when no specific installment
-                loan_level_allocation:
                 // Pay interest first (RBI compliance)
                 if ($loan->outstanding_interest > 0 && $amount > 0) {
                     $interest_paid = min($loan->outstanding_interest, $amount);
@@ -646,11 +691,14 @@ class Loan_model extends MY_Model {
     
     /**
      * Update Installment Payment
+     * LOAN-9 FIX: Added SELECT FOR UPDATE to prevent concurrent partial payment corruption
      */
     private function update_installment_payment($installment_id, $principal, $interest, $fine) {
-        $installment = $this->db->where('id', $installment_id)
-                                ->get('loan_installments')
-                                ->row();
+        // LOAN-9 FIX: Lock installment row within the active transaction
+        $installment = $this->db->query(
+            'SELECT * FROM loan_installments WHERE id = ? FOR UPDATE',
+            [$installment_id]
+        )->row();
         
         if (!$installment) return false;
         
@@ -1129,7 +1177,8 @@ class Loan_model extends MY_Model {
         // Recalculate EMI for remaining tenure
         $monthly_rate = ($loan->interest_rate / 12) / 100;
         
-        if ($loan->interest_type === 'reducing_balance' || $loan->interest_type === 'reducing_monthly') {
+        // LOAN-6 FIX: Use correct ENUM values ('reducing', 'reducing_monthly')
+        if ($loan->interest_type === 'reducing' || $loan->interest_type === 'reducing_monthly') {
             // Recalculate EMI using reducing balance formula
             if ($monthly_rate > 0) {
                 $new_emi = $outstanding_principal * $monthly_rate * pow(1 + $monthly_rate, $remaining_count) 
@@ -1342,6 +1391,7 @@ class Loan_model extends MY_Model {
     
     /**
      * Get Overdue Loans
+     * LOAN-7 FIX: Include 'upcoming' installments past due date (not just 'pending')
      */
     public function get_overdue_loans() {
         $overdue = $this->db->select('
@@ -1362,7 +1412,7 @@ class Loan_model extends MY_Model {
                    AND status NOT IN ("cancelled","waived")
                  GROUP BY related_id) f_sum', 'f_sum.related_id = li.id', 'left')
         ->where('l.status', 'active')
-        ->where('li.status', 'pending')
+        ->where_in('li.status', ['pending', 'upcoming', 'partial'])
         ->where('li.due_date <', date('Y-m-d'))
         ->group_by('l.id')
         ->order_by('li.due_date', 'ASC')
@@ -1413,6 +1463,7 @@ class Loan_model extends MY_Model {
     
     /**
      * Get Due Today
+     * LOAN-7 FIX: Include 'upcoming' installments (not just 'pending')
      */
     public function get_due_today() {
         return $this->db->select('
@@ -1424,7 +1475,7 @@ class Loan_model extends MY_Model {
         ->join('loans l', 'l.id = li.loan_id')
         ->join('members m', 'm.id = l.member_id')
         ->where('li.due_date', date('Y-m-d'))
-        ->where('li.status', 'pending')
+        ->where_in('li.status', ['pending', 'upcoming'])
         ->get()
         ->result();
     }
@@ -1494,11 +1545,12 @@ class Loan_model extends MY_Model {
                                                ->total_amount ?? 0;
         
         // Overdue Amount
+        // LOAN-7 FIX: Include 'upcoming' installments past due date
         $stats['overdue_amount'] = $this->db->select('SUM(li.emi_amount - li.total_paid) as overdue')
                                             ->from('loan_installments li')
                                             ->join('loans l', 'l.id = li.loan_id')
                                             ->where('l.status', 'active')
-                                            ->where('li.status', 'pending')
+                                            ->where_in('li.status', ['pending', 'upcoming', 'partial'])
                                             ->where('li.due_date <', date('Y-m-d'))
                                             ->get()
                                             ->row()
@@ -1517,12 +1569,14 @@ class Loan_model extends MY_Model {
         }
 
         $outstanding_principal = $loan->outstanding_principal ?? 0;
+        // LOAN-4 FIX: Include outstanding interest in foreclosure calculation
+        $outstanding_interest = $loan->outstanding_interest ?? 0;
 
-        // Get prepayment charge percentage from settings
-        $prepayment_percentage = $this->db->where('setting_key', 'prepayment_charge_percentage')
-                                         ->get('system_settings')
-                                         ->row()
-                                         ->setting_value ?? 2; // Default 2%
+        // LOAN-13 FIX: Prepayment charge defaults to 0% (not 2%)
+        $prepayment_row = $this->db->where('setting_key', 'prepayment_charge_percentage')
+                                   ->get('system_settings')
+                                   ->row();
+        $prepayment_percentage = $prepayment_row ? (float)$prepayment_row->setting_value : 0;
 
         $prepayment_charge = ($outstanding_principal * $prepayment_percentage) / 100;
 
@@ -1536,10 +1590,12 @@ class Loan_model extends MY_Model {
                                   ->row()
                                   ->fine_amount ?? 0;
 
-        $total_amount = $outstanding_principal + $prepayment_charge + $pending_fines;
+        // LOAN-4 FIX: Total includes outstanding_interest
+        $total_amount = $outstanding_principal + $outstanding_interest + $prepayment_charge + $pending_fines;
 
         return [
             'outstanding_principal' => $outstanding_principal,
+            'outstanding_interest' => $outstanding_interest,
             'prepayment_charge' => $prepayment_charge,
             'prepayment_percentage' => $prepayment_percentage,
             'pending_fines' => $pending_fines,
@@ -1633,21 +1689,35 @@ class Loan_model extends MY_Model {
         if ($action === 'approve') {
             $update_data['status'] = 'approved';
 
-            // Update loan status to closed
+            // LOAN-5 FIX: Use correct column names (closure_date, closure_type)
             $this->db->where('id', $request->loan_id)
                     ->update('loans', [
-                        'status' => 'closed',
-                        'closed_at' => date('Y-m-d H:i:s'),
-                        'closure_reason' => 'foreclosure'
+                        'status' => 'foreclosed',
+                        'closure_date' => date('Y-m-d'),
+                        'closure_type' => 'foreclosure',
+                        'closure_remarks' => $comments,
+                        'closed_by' => $admin_id,
+                        'updated_at' => date('Y-m-d H:i:s')
                     ]);
 
-            // Mark associated fines as paid (since they're included in foreclosure)
-            $this->db->where('loan_id', $request->loan_id)
-                    ->where('status', 'pending')
-                    ->update('fines', [
-                        'status' => 'paid',
-                        'paid_at' => date('Y-m-d H:i:s')
-                    ]);
+            // Release guarantors on foreclosure
+            $this->release_guarantors($request->loan_id);
+
+            // Mark associated fines as paid (join through installments since fines has no loan_id)
+            $installment_ids = $this->db->select('id')
+                                       ->where('loan_id', $request->loan_id)
+                                       ->get('loan_installments')
+                                       ->result_array();
+            if (!empty($installment_ids)) {
+                $inst_ids = array_column($installment_ids, 'id');
+                $this->db->where('related_type', 'loan_installment')
+                        ->where_in('related_id', $inst_ids)
+                        ->where('status', 'pending')
+                        ->update('fines', [
+                            'status' => 'paid',
+                            'payment_date' => date('Y-m-d')
+                        ]);
+            }
 
         } elseif ($action === 'reject') {
             $update_data['status'] = 'rejected';

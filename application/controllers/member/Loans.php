@@ -606,12 +606,26 @@ class Loans extends Member_Controller {
 
     /**
      * Get pending fines for a specific loan
+     * SCH-5 FIX: fines.related_id stores installment IDs, not loan IDs.
+     * Look up installments first, then query fines by those IDs.
      */
     private function _get_pending_fines_for_loan($loan_id) {
+        // Get all installment IDs for this loan
+        $installments = $this->db->select('id')
+                                 ->where('loan_id', $loan_id)
+                                 ->get('loan_installments')
+                                 ->result_array();
+
+        if (empty($installments)) {
+            return 0;
+        }
+
+        $inst_ids = array_column($installments, 'id');
+
         $fines = $this->db->select('SUM(fine_amount - COALESCE(paid_amount, 0) - COALESCE(waived_amount, 0)) as pending_fines')
                          ->from('fines')
                          ->where('related_type', 'loan_installment')
-                         ->where('related_id', $loan_id)
+                         ->where_in('related_id', $inst_ids)
                          ->where_in('status', ['pending', 'partial'])
                          ->get()
                          ->row();
