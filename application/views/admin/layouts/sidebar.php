@@ -412,6 +412,25 @@
                     </li>
                     <?php endif; ?>
 
+                    <!-- Notifications -->
+                    <li class="nav-item">
+                        <a href="<?= base_url('admin/notifications') ?>" class="nav-link <?= ($this->uri->segment(2) == 'notifications') ? 'active' : '' ?>">
+                            <i class="nav-icon fas fa-bell"></i>
+                            <p>
+                                Notifications
+                                <?php
+                                    $CI =& get_instance();
+                                    $CI->load->model('Notification_model');
+                                    $admin_id = $CI->session->userdata('admin_id');
+                                    $unread_count = $CI->Notification_model->count_unread('admin', $admin_id);
+                                    if ($unread_count > 0):
+                                ?>
+                                <span class="badge badge-danger right"><?= $unread_count ?></span>
+                                <?php endif; ?>
+                            </p>
+                        </a>
+                    </li>
+
                     <!-- Settings -->
                     <li class="nav-item <?= in_array($this->uri->segment(2), ['settings', 'users']) ? 'menu-open' : '' ?>">
                         <a href="#" class="nav-link <?= in_array($this->uri->segment(2), ['settings', 'users']) ? 'active' : '' ?>">

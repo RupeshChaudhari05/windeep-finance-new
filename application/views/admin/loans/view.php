@@ -203,6 +203,7 @@
                                         <th class="text-right">Balance</th>
                                         <th>Status</th>
                                         <th>Paid Date</th>
+                                        <th>Reference</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -227,7 +228,16 @@
                                             <?php endif; ?>
                                         </td>
                                         <td>
-                                            <?= $emi->paid_date ? format_date($emi->paid_date) : '-' ?>
+                                            <?= ($emi->actual_payment_date ?? $emi->paid_date) ? format_date($emi->actual_payment_date ?? $emi->paid_date) : '-' ?>
+                                        </td>
+                                        <td>
+                                            <?php if (!empty($emi->payment_reference)): ?>
+                                                <small class="text-info" title="Bank/Payment Reference"><?= htmlspecialchars($emi->payment_reference) ?></small>
+                                            <?php elseif (!empty($emi->bank_transaction_id)): ?>
+                                                <small class="text-info"><i class="fas fa-university"></i> Bank #<?= $emi->bank_transaction_id ?></small>
+                                            <?php else: ?>
+                                                -
+                                            <?php endif; ?>
                                         </td>
                                     </tr>
                                     <?php endforeach; ?>

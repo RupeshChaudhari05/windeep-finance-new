@@ -233,6 +233,9 @@ class Fines extends Admin_Controller {
             $data['selected_member'] = $this->Member_model->get_by_id($member_id);
         }
         
+        // Load fine rules for the reference panel
+        $data['fine_rules'] = $this->db->get('fine_rules')->result();
+        
         $this->load_view('admin/fines/create', $data);
     }
     
@@ -248,6 +251,7 @@ class Fines extends Admin_Controller {
         $this->form_validation->set_rules('member_id', 'Member', 'required|numeric');
         $this->form_validation->set_rules('fine_type', 'Fine Type', 'required');
         $this->form_validation->set_rules('fine_amount', 'Fine Amount', 'required|numeric|greater_than[0]');
+        $this->form_validation->set_rules('remarks', 'Reason / Remarks', 'required|max_length[255]');
         
         if ($this->form_validation->run() === FALSE) {
             $this->session->set_flashdata('error', validation_errors());

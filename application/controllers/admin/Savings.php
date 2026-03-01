@@ -883,4 +883,18 @@ class Savings extends Admin_Controller {
             'notification_sent' => $notification_sent
         ]);
     }
+    
+    /**
+     * Get member's savings accounts (AJAX - used by Fines create, etc.)
+     */
+    public function get_member_accounts($member_id) {
+        $accounts = $this->db->select('id, account_number, current_balance, status')
+                             ->where('member_id', $member_id)
+                             ->where('status', 'active')
+                             ->get('savings_accounts')
+                             ->result();
+        $this->output
+             ->set_content_type('application/json')
+             ->set_output(json_encode($accounts));
+    }
 }

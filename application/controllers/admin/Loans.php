@@ -126,6 +126,39 @@ class Loans extends Admin_Controller {
             $inst->interest_component = $inst->interest_component ?? 0;
             $inst->outstanding_after = $inst->outstanding_after ?? 0;
             $inst->emi_amount = $inst->emi_amount ?? ($inst->principal_component + $inst->interest_component);
+
+            // Fetch actual payment date – prefer bank passbook date (transaction_date) over system payment_date
+            if ($inst->status === 'paid' || $inst->status === 'partial') {
+                $pmt_row = $this->db->select('payment_date, bank_transaction_id, reference_number')
+                                    ->where('installment_id', $inst->id)
+                                    ->where('is_reversed', 0)
+                                    ->order_by('payment_date', 'DESC')
+                                    ->get('loan_payments')
+                                    ->row();
+
+                // If payment is linked to a bank transaction, use passbook date
+                $passbook_date = null;
+                if ($pmt_row && !empty($pmt_row->bank_transaction_id)) {
+                    $bt = $this->db->select('transaction_date')
+                                   ->where('id', $pmt_row->bank_transaction_id)
+                                   ->get('bank_transactions')
+                                   ->row();
+                    if ($bt) {
+                        $passbook_date = $bt->transaction_date;
+                    }
+                }
+
+                // Priority: passbook date → payment date → installment paid_date
+                $inst->actual_payment_date = $passbook_date
+                    ?? ($pmt_row ? $pmt_row->payment_date : null)
+                    ?? ($inst->paid_date ?? null);
+                $inst->bank_transaction_id = $pmt_row ? $pmt_row->bank_transaction_id : null;
+                $inst->payment_reference = $pmt_row ? $pmt_row->reference_number : null;
+            } else {
+                $inst->actual_payment_date = null;
+                $inst->bank_transaction_id = null;
+                $inst->payment_reference = null;
+            }
         }
         unset($inst);
 
@@ -694,9 +727,23 @@ class Loans extends Admin_Controller {
         }
         
         try {
+            $installment_id = $this->input->post('installment_id');
+            
+            // Auto-detect next pending/overdue installment if not provided
+            if (empty($installment_id)) {
+                $loan_id = $this->input->post('loan_id');
+                $next_inst = $this->db->where('loan_id', $loan_id)
+                                      ->where_in('status', ['overdue', 'pending', 'partial'])
+                                      ->order_by('installment_number', 'ASC')
+                                      ->limit(1)
+                                      ->get('loan_installments')
+                                      ->row();
+                $installment_id = $next_inst ? $next_inst->id : null;
+            }
+            
             $payment_data = [
                 'loan_id' => $this->input->post('loan_id'),
-                'installment_id' => $this->input->post('installment_id'),
+                'installment_id' => $installment_id ?: null,
                 'total_amount' => $this->input->post('total_amount'),
                 'payment_mode' => $this->input->post('payment_mode'),
                 'payment_type' => $this->input->post('payment_type') ?: 'regular',
@@ -1367,6 +1414,16 @@ class Loans extends Admin_Controller {
         $data['title'] = 'Payment Receipt - ' . $payment->payment_code;
         
         $this->load->view('admin/loans/payment_receipt', $data);
+    }
+    
+    /**
+     * Get member's loans (AJAX - used by Fines create, etc.)
+     */
+    public function get_member_loans($member_id) {
+        $loans = $this->Loan_model->get_member_loans($member_id);
+        $this->output
+             ->set_content_type('application/json')
+             ->set_output(json_encode($loans));
     }
 }
 

@@ -80,10 +80,10 @@
                     </div>
                     
                     <div class="form-group">
-                        <label for="reason">Reason <span class="text-danger">*</span></label>
-                        <textarea class="form-control" id="reason" name="reason" rows="3" required
-                                  placeholder="Provide detailed reason for the fine"><?= set_value('reason') ?></textarea>
-                        <span class="text-danger"><?= form_error('reason') ?></span>
+                        <label for="remarks">Reason / Remarks <span class="text-danger">*</span></label>
+                        <textarea class="form-control" id="remarks" name="remarks" rows="3" required
+                                  placeholder="Provide detailed reason for the fine"><?= set_value('remarks') ?></textarea>
+                        <span class="text-danger"><?= form_error('remarks') ?></span>
                     </div>
                     
                     <!-- Collect Now -->
@@ -223,7 +223,7 @@ $(document).ready(function() {
     $('#fineForm').on('submit', function(e) {
         var memberId = $('#member_id').val();
         var amount = $('#fine_amount').val();
-        var reason = $('#reason').val();
+        var reason = $('#remarks').val();
         
         if (!memberId || !amount || !reason) {
             e.preventDefault();

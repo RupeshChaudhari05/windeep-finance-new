@@ -116,7 +116,36 @@ $(document).ready(function() {
         $('.alert').not('.alert-permanent').fadeOut('slow');
     }, 5000);
 
-    // Admin Notification Polling
+    // ===== Admin Notification Polling =====
+    function notifTimeAgo(dateStr) {
+        if (!dateStr) return '';
+        var now = new Date();
+        var past = new Date(dateStr);
+        var diff = Math.floor((now - past) / 1000);
+        if (diff < 60) return 'Just now';
+        if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+        if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+        if (diff < 604800) return Math.floor(diff / 86400) + 'd ago';
+        return past.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+    }
+
+    function notifIcon(type) {
+        var map = {
+            'loan_approved':      { icon: 'fas fa-check-circle',      bg: 'bg-success' },
+            'loan_disbursed':     { icon: 'fas fa-money-bill-wave',   bg: 'bg-success' },
+            'loan_rejected':      { icon: 'fas fa-times-circle',      bg: 'bg-danger' },
+            'payment_received':   { icon: 'fas fa-hand-holding-usd',  bg: 'bg-info' },
+            'payment_overdue':    { icon: 'fas fa-exclamation-triangle', bg: 'bg-warning' },
+            'emi_due':            { icon: 'fas fa-calendar-exclamation', bg: 'bg-warning' },
+            'guarantor_request':  { icon: 'fas fa-user-shield',       bg: 'bg-primary' },
+            'member':             { icon: 'fas fa-user',              bg: 'bg-info' },
+            'savings':            { icon: 'fas fa-piggy-bank',        bg: 'bg-success' },
+            'fine':               { icon: 'fas fa-gavel',             bg: 'bg-danger' },
+            'system':             { icon: 'fas fa-cog',               bg: 'bg-secondary' }
+        };
+        return map[type] || { icon: 'fas fa-bell', bg: 'bg-primary' };
+    }
+
     function loadAdminNotifications() {
         $.getJSON('<?= site_url('admin/dashboard/notifications') ?>', function(data) {
             var list = $('.notification-list');
@@ -124,21 +153,29 @@ $(document).ready(function() {
             list.empty();
             if (data && data.length) {
                 data.forEach(function(n) {
-                    var cls = n.is_read ? 'text-muted' : 'font-weight-bold';
-                    var item = '<a href="#" class="dropdown-item ' + cls + '">' +
-                        '<div><strong>' + (n.title || 'Notification') + '</strong></div>' +
-                        '<div class="small text-muted">' + (n.message || '').substring(0, 80) + '</div>' +
-                        '<div class="small text-muted">' + (n.created_at || '') + '</div>' +
-                        '</a>';
-                    list.append(item);
+                    var ic = notifIcon(n.notification_type || n.type);
+                    var unreadCls = n.is_read ? '' : ' unread';
+                    var html = '<a href="#" class="notif-item' + unreadCls + '" data-id="' + (n.id || '') + '">' +
+                        '<div class="notif-icon ' + ic.bg + '"><i class="' + ic.icon + '"></i></div>' +
+                        '<div class="notif-content">' +
+                            '<div class="notif-title">' + $('<span>').text(n.title || 'Notification').html() + '</div>' +
+                            '<div class="notif-msg">' + $('<span>').text((n.message || '').substring(0, 120)).html() + '</div>' +
+                            '<div class="notif-time"><i class="far fa-clock"></i>' + notifTimeAgo(n.created_at) + '</div>' +
+                        '</div>' +
+                    '</a>';
+                    list.append(html);
                     if (!n.is_read) count++;
                 });
             } else {
-                list.append('<a href="#" class="dropdown-item text-center text-muted"><small>No new notifications</small></a>');
+                list.html('<div class="notif-empty text-center py-4">' +
+                    '<i class="far fa-bell-slash fa-2x text-muted mb-2"></i>' +
+                    '<p class="text-muted mb-0">No new notifications</p></div>');
             }
-            $('.notification-count').text(count > 0 ? count : '0');
+            var badge = $('.notification-count');
             if (count > 0) {
-                $('.notification-count').show();
+                badge.text(count > 99 ? '99+' : count).attr('data-active', 'true').show();
+            } else {
+                badge.text('0').attr('data-active', 'false').hide();
             }
         });
     }

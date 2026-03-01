@@ -66,6 +66,134 @@
             position: absolute;
             right: 10px;
         }
+
+        /* ===== Notification Dropdown Styles ===== */
+        .notif-dropdown-menu {
+            width: 380px;
+            max-width: 95vw;
+            padding: 0;
+            border: none;
+            border-radius: 8px;
+            box-shadow: 0 4px 25px rgba(0,0,0,.15);
+            overflow: hidden;
+        }
+        .notif-dropdown-header {
+            background: linear-gradient(135deg, #007bff, #0056b3);
+            color: #fff;
+            padding: 12px 16px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        .notif-dropdown-header .btn-mark-all-read {
+            color: rgba(255,255,255,.8);
+            text-decoration: none;
+            font-weight: 400;
+            transition: color .2s;
+        }
+        .notif-dropdown-header .btn-mark-all-read:hover { color: #fff; }
+        .notif-scroll-area {
+            max-height: 360px;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+        }
+        .notif-scroll-area::-webkit-scrollbar { width: 5px; }
+        .notif-scroll-area::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 10px; }
+
+        .notif-item {
+            display: flex;
+            align-items: flex-start;
+            padding: 12px 16px;
+            border-bottom: 1px solid #f4f4f4;
+            text-decoration: none;
+            color: #333;
+            transition: background .15s;
+            cursor: pointer;
+        }
+        .notif-item:hover { background: #f0f7ff; text-decoration: none; color: #333; }
+        .notif-item.unread { background: #f8f9ff; }
+        .notif-item.unread::before {
+            content: '';
+            position: absolute;
+            left: 6px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 6px;
+            height: 6px;
+            background: #007bff;
+            border-radius: 50%;
+        }
+        .notif-item { position: relative; padding-left: 20px; }
+
+        .notif-icon {
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            margin-right: 12px;
+            font-size: 15px;
+            color: #fff;
+        }
+        .notif-icon.bg-info    { background: #17a2b8 !important; }
+        .notif-icon.bg-success { background: #28a745 !important; }
+        .notif-icon.bg-warning { background: #ffc107 !important; color: #856404 !important; }
+        .notif-icon.bg-danger  { background: #dc3545 !important; }
+        .notif-icon.bg-primary { background: #007bff !important; }
+
+        .notif-content { flex: 1; min-width: 0; }
+        .notif-title {
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .notif-msg {
+            font-size: 12px;
+            color: #6c757d;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            line-height: 1.4;
+            margin-bottom: 3px;
+        }
+        .notif-time {
+            font-size: 11px;
+            color: #adb5bd;
+        }
+        .notif-time i { margin-right: 3px; }
+
+        .notif-dropdown-footer {
+            text-align: center;
+            padding: 10px;
+            background: #f8f9fa;
+            border-top: 1px solid #eee;
+        }
+        .notif-dropdown-footer a {
+            color: #007bff;
+            font-size: 13px;
+            font-weight: 600;
+            text-decoration: none;
+        }
+        .notif-dropdown-footer a:hover { text-decoration: underline; }
+
+        .notif-empty { padding: 30px 16px; }
+        .notif-empty i { display: block; color: #ccc; }
+        .notif-empty p { font-size: 13px; }
+
+        /* Notification badge pulse animation */
+        .notification-count[data-active="true"],
+        .member-notification-count[data-active="true"] {
+            animation: notif-pulse 2s ease-in-out infinite;
+        }
+        @keyframes notif-pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+        }
     </style>
     
     <?php if (isset($extra_css)): ?>
@@ -126,21 +254,25 @@
             </li>
 
             <!-- Notifications Dropdown Menu -->
-            <li class="nav-item dropdown">
-                <a class="nav-link" data-toggle="dropdown" href="#" data-toggle="tooltip" title="Notifications">
+            <li class="nav-item dropdown notif-dropdown">
+                <a class="nav-link" data-toggle="dropdown" href="#" title="Notifications">
                     <i class="far fa-bell"></i>
-                    <span class="badge badge-warning navbar-badge notification-count">0</span>
+                    <span class="badge badge-danger navbar-badge notification-count" style="display:none;">0</span>
                 </a>
-                <div class="dropdown-menu dropdown-menu-lg dropdown-menu-right">
-                    <span class="dropdown-header">Notifications</span>
-                    <div class="dropdown-divider"></div>
-                    <div class="notification-list">
-                        <a href="#" class="dropdown-item text-center text-muted">
-                            <small>No new notifications</small>
-                        </a>
+                <div class="dropdown-menu dropdown-menu-right notif-dropdown-menu">
+                    <div class="notif-dropdown-header d-flex justify-content-between align-items-center">
+                        <span><i class="fas fa-bell mr-1"></i> Notifications</span>
+                        <a href="#" class="btn-mark-all-read text-sm" title="Mark all as read"><i class="fas fa-check-double"></i> Mark all read</a>
                     </div>
-                    <div class="dropdown-divider"></div>
-                    <a href="<?= base_url('admin/notifications') ?>" class="dropdown-item dropdown-footer">See All Notifications</a>
+                    <div class="notification-list notif-scroll-area">
+                        <div class="notif-empty text-center py-4">
+                            <i class="far fa-bell-slash fa-2x text-muted mb-2"></i>
+                            <p class="text-muted mb-0">No new notifications</p>
+                        </div>
+                    </div>
+                    <div class="notif-dropdown-footer">
+                        <a href="<?= base_url('admin/notifications') ?>">View All Notifications <i class="fas fa-arrow-right ml-1"></i></a>
+                    </div>
                 </div>
             </li>
 

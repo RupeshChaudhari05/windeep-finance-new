@@ -632,6 +632,220 @@ class Loan_model extends MY_Model {
             $data['fine_component'] = $fine_paid;
             $data['excess_amount'] = $amount;
             
+            // ─── Smart Payment Handling: Underpayment & Overpayment ───
+            // Determine EMI shortfall or excess based on the target installment
+            $emi_shortfall = 0;
+            $emi_excess = 0;
+            $savings_adjustment_log = null;
+            
+            if (!empty($data['installment_id']) && isset($target_inst)) {
+                $emi_total_due = $target_inst->emi_amount - ($target_inst->total_paid ?? 0);
+                $actual_paid_for_emi = $interest_paid + $principal_paid;
+                
+                if ($actual_paid_for_emi < $emi_total_due && $emi_total_due > 0) {
+                    // UNDERPAYMENT: Member paid less than EMI
+                    $emi_shortfall = $emi_total_due - $actual_paid_for_emi;
+                } elseif ($amount > 0) {
+                    // OVERPAYMENT: Excess money after covering EMI + fines
+                    $emi_excess = $amount;
+                }
+            } elseif ($amount > 0) {
+                // Excess after loan-level allocation (no specific installment)
+                $emi_excess = $amount;
+            }
+            
+            // Handle UNDERPAYMENT: deduct shortfall from savings or go negative
+            if ($emi_shortfall > 0) {
+                $this->load->model('Savings_model');
+                $savings_accounts = $this->db->where('member_id', $loan->member_id)
+                                             ->where('status', 'active')
+                                             ->order_by('current_balance', 'DESC')
+                                             ->get('savings_accounts')
+                                             ->result();
+                
+                $covered_from_savings = 0;
+                $savings_details = [];
+                
+                foreach ($savings_accounts as $sa) {
+                    if ($emi_shortfall <= 0) break;
+                    
+                    $available = max(0, $sa->current_balance);
+                    if ($available <= 0) continue;
+                    
+                    $deduct = min($available, $emi_shortfall);
+                    
+                    // Withdraw from savings
+                    $this->db->query(
+                        "UPDATE savings_accounts SET current_balance = current_balance - ?, updated_at = NOW() WHERE id = ?",
+                        [$deduct, $sa->id]
+                    );
+                    
+                    // Record savings transaction
+                    $this->db->insert('savings_transactions', [
+                        'transaction_code' => 'STX-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -6)),
+                        'savings_account_id' => $sa->id,
+                        'transaction_type' => 'withdrawal',
+                        'amount' => $deduct,
+                        'balance_after' => $sa->current_balance - $deduct,
+                        'payment_mode' => 'adjustment',
+                        'transaction_date' => date('Y-m-d'),
+                        'narration' => 'Auto-deducted for loan EMI shortfall. Loan: ' . $loan->loan_number . '. EMI due: ' . format_amount($emi_total_due) . ', Paid: ' . format_amount($actual_paid_for_emi) . ', Shortfall covered: ' . format_amount($deduct),
+                        'created_by' => $data['created_by'] ?? null,
+                        'created_at' => date('Y-m-d H:i:s')
+                    ]);
+                    
+                    $covered_from_savings += $deduct;
+                    $emi_shortfall -= $deduct;
+                    $savings_details[] = [
+                        'account_id' => $sa->id,
+                        'account_number' => $sa->account_number,
+                        'amount_deducted' => $deduct
+                    ];
+                }
+                
+                // If still shortfall after exhausting savings, apply remaining as additional loan payment from savings
+                // The remaining shortfall means member's loan remains partially unpaid
+                // Record the savings contributions as additional loan payment components
+                if ($covered_from_savings > 0) {
+                    // Distribute savings contribution to loan: interest first, then principal
+                    $savings_to_interest = 0;
+                    $savings_to_principal = 0;
+                    $remaining_savings = $covered_from_savings;
+                    
+                    $remaining_inst_interest = max(0, $target_inst->interest_amount - ($target_inst->interest_paid ?? 0) - $interest_paid);
+                    if ($remaining_inst_interest > 0 && $remaining_savings > 0) {
+                        $savings_to_interest = min($remaining_inst_interest, $remaining_savings);
+                        $remaining_savings -= $savings_to_interest;
+                    }
+                    $remaining_inst_principal = max(0, $target_inst->principal_amount - ($target_inst->principal_paid ?? 0) - $principal_paid);
+                    if ($remaining_inst_principal > 0 && $remaining_savings > 0) {
+                        $savings_to_principal = min($remaining_inst_principal, $remaining_savings);
+                        $remaining_savings -= $savings_to_principal;
+                    }
+                    
+                    // Update payment components
+                    $interest_paid += $savings_to_interest;
+                    $principal_paid += $savings_to_principal;
+                    $data['principal_component'] = $principal_paid;
+                    $data['interest_component'] = $interest_paid;
+                    
+                    // Recalculate outstanding
+                    $new_outstanding_principal = $loan->outstanding_principal - $principal_paid;
+                    $new_outstanding_interest = $loan->outstanding_interest - $interest_paid;
+                    
+                    $savings_adjustment_log = [
+                        'type' => 'underpayment',
+                        'shortfall' => $emi_total_due - $actual_paid_for_emi,
+                        'covered_from_savings' => $covered_from_savings,
+                        'remaining_shortfall' => $emi_shortfall,
+                        'savings_accounts_used' => $savings_details,
+                        'loan_id' => $loan->id,
+                        'loan_number' => $loan->loan_number
+                    ];
+                }
+                
+                // If shortfall still remains, go negative on primary savings account
+                if ($emi_shortfall > 0 && !empty($savings_accounts)) {
+                    $primary_sa = $savings_accounts[0];
+                    
+                    $this->db->query(
+                        "UPDATE savings_accounts SET current_balance = current_balance - ?, updated_at = NOW() WHERE id = ?",
+                        [$emi_shortfall, $primary_sa->id]
+                    );
+                    
+                    $neg_balance = $this->db->select('current_balance')->where('id', $primary_sa->id)->get('savings_accounts')->row()->current_balance;
+                    
+                    $this->db->insert('savings_transactions', [
+                        'transaction_code' => 'STX-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -6)),
+                        'savings_account_id' => $primary_sa->id,
+                        'transaction_type' => 'withdrawal',
+                        'amount' => $emi_shortfall,
+                        'balance_after' => $neg_balance,
+                        'payment_mode' => 'adjustment',
+                        'transaction_date' => date('Y-m-d'),
+                        'narration' => 'Negative balance: Loan EMI shortfall (no savings available). Loan: ' . $loan->loan_number . '. Remaining shortfall: ' . format_amount($emi_shortfall) . '. Balance went negative.',
+                        'created_by' => $data['created_by'] ?? null,
+                        'created_at' => date('Y-m-d H:i:s')
+                    ]);
+                    
+                    // Apply to loan
+                    $remaining_inst_interest2 = max(0, $target_inst->interest_amount - ($target_inst->interest_paid ?? 0) - $interest_paid);
+                    $savings_to_interest2 = min($remaining_inst_interest2, $emi_shortfall);
+                    $savings_to_principal2 = $emi_shortfall - $savings_to_interest2;
+                    
+                    $interest_paid += $savings_to_interest2;
+                    $principal_paid += $savings_to_principal2;
+                    $data['principal_component'] = $principal_paid;
+                    $data['interest_component'] = $interest_paid;
+                    
+                    $new_outstanding_principal = $loan->outstanding_principal - $principal_paid;
+                    $new_outstanding_interest = $loan->outstanding_interest - $interest_paid;
+                    
+                    if (!$savings_adjustment_log) $savings_adjustment_log = ['type' => 'underpayment'];
+                    $savings_adjustment_log['negative_balance'] = true;
+                    $savings_adjustment_log['negative_amount'] = $emi_shortfall;
+                    $savings_adjustment_log['account_number'] = $primary_sa->account_number;
+                }
+            }
+            
+            // Handle OVERPAYMENT: add excess to savings account
+            if ($emi_excess > 0) {
+                $this->load->model('Savings_model');
+                $savings_account = $this->db->where('member_id', $loan->member_id)
+                                            ->where('status', 'active')
+                                            ->order_by('current_balance', 'DESC')
+                                            ->get('savings_accounts')
+                                            ->row();
+                
+                if ($savings_account) {
+                    // Credit excess to savings
+                    $this->db->query(
+                        "UPDATE savings_accounts SET current_balance = current_balance + ?, total_deposited = total_deposited + ?, updated_at = NOW() WHERE id = ?",
+                        [$emi_excess, $emi_excess, $savings_account->id]
+                    );
+                    
+                    $new_sav_balance = $this->db->select('current_balance')->where('id', $savings_account->id)->get('savings_accounts')->row()->current_balance;
+                    
+                    $this->db->insert('savings_transactions', [
+                        'transaction_code' => 'STX-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -6)),
+                        'savings_account_id' => $savings_account->id,
+                        'transaction_type' => 'deposit',
+                        'amount' => $emi_excess,
+                        'balance_after' => $new_sav_balance,
+                        'payment_mode' => 'adjustment',
+                        'transaction_date' => date('Y-m-d'),
+                        'narration' => 'Overpayment from loan EMI credited to savings. Loan: ' . $loan->loan_number . '. EMI amount: ' . format_amount(isset($target_inst) ? $target_inst->emi_amount : $loan->emi_amount) . ', Total paid: ' . format_amount($data['total_amount']) . ', Excess: ' . format_amount($emi_excess),
+                        'created_by' => $data['created_by'] ?? null,
+                        'created_at' => date('Y-m-d H:i:s')
+                    ]);
+                    
+                    $data['excess_amount'] = 0;
+                    $amount = 0;
+                    
+                    $savings_adjustment_log = [
+                        'type' => 'overpayment',
+                        'excess_amount' => $emi_excess,
+                        'credited_to_savings' => $savings_account->account_number,
+                        'loan_id' => $loan->id,
+                        'loan_number' => $loan->loan_number
+                    ];
+                }
+            }
+            
+            // Store savings adjustment info in narration for audit trail
+            if ($savings_adjustment_log) {
+                $adj_narration = $data['narration'] ?? '';
+                if ($savings_adjustment_log['type'] === 'underpayment') {
+                    $adj_narration .= ' | Savings adjustment: Shortfall of ' . format_amount($savings_adjustment_log['shortfall'] ?? 0) . ' covered from savings (' . format_amount($savings_adjustment_log['covered_from_savings'] ?? 0) . ')';
+                    if (!empty($savings_adjustment_log['negative_balance'])) {
+                        $adj_narration .= ' | NEGATIVE BALANCE on ' . ($savings_adjustment_log['account_number'] ?? 'savings') . ': ' . format_amount($savings_adjustment_log['negative_amount'] ?? 0);
+                    }
+                } elseif ($savings_adjustment_log['type'] === 'overpayment') {
+                    $adj_narration .= ' | Excess ' . format_amount($savings_adjustment_log['excess_amount']) . ' credited to savings ' . $savings_adjustment_log['credited_to_savings'];
+                }
+                $data['narration'] = trim($adj_narration, ' |');
+            }
+            
             // New outstanding amounts
             $new_outstanding_principal = $loan->outstanding_principal - $principal_paid;
             $new_outstanding_interest = $loan->outstanding_interest - $interest_paid;
@@ -640,6 +854,11 @@ class Loan_model extends MY_Model {
             $data['outstanding_principal_after'] = $new_outstanding_principal;
             $data['outstanding_interest_after'] = $new_outstanding_interest;
             $data['created_at'] = date('Y-m-d H:i:s');
+            
+            // Sanitize installment_id: empty string → NULL (FK constraint)
+            if (empty($data['installment_id'])) {
+                $data['installment_id'] = null;
+            }
             
             // Insert payment
             $this->db->insert('loan_payments', $data);

@@ -16,7 +16,7 @@
 <div class="row">
     <!-- Quick Stats Cards -->
     <div class="col-lg-3 col-6">
-        <div class="small-box bg-info" data-toggle="tooltip" data-placement="top" title="Total number of members with 'active' status">
+        <div class="small-box bg-info dashboard-card" data-card="members" style="cursor:pointer" data-toggle="tooltip" data-placement="top" title="Click to view active members detail">
             <div class="inner">
                 <h3><?= number_format($stats['total_members']) ?></h3>
                 <p>Active Members</p>
@@ -31,7 +31,7 @@
     </div>
     
     <div class="col-lg-3 col-6">
-        <div class="small-box bg-success" data-toggle="tooltip" data-placement="top" title="Total savings deposited across all member accounts">
+        <div class="small-box bg-success dashboard-card" data-card="savings" style="cursor:pointer" data-toggle="tooltip" data-placement="top" title="Click to view savings detail">
             <div class="inner">
                 <h3><?= format_amount($stats['total_savings'], 0) ?></h3>
                 <p>Total Savings</p>
@@ -46,7 +46,7 @@
     </div>
     
     <div class="col-lg-3 col-6">
-        <div class="small-box bg-warning" data-toggle="tooltip" data-placement="top" title="Total remaining principal + interest on all disbursed loans">
+        <div class="small-box bg-warning dashboard-card" data-card="loans" style="cursor:pointer" data-toggle="tooltip" data-placement="top" title="Click to view loan outstanding detail">
             <div class="inner">
                 <h3><?= format_amount($stats['total_outstanding'], 0) ?></h3>
                 <p>Loan Outstanding</p>
@@ -61,7 +61,7 @@
     </div>
     
     <div class="col-lg-3 col-6">
-        <div class="small-box bg-danger" data-toggle="tooltip" data-placement="top" title="Total amount past due date across all loans. Needs immediate attention.">
+        <div class="small-box bg-danger dashboard-card" data-card="overdue" style="cursor:pointer" data-toggle="tooltip" data-placement="top" title="Click to view overdue EMIs detail">
             <div class="inner">
                 <h3><?= format_amount($stats['overdue_amount'], 0) ?></h3>
                 <p>Overdue Amount</p>
@@ -79,7 +79,7 @@
 <!-- Second Row Stats -->
 <div class="row">
     <div class="col-lg-3 col-6">
-        <div class="info-box" data-toggle="tooltip" title="Loan applications awaiting review and approval">
+        <div class="info-box dashboard-card" data-card="applications" style="cursor:pointer" data-toggle="tooltip" title="Click to view pending applications">
             <span class="info-box-icon bg-primary"><i class="fas fa-file-alt"></i></span>
             <div class="info-box-content">
                 <span class="info-box-text">Pending Applications</span>
@@ -89,7 +89,7 @@
     </div>
     
     <div class="col-lg-3 col-6">
-        <div class="info-box" data-toggle="tooltip" title="Total loan repayments + savings deposits collected this month">
+        <div class="info-box dashboard-card" data-card="collection" style="cursor:pointer" data-toggle="tooltip" title="Click to view monthly collection detail">
             <span class="info-box-icon bg-success"><i class="fas fa-rupee-sign"></i></span>
             <div class="info-box-content">
                 <span class="info-box-text">This Month Collection</span>
@@ -99,7 +99,7 @@
     </div>
     
     <div class="col-lg-3 col-6">
-        <div class="info-box">
+        <div class="info-box dashboard-card" data-card="disbursed" style="cursor:pointer" data-toggle="tooltip" title="Click to view disbursement detail">
             <span class="info-box-icon bg-warning"><i class="fas fa-money-check-alt"></i></span>
             <div class="info-box-content">
                 <span class="info-box-text">This Month Disbursed</span>
@@ -109,7 +109,7 @@
     </div>
     
     <div class="col-lg-3 col-6">
-        <div class="info-box">
+        <div class="info-box dashboard-card" data-card="fines" style="cursor:pointer" data-toggle="tooltip" title="Click to view pending fines detail">
             <span class="info-box-icon bg-danger"><i class="fas fa-gavel"></i></span>
             <div class="info-box-content">
                 <span class="info-box-text">Pending Fines</span>
@@ -122,7 +122,7 @@
 <!-- Fee Summary Row -->
 <div class="row">
     <div class="col-lg-3 col-6">
-        <div class="info-box" data-toggle="tooltip" title="Total membership fee collected from members">
+        <div class="info-box dashboard-card" data-card="fees" style="cursor:pointer" data-toggle="tooltip" title="Click to view membership fee detail">
             <span class="info-box-icon bg-teal"><i class="fas fa-id-badge"></i></span>
             <div class="info-box-content">
                 <span class="info-box-text">Member Fee</span>
@@ -131,7 +131,7 @@
         </div>
     </div>
     <div class="col-lg-3 col-6">
-        <div class="info-box" data-toggle="tooltip" title="Total other fees collected from members (processing, late fees, etc.)">
+        <div class="info-box dashboard-card" data-card="fees" style="cursor:pointer" data-toggle="tooltip" title="Click to view other fees detail">
             <span class="info-box-icon bg-purple"><i class="fas fa-receipt"></i></span>
             <div class="info-box-content">
                 <span class="info-box-text">Other Members Fee</span>
@@ -396,8 +396,168 @@
     </div>
 </div>
 
+<!-- Dashboard Detail Modal -->
+<div class="modal fade" id="dashboardDetailModal" tabindex="-1" role="dialog" aria-labelledby="dashboardDetailModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="dashboardDetailModalLabel"><i class="fas fa-info-circle mr-2"></i>Detail</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body" id="dashboardDetailBody">
+                <div class="text-center py-5">
+                    <i class="fas fa-spinner fa-spin fa-3x text-primary"></i>
+                    <p class="mt-3 text-muted">Loading details...</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    
+    // ─── Dashboard Card Click → Modal ───
+    $(document).on('click', '.dashboard-card .inner, .dashboard-card .icon, .dashboard-card .info-box-content, .dashboard-card .info-box-icon', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var card = $(this).closest('.dashboard-card').data('card');
+        if (!card) return;
+        openCardModal(card);
+    });
+    
+    function openCardModal(card) {
+        var $modal = $('#dashboardDetailModal');
+        var $body = $('#dashboardDetailBody');
+        var $title = $('#dashboardDetailModalLabel');
+        
+        $body.html('<div class="text-center py-5"><i class="fas fa-spinner fa-spin fa-3x text-primary"></i><p class="mt-3 text-muted">Loading details...</p></div>');
+        $modal.modal('show');
+        
+        var baseUrl = '<?= site_url("admin/dashboard/card_") ?>';
+        
+        $.getJSON(baseUrl + card, function(res) {
+            var html = '';
+            switch(card) {
+                case 'members':
+                    $title.html('<i class="fas fa-users mr-2 text-info"></i>Active Members (' + res.total + ')');
+                    html = '<div class="table-responsive"><table class="table table-hover table-sm"><thead class="thead-light"><tr><th>Code</th><th>Name</th><th>Phone</th><th>Joined</th><th></th></tr></thead><tbody>';
+                    $.each(res.data, function(i, m) {
+                        html += '<tr><td><span class="badge badge-primary">' + m.member_code + '</span></td><td>' + m.first_name + ' ' + m.last_name + '</td><td>' + (m.phone || '-') + '</td><td>' + formatDate(m.created_at) + '</td><td><a href="<?= site_url("admin/members/view/") ?>' + m.id + '" class="btn btn-xs btn-outline-primary"><i class="fas fa-eye"></i></a></td></tr>';
+                    });
+                    html += '</tbody></table></div>';
+                    break;
+                    
+                case 'savings':
+                    $title.html('<i class="fas fa-piggy-bank mr-2 text-success"></i>Total Savings Overview');
+                    html = '<div class="row mb-3"><div class="col-md-4"><div class="callout callout-success"><h5>' + formatCurrency(res.totals.total_balance) + '</h5><small>Total Balance</small></div></div><div class="col-md-4"><div class="callout callout-info"><h5>' + formatCurrency(res.totals.total_deposited) + '</h5><small>Total Deposited</small></div></div><div class="col-md-4"><div class="callout callout-primary"><h5>' + res.totals.total_accounts + '</h5><small>Total Accounts</small></div></div></div>';
+                    html += '<div class="table-responsive"><table class="table table-hover table-sm"><thead class="thead-light"><tr><th>Account</th><th>Member</th><th>Balance</th><th>Deposited</th><th></th></tr></thead><tbody>';
+                    $.each(res.data, function(i, s) {
+                        html += '<tr><td><code>' + s.account_number + '</code></td><td>' + s.member_code + ' - ' + s.first_name + ' ' + s.last_name + '</td><td class="text-right font-weight-bold text-success">' + formatCurrency(s.current_balance) + '</td><td class="text-right">' + formatCurrency(s.total_deposited) + '</td><td><a href="<?= site_url("admin/savings/view/") ?>' + s.id + '" class="btn btn-xs btn-outline-success"><i class="fas fa-eye"></i></a></td></tr>';
+                    });
+                    html += '</tbody></table></div>';
+                    break;
+                    
+                case 'loans':
+                    $title.html('<i class="fas fa-hand-holding-usd mr-2 text-warning"></i>Loan Outstanding Detail');
+                    html = '<div class="row mb-3"><div class="col-md-3"><div class="callout callout-warning"><h5>' + formatCurrency(res.totals.total_principal) + '</h5><small>Outstanding Principal</small></div></div><div class="col-md-3"><div class="callout callout-info"><h5>' + formatCurrency(res.totals.total_interest) + '</h5><small>Outstanding Interest</small></div></div><div class="col-md-3"><div class="callout callout-success"><h5>' + formatCurrency(res.totals.total_disbursed) + '</h5><small>Total Disbursed</small></div></div><div class="col-md-3"><div class="callout callout-primary"><h5>' + res.totals.total_loans + '</h5><small>Active Loans</small></div></div></div>';
+                    html += '<div class="table-responsive"><table class="table table-hover table-sm"><thead class="thead-light"><tr><th>Loan No.</th><th>Member</th><th>Product</th><th>Disbursed</th><th>Outstanding</th><th>EMI</th><th></th></tr></thead><tbody>';
+                    $.each(res.data, function(i, l) {
+                        html += '<tr><td><code>' + l.loan_number + '</code></td><td>' + l.member_code + ' - ' + l.first_name + ' ' + l.last_name + '</td><td>' + (l.product_name || '-') + '</td><td class="text-right">' + formatCurrency(l.principal_amount) + '</td><td class="text-right font-weight-bold text-danger">' + formatCurrency(parseFloat(l.outstanding_principal) + parseFloat(l.outstanding_interest)) + '</td><td class="text-right">' + formatCurrency(l.emi_amount) + '</td><td><a href="<?= site_url("admin/loans/view/") ?>' + l.id + '" class="btn btn-xs btn-outline-warning"><i class="fas fa-eye"></i></a></td></tr>';
+                    });
+                    html += '</tbody></table></div>';
+                    break;
+                    
+                case 'overdue':
+                    $title.html('<i class="fas fa-exclamation-triangle mr-2 text-danger"></i>Overdue EMIs Detail');
+                    html = '<div class="table-responsive"><table class="table table-hover table-sm"><thead class="thead-light"><tr><th>Loan No.</th><th>Member</th><th>Phone</th><th>EMI #</th><th>Due Date</th><th>EMI Amt</th><th>Paid</th><th>Overdue</th><th></th></tr></thead><tbody>';
+                    $.each(res.data, function(i, o) {
+                        var days = Math.floor((new Date() - new Date(o.due_date)) / 86400000);
+                        html += '<tr><td><code>' + o.loan_number + '</code></td><td>' + o.member_code + ' - ' + o.first_name + '</td><td>' + (o.phone || '-') + '</td><td>' + o.installment_number + '</td><td><span class="text-danger">' + formatDate(o.due_date) + '</span> <small class="badge badge-danger">' + days + 'd</small></td><td class="text-right">' + formatCurrency(o.emi_amount) + '</td><td class="text-right">' + formatCurrency(o.total_paid) + '</td><td class="text-right font-weight-bold text-danger">' + formatCurrency(o.overdue_amount) + '</td><td><a href="<?= site_url("admin/loans/collect/") ?>' + o.loan_id + '" class="btn btn-xs btn-outline-success" title="Collect"><i class="fas fa-rupee-sign"></i></a></td></tr>';
+                    });
+                    html += '</tbody></table></div>';
+                    break;
+                    
+                case 'applications':
+                    $title.html('<i class="fas fa-file-alt mr-2 text-primary"></i>Pending Loan Applications');
+                    html = '<div class="table-responsive"><table class="table table-hover table-sm"><thead class="thead-light"><tr><th>App No.</th><th>Member</th><th>Amount</th><th>Purpose</th><th>Status</th><th>Applied On</th><th></th></tr></thead><tbody>';
+                    $.each(res.data, function(i, a) {
+                        var statusBadge = a.status === 'pending' ? 'warning' : (a.status === 'under_review' ? 'info' : 'secondary');
+                        html += '<tr><td><code>' + a.application_number + '</code></td><td>' + a.member_code + ' - ' + a.first_name + ' ' + a.last_name + '</td><td class="text-right">' + formatCurrency(a.requested_amount) + '</td><td>' + (a.loan_purpose || '-') + '</td><td><span class="badge badge-' + statusBadge + '">' + a.status.replace('_', ' ') + '</span></td><td>' + formatDate(a.created_at) + '</td><td><a href="<?= site_url("admin/loans/view_application/") ?>' + a.id + '" class="btn btn-xs btn-outline-primary"><i class="fas fa-eye"></i></a></td></tr>';
+                    });
+                    html += '</tbody></table></div>';
+                    break;
+                    
+                case 'collection':
+                    $title.html('<i class="fas fa-rupee-sign mr-2 text-success"></i>This Month\'s Collection');
+                    html = '<h6 class="text-muted"><i class="fas fa-hand-holding-usd mr-1"></i>Loan EMI Collections</h6>';
+                    html += '<div class="table-responsive"><table class="table table-hover table-sm mb-4"><thead class="thead-light"><tr><th>Date</th><th>Loan No.</th><th>Member</th><th>Principal</th><th>Interest</th><th>Total</th></tr></thead><tbody>';
+                    $.each(res.loan_collections, function(i, c) {
+                        html += '<tr><td>' + formatDate(c.payment_date) + '</td><td><code>' + c.loan_number + '</code></td><td>' + c.member_code + ' - ' + c.first_name + '</td><td class="text-right">' + formatCurrency(c.principal_component) + '</td><td class="text-right">' + formatCurrency(c.interest_component) + '</td><td class="text-right font-weight-bold">' + formatCurrency(c.total_amount) + '</td></tr>';
+                    });
+                    html += '</tbody></table></div>';
+                    html += '<h6 class="text-muted"><i class="fas fa-piggy-bank mr-1"></i>Savings Deposits</h6>';
+                    html += '<div class="table-responsive"><table class="table table-hover table-sm"><thead class="thead-light"><tr><th>Date</th><th>Account</th><th>Member</th><th>Amount</th></tr></thead><tbody>';
+                    $.each(res.savings_collections, function(i, s) {
+                        html += '<tr><td>' + formatDate(s.transaction_date) + '</td><td><code>' + s.account_number + '</code></td><td>' + s.member_code + ' - ' + s.first_name + '</td><td class="text-right font-weight-bold text-success">' + formatCurrency(s.amount) + '</td></tr>';
+                    });
+                    html += '</tbody></table></div>';
+                    break;
+                    
+                case 'disbursed':
+                    $title.html('<i class="fas fa-money-check-alt mr-2 text-warning"></i>This Month\'s Disbursements');
+                    html = '<div class="table-responsive"><table class="table table-hover table-sm"><thead class="thead-light"><tr><th>Loan No.</th><th>Member</th><th>Product</th><th>Amount</th><th>EMI</th><th>Tenure</th><th>Date</th><th></th></tr></thead><tbody>';
+                    $.each(res.data, function(i, d) {
+                        html += '<tr><td><code>' + d.loan_number + '</code></td><td>' + d.member_code + ' - ' + d.first_name + ' ' + d.last_name + '</td><td>' + (d.product_name || '-') + '</td><td class="text-right font-weight-bold">' + formatCurrency(d.principal_amount) + '</td><td class="text-right">' + formatCurrency(d.emi_amount) + '</td><td>' + d.tenure_months + ' mo</td><td>' + formatDate(d.disbursement_date) + '</td><td><a href="<?= site_url("admin/loans/view/") ?>' + d.id + '" class="btn btn-xs btn-outline-warning"><i class="fas fa-eye"></i></a></td></tr>';
+                    });
+                    html += '</tbody></table></div>';
+                    break;
+                    
+                case 'fines':
+                    $title.html('<i class="fas fa-gavel mr-2 text-danger"></i>Pending Fines (Total: ' + formatCurrency(res.total) + ')');
+                    html = '<div class="table-responsive"><table class="table table-hover table-sm"><thead class="thead-light"><tr><th>Fine Code</th><th>Member</th><th>Loan</th><th>Amount</th><th>Balance</th><th>Reason</th><th>Date</th><th>Status</th></tr></thead><tbody>';
+                    $.each(res.data, function(i, f) {
+                        var sBadge = f.status === 'pending' ? 'danger' : 'warning';
+                        html += '<tr><td><code>' + f.fine_code + '</code></td><td>' + f.member_code + ' - ' + f.first_name + '</td><td>' + (f.loan_number || '-') + '</td><td class="text-right">' + formatCurrency(f.fine_amount) + '</td><td class="text-right font-weight-bold text-danger">' + formatCurrency(f.balance_amount) + '</td><td>' + (f.reason || '-') + '</td><td>' + formatDate(f.fine_date) + '</td><td><span class="badge badge-' + sBadge + '">' + f.status + '</span></td></tr>';
+                    });
+                    html += '</tbody></table></div>';
+                    break;
+                    
+                case 'fees':
+                    $title.html('<i class="fas fa-receipt mr-2 text-teal"></i>Fee Collections');
+                    html = '<div class="table-responsive"><table class="table table-hover table-sm"><thead class="thead-light"><tr><th>Date</th><th>Member</th><th>Amount</th><th>Reference</th><th>Description</th></tr></thead><tbody>';
+                    $.each(res.data, function(i, f) {
+                        html += '<tr><td>' + formatDate(f.transaction_date) + '</td><td>' + (f.member_code ? f.member_code + ' - ' + f.first_name + ' ' + f.last_name : '-') + '</td><td class="text-right font-weight-bold">' + formatCurrency(f.amount) + '</td><td>' + (f.reference_number || '-') + '</td><td>' + (f.description || '-') + '</td></tr>';
+                    });
+                    html += '</tbody></table></div>';
+                    break;
+                    
+                default:
+                    html = '<div class="text-center text-muted py-4"><i class="fas fa-info-circle fa-2x mb-2"></i><p>No detail view available for this card.</p></div>';
+            }
+            $body.html(html);
+        }).fail(function() {
+            $body.html('<div class="alert alert-danger"><i class="fas fa-exclamation-circle mr-2"></i>Failed to load details. Please try again.</div>');
+        });
+    }
+    
+    function formatCurrency(val) {
+        var n = parseFloat(val) || 0;
+        return '₹' + n.toLocaleString('en-IN', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+    }
+    
+    function formatDate(d) {
+        if (!d) return '-';
+        var dt = new Date(d);
+        var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        return dt.getDate() + ' ' + months[dt.getMonth()] + ' ' + dt.getFullYear();
+    }
+    
     // Monthly Trend Chart
     var ctx = document.getElementById('trendChart').getContext('2d');
     var trendChart = new Chart(ctx, {
