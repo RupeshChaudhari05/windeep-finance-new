@@ -13,7 +13,7 @@
                     <select name="type" class="form-control form-control-sm mr-2" onchange="this.form.submit()">
                         <option value="">All Types</option>
                         <option value="loan_late_payment" <?= ($filters['type'] ?? '') == 'loan_late_payment' ? 'selected' : '' ?>>Loan Late Payment</option>
-                        <option value="savings_late_payment" <?= ($filters['type'] ?? '') == 'savings_late_payment' ? 'selected' : '' ?>>Savings Late Payment</option>
+                        <option value="savings_late_payment" <?= ($filters['type'] ?? '') == 'savings_late_payment' ? 'selected' : '' ?>>SD Late Payment</option>
                         <option value="manual" <?= ($filters['type'] ?? '') == 'manual' ? 'selected' : '' ?>>Manual Fine</option>
                     </select>
                     <select name="status" class="form-control form-control-sm mr-2" onchange="this.form.submit()">

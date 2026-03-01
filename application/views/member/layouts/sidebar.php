@@ -52,7 +52,7 @@
                     <li class="nav-item">
                         <a href="<?= site_url('member/savings') ?>" class="nav-link <?= strpos(uri_string(), 'member/savings') === 0 ? 'active' : '' ?>">
                             <i class="nav-icon fas fa-piggy-bank"></i>
-                            <p>Savings</p>
+                            <p>Security Deposit</p>
                         </a>
                     </li>
 

@@ -173,7 +173,7 @@ function loadTemplate(template) {
     <li>Member Code: [Member Code]</li>
     <li>Joining Date: [Join Date]</li>
 </ul>
-<p>You can now access all our services including savings accounts, loans, and other financial products.</p>
+<p>You can now access all our services including security deposit accounts, loans, and other financial products.</p>
 <p>For any queries, please contact our support team.</p>
 <p>Best regards,<br>Windeep Finance Team</p>`
         },

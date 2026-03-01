@@ -58,7 +58,7 @@
                         </div>
                         <div class="col-md-6">
                             <div class="form-group">
-                                <label>Savings Liability Account</label>
+                                <label>Security Deposit Liability Account</label>
                                 <select name="settings[savings_liability_account]" class="form-control">
                                     <option value="">Select Account</option>
                                     <?php foreach ($accounts as $acc): ?>
@@ -67,7 +67,7 @@
                                     </option>
                                     <?php endforeach; ?>
                                 </select>
-                                <small class="text-muted">Liability account for member savings</small>
+                                <small class="text-muted">Liability account for member security deposits</small>
                             </div>
                         </div>
                     </div>
@@ -128,7 +128,7 @@
                                     </option>
                                     <?php endforeach; ?>
                                 </select>
-                                <small class="text-muted">Expense account for savings interest paid</small>
+                                <small class="text-muted">Expense account for security deposit interest paid</small>
                             </div>
                         </div>
                     </div>

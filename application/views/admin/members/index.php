@@ -126,7 +126,7 @@
                                     <a href="<?= site_url('admin/loans/apply?member_id=' . $member->id) ?>" class="btn btn-xs btn-success" title="New Loan">
                                         <i class="fas fa-hand-holding-usd"></i>
                                     </a>
-                                    <a href="<?= site_url('admin/savings/create?member_id=' . $member->id) ?>" class="btn btn-xs btn-primary" title="Open Savings">
+                                    <a href="<?= site_url('admin/savings/create?member_id=' . $member->id) ?>" class="btn btn-xs btn-primary" title="Open Security Deposit">
                                         <i class="fas fa-piggy-bank"></i>
                                     </a>
                                 </div>

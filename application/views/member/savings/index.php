@@ -1,10 +1,10 @@
 <div class="card">
-    <div class="card-header"><h3 class="card-title"><i class="fas fa-piggy-bank mr-1"></i> My Savings</h3></div>
+    <div class="card-header"><h3 class="card-title"><i class="fas fa-piggy-bank mr-1"></i> My Security Deposits</h3></div>
     <div class="card-body">
         <?php if (empty($accounts)): ?>
             <div class="text-center py-4">
                 <i class="fas fa-piggy-bank fa-3x text-muted mb-3"></i>
-                <p class="text-muted">No savings accounts.</p>
+                <p class="text-muted">No security deposit accounts.</p>
             </div>
         <?php else: ?>
             <div class="row">

@@ -2,7 +2,7 @@
 <?php if (!$account): ?>
 <div class="card card-primary">
     <div class="card-header">
-        <h3 class="card-title"><i class="fas fa-search mr-1"></i> Find Savings Account</h3>
+        <h3 class="card-title"><i class="fas fa-search mr-1"></i> Find Security Deposit Account</h3>
     </div>
     <div class="card-body">
         <div class="row">
@@ -70,7 +70,7 @@
             </table>
         </div>
         <?php else: ?>
-        <div class="alert alert-info mt-3 mb-0"><i class="fas fa-info-circle mr-1"></i> No active savings accounts found. <a href="<?= site_url('admin/savings/create') ?>">Create one</a>.</div>
+        <div class="alert alert-info mt-3 mb-0"><i class="fas fa-info-circle mr-1"></i> No active security deposit accounts found. <a href="<?= site_url('admin/savings/create') ?>">Create one</a>.</div>
         <?php endif; ?>
     </div>
 </div>
@@ -215,7 +215,7 @@ $(document).ready(function() {
     <div class="col-md-8">
         <div class="card card-primary">
             <div class="card-header">
-                <h3 class="card-title"><i class="fas fa-rupee-sign mr-1"></i> Collect Savings Payment</h3>
+                <h3 class="card-title"><i class="fas fa-rupee-sign mr-1"></i> Collect Security Deposit Payment</h3>
             </div>
             <?php if ($account): ?>
             <form action="<?= site_url('admin/savings/record_payment/' . $account->id) ?>" method="post" id="collectionForm">

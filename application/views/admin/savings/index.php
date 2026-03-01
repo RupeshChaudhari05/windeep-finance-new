@@ -1,4 +1,4 @@
-<!-- Savings Accounts List -->
+<!-- Security Deposit Accounts List -->
 <div class="card">
     <div class="card-header">
         <div class="row">
@@ -92,7 +92,7 @@
                     <tr>
                         <td colspan="10" class="text-center py-4">
                             <i class="fas fa-piggy-bank fa-3x text-muted mb-3"></i>
-                            <p class="text-muted">No savings accounts found</p>
+                            <p class="text-muted">No security deposit accounts found</p>
                         </td>
                     </tr>
                     <?php else: ?>

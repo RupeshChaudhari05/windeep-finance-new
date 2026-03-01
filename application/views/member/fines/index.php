@@ -71,7 +71,7 @@
                             <td>
                                 <?php
                                 $fine_types = [
-                                    'savings_late' => 'Savings Late',
+                                    'savings_late' => 'SD Late',
                                     'loan_late' => 'Loan Late',
                                     'bounced_cheque' => 'Bounced Cheque',
                                     'late_payment' => 'Late Payment',

@@ -132,11 +132,11 @@
     <div class="col-md-4">
         <div class="card">
             <div class="card-header bg-info text-white">
-                <h3 class="card-title">Savings Accounts</h3>
+                <h3 class="card-title">Security Deposit Accounts</h3>
             </div>
             <div class="card-body">
                 <?php if (empty($savings_accounts)): ?>
-                    <p class="text-muted">No savings accounts.</p>
+                    <p class="text-muted">No security deposit accounts.</p>
                 <?php else: ?>
                     <ul class="list-group">
                         <?php foreach ($savings_accounts as $sa): ?>
@@ -159,8 +159,8 @@
                 <a href="<?= site_url('member/loans/apply') ?>" class="btn btn-primary btn-block mb-2" data-toggle="tooltip" title="Submit a new loan application. You can track its status here.">
                     <i class="fas fa-plus-circle mr-1"></i> Apply for Loan
                 </a>
-                <a href="<?= site_url('member/savings') ?>" class="btn btn-success btn-block mb-2" data-toggle="tooltip" title="View your savings accounts, balances, and transaction history">
-                    <i class="fas fa-piggy-bank mr-1"></i> View Savings
+                <a href="<?= site_url('member/savings') ?>" class="btn btn-success btn-block mb-2" data-toggle="tooltip" title="View your security deposits, balances, and transaction history">
+                    <i class="fas fa-piggy-bank mr-1"></i> View Security Deposits
                 </a>
                 <a href="<?= site_url('member/installments') ?>" class="btn btn-warning btn-block mb-2" data-toggle="tooltip" title="View all your upcoming and past installment payments">
                     <i class="fas fa-calendar-check mr-1"></i> View Installments

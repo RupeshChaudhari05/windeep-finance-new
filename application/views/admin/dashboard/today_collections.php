@@ -22,7 +22,7 @@
         <div class="info-box bg-info">
             <span class="info-box-icon"><i class="fas fa-piggy-bank"></i></span>
             <div class="info-box-content">
-                <span class="info-box-text">Savings</span>
+                <span class="info-box-text">Security Deposit</span>
                 <span class="info-box-number"><?= number_format($totals['savings'] ?? 0, 2) ?></span>
             </div>
         </div>

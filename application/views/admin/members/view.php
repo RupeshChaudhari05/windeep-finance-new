@@ -91,7 +91,7 @@
             <div class="card-body p-0">
                 <table class="table table-sm mb-0">
                     <tr>
-                        <td>Savings Balance</td>
+                        <td>Security Deposit Balance</td>
                         <td class="text-right font-weight-bold text-success">
                             <?= format_amount($member->savings_summary->current_balance ?? 0, 0) ?>
                         </td>
@@ -169,7 +169,7 @@
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="#savings" data-toggle="tab">
-                            <i class="fas fa-piggy-bank mr-1"></i> Savings
+                            <i class="fas fa-piggy-bank mr-1"></i> Security Deposit
                             <span class="badge badge-success"><?= count($savings_accounts) ?></span>
                         </a>
                     </li>
@@ -286,10 +286,10 @@
                         </div>
                     </div>
                     
-                    <!-- Savings Tab -->
+                    <!-- Security Deposit Tab -->
                     <div class="tab-pane" id="savings">
                         <div class="d-flex justify-content-between mb-3">
-                            <h5>Savings Accounts</h5>
+                            <h5>Security Deposit Accounts</h5>
                             <a href="<?= site_url('admin/savings/create?member_id=' . $member->id) ?>" class="btn btn-sm btn-primary">
                                 <i class="fas fa-plus"></i> Open New Account
                             </a>
@@ -298,7 +298,7 @@
                         <?php if (empty($savings_accounts)): ?>
                             <div class="text-center py-4 text-muted">
                                 <i class="fas fa-piggy-bank fa-3x mb-3"></i>
-                                <p>No savings accounts found</p>
+                                <p>No security deposit accounts found</p>
                             </div>
                         <?php else: ?>
                             <div class="table-responsive">

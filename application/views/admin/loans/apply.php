@@ -46,7 +46,7 @@
                                 <div class="info-box shadow-sm mb-0">
                                     <span class="info-box-icon bg-info"><i class="fas fa-piggy-bank"></i></span>
                                     <div class="info-box-content">
-                                        <span class="info-box-text">Savings Balance</span>
+                                        <span class="info-box-text">Security Deposit Balance</span>
                                         <span class="info-box-number" id="infoSavings"><span class="text-muted small">—</span></span>
                                     </div>
                                 </div>

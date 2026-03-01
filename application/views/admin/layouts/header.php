@@ -245,7 +245,7 @@
                         <i class="fas fa-file-invoice-dollar mr-2 text-success"></i> New Loan Application
                     </a>
                     <a href="<?= base_url('admin/savings/collection') ?>" class="dropdown-item">
-                        <i class="fas fa-piggy-bank mr-2 text-info"></i> Savings Collection
+                        <i class="fas fa-piggy-bank mr-2 text-info"></i> Security Deposit Collection
                     </a>
                     <a href="<?= base_url('admin/payments/receive') ?>" class="dropdown-item">
                         <i class="fas fa-hand-holding-usd mr-2 text-warning"></i> Receive Payment

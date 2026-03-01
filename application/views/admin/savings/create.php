@@ -2,7 +2,7 @@
     <div class="col-md-8">
         <div class="card card-primary">
             <div class="card-header">
-                <h3 class="card-title"><i class="fas fa-piggy-bank mr-1"></i> Open New Savings Account</h3>
+                <h3 class="card-title"><i class="fas fa-piggy-bank mr-1"></i> Open New Security Deposit Account</h3>
             </div>
             <form action="<?= site_url('admin/savings/store') ?>" method="post" id="savingsForm">
                 <?= form_hidden($this->security->get_csrf_token_name(), $this->security->get_csrf_hash()) ?>
@@ -31,7 +31,7 @@
                         </div>
                         <div class="row mt-1">
                             <div class="col-6"><strong>KYC Status:</strong> <span id="infoKyc"></span></div>
-                            <div class="col-6"><strong>Existing Savings:</strong> <span id="infoSavings"></span></div>
+                            <div class="col-6"><strong>Existing Security Deposits:</strong> <span id="infoSavings"></span></div>
                         </div>
                     </div>
                     
@@ -39,7 +39,7 @@
                     
                     <!-- Scheme Selection -->
                     <div class="form-group">
-                        <label for="scheme_id">Savings Scheme <span class="text-danger">*</span></label>
+                        <label for="scheme_id">SD Scheme <span class="text-danger">*</span></label>
                         <select class="form-control" id="scheme_id" name="scheme_id" required>
                             <option value="">Select Scheme</option>
                             <?php foreach ($schemes as $scheme): ?>
@@ -95,7 +95,7 @@
                                 <input type="number" class="form-control" id="duration_months" name="duration_months" 
                                        value="<?= set_value('duration_months', 12) ?>" min="1" max="240"
                                        placeholder="Leave blank for indefinite">
-                                <small class="form-text text-muted">Leave blank for open-ended savings</small>
+                                <small class="form-text text-muted">Leave blank for open-ended security deposit</small>
                             </div>
                         </div>
                     </div>
@@ -159,7 +159,7 @@
     <div class="col-md-4">
         <div class="card card-info">
             <div class="card-header">
-                <h3 class="card-title"><i class="fas fa-calculator mr-1"></i> Savings Projection</h3>
+                <h3 class="card-title"><i class="fas fa-calculator mr-1"></i> Security Deposit Projection</h3>
             </div>
             <div class="card-body">
                 <table class="table table-sm table-borderless">

@@ -86,7 +86,7 @@
                                 <select class="form-control" name="payment_type" id="paymentType" required <?= !$member ? 'disabled' : '' ?>>
                                     <option value="">Select Type</option>
                                     <option value="loan">Loan EMI</option>
-                                    <option value="savings">Savings Deposit</option>
+                                    <option value="savings">Security Deposit</option>
                                     <option value="fine">Fine Payment</option>
                                 </select>
                             </div>

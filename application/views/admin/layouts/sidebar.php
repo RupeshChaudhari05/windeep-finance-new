@@ -62,12 +62,12 @@
                         </ul>
                     </li>
 
-                    <!-- Savings Management -->
+                    <!-- Security Deposit Management -->
                     <li class="nav-item <?= in_array($this->uri->segment(2), ['savings']) ? 'menu-open' : '' ?>">
                         <a href="#" class="nav-link <?= in_array($this->uri->segment(2), ['savings']) ? 'active' : '' ?>">
                             <i class="nav-icon fas fa-piggy-bank"></i>
                             <p>
-                                Savings
+                                Security Deposit
                                 <i class="fas fa-angle-left right"></i>
                             </p>
                         </a>
@@ -93,7 +93,7 @@
                             <li class="nav-item">
                                 <a href="<?= base_url('admin/savings/schemes') ?>" class="nav-link">
                                     <i class="far fa-circle nav-icon"></i>
-                                    <p>Savings Schemes</p>
+                                    <p>SD Schemes</p>
                                 </a>
                             </li>
                         </ul>
@@ -318,7 +318,7 @@
                             <li class="nav-item">
                                 <a href="<?= base_url('admin/reports/export_savings_full') ?>" class="nav-link">
                                     <i class="far fa-circle nav-icon"></i>
-                                    <p>Export Savings <i class="fas fa-download ml-1 text-warning"></i></p>
+                                    <p>Export Security Deposits <i class="fas fa-download ml-1 text-warning"></i></p>
                                 </a>
                             </li>
                             <!-- Legacy Reports -->

@@ -34,7 +34,7 @@
                         <span class="text-danger"><?= form_error('fine_type') ?></span>
                     </div>
                     
-                    <!-- Link to Loan/Savings (Optional) -->
+                    <!-- Link to Loan/Security Deposit (Optional) -->
                     <div class="row">
                         <div class="col-md-6">
                             <div class="form-group">
@@ -48,7 +48,7 @@
                         </div>
                         <div class="col-md-6">
                             <div class="form-group">
-                                <label for="savings_account_id">Link to Savings (Optional)</label>
+                                <label for="savings_account_id">Link to Security Deposit (Optional)</label>
                                 <select class="form-control" id="savings_account_id" name="savings_account_id">
                                     <option value="">No Link</option>
                                     <!-- Will be populated via AJAX based on member -->

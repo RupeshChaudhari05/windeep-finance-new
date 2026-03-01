@@ -75,7 +75,7 @@
                                 <td><a href="tel:<?= $member->phone ?>"><?= $member->phone ?></a></td>
                             </tr>
                             <tr>
-                                <td class="text-muted">Savings Balance:</td>
+                                <td class="text-muted">Security Deposit Balance:</td>
                                 <td class="text-success"><?= format_amount($member->savings_balance ?? 0) ?></td>
                             </tr>
                         </table>
@@ -110,7 +110,7 @@
                             <option value="bank_transfer">Bank Transfer</option>
                             <option value="upi">UPI</option>
                             <option value="cheque">Cheque</option>
-                            <option value="savings_deduction">Savings Deduction</option>
+                            <option value="savings_deduction">Security Deposit Deduction</option>
                         </select>
                     </div>
                     

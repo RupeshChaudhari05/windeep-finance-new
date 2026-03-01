@@ -19,7 +19,7 @@
                                 <select class="form-control form-control-sm" name="type">
                                     <option value="">All Types</option>
                                     <option value="loan" <?= ($filters['type'] ?? '') == 'loan' ? 'selected' : '' ?>>Loan EMI</option>
-                                    <option value="savings" <?= ($filters['type'] ?? '') == 'savings' ? 'selected' : '' ?>>Savings</option>
+                                    <option value="savings" <?= ($filters['type'] ?? '') == 'savings' ? 'selected' : '' ?>>Security Deposit</option>
                                     <option value="fine" <?= ($filters['type'] ?? '') == 'fine' ? 'selected' : '' ?>>Fine</option>
                                 </select>
                             </div>

@@ -31,10 +31,10 @@
     </div>
     
     <div class="col-lg-3 col-6">
-        <div class="small-box bg-success dashboard-card" data-card="savings" style="cursor:pointer" data-toggle="tooltip" data-placement="top" title="Click to view savings detail">
+        <div class="small-box bg-success dashboard-card" data-card="savings" style="cursor:pointer" data-toggle="tooltip" data-placement="top" title="Click to view security deposit detail">
             <div class="inner">
                 <h3><?= format_amount($stats['total_savings'], 0) ?></h3>
-                <p>Total Savings</p>
+                <p>Total Security Deposit</p>
             </div>
             <div class="icon">
                 <i class="fas fa-piggy-bank"></i>
@@ -185,7 +185,7 @@
                     </li>
                     <li class="nav-item">
                         <a href="<?= site_url('admin/savings/create') ?>" class="nav-link">
-                            <i class="fas fa-piggy-bank mr-2"></i> Open Savings Account
+                            <i class="fas fa-piggy-bank mr-2"></i> Open Security Deposit A/C
                         </a>
                     </li>
                     <li class="nav-item">
@@ -195,7 +195,7 @@
                     </li>
                     <li class="nav-item">
                         <a href="<?= site_url('admin/savings/collect') ?>" class="nav-link">
-                            <i class="fas fa-rupee-sign mr-2"></i> Collect Savings
+                            <i class="fas fa-rupee-sign mr-2"></i> Collect Security Deposit
                         </a>
                     </li>
                     <li class="nav-item">
@@ -454,7 +454,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     break;
                     
                 case 'savings':
-                    $title.html('<i class="fas fa-piggy-bank mr-2 text-success"></i>Total Savings Overview');
+                    $title.html('<i class="fas fa-piggy-bank mr-2 text-success"></i>Total Security Deposit Overview');
                     html = '<div class="row mb-3"><div class="col-md-4"><div class="callout callout-success"><h5>' + formatCurrency(res.totals.total_balance) + '</h5><small>Total Balance</small></div></div><div class="col-md-4"><div class="callout callout-info"><h5>' + formatCurrency(res.totals.total_deposited) + '</h5><small>Total Deposited</small></div></div><div class="col-md-4"><div class="callout callout-primary"><h5>' + res.totals.total_accounts + '</h5><small>Total Accounts</small></div></div></div>';
                     html += '<div class="table-responsive"><table class="table table-hover table-sm"><thead class="thead-light"><tr><th>Account</th><th>Member</th><th>Balance</th><th>Deposited</th><th></th></tr></thead><tbody>';
                     $.each(res.data, function(i, s) {
@@ -501,7 +501,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         html += '<tr><td>' + formatDate(c.payment_date) + '</td><td><code>' + c.loan_number + '</code></td><td>' + c.member_code + ' - ' + c.first_name + '</td><td class="text-right">' + formatCurrency(c.principal_component) + '</td><td class="text-right">' + formatCurrency(c.interest_component) + '</td><td class="text-right font-weight-bold">' + formatCurrency(c.total_amount) + '</td></tr>';
                     });
                     html += '</tbody></table></div>';
-                    html += '<h6 class="text-muted"><i class="fas fa-piggy-bank mr-1"></i>Savings Deposits</h6>';
+                    html += '<h6 class="text-muted"><i class="fas fa-piggy-bank mr-1"></i>Security Deposits</h6>';
                     html += '<div class="table-responsive"><table class="table table-hover table-sm"><thead class="thead-light"><tr><th>Date</th><th>Account</th><th>Member</th><th>Amount</th></tr></thead><tbody>';
                     $.each(res.savings_collections, function(i, s) {
                         html += '<tr><td>' + formatDate(s.transaction_date) + '</td><td><code>' + s.account_number + '</code></td><td>' + s.member_code + ' - ' + s.first_name + '</td><td class="text-right font-weight-bold text-success">' + formatCurrency(s.amount) + '</td></tr>';
@@ -566,7 +566,7 @@ document.addEventListener('DOMContentLoaded', function() {
             labels: <?= json_encode($monthly_trend['labels']) ?>,
             datasets: [
                 {
-                    label: 'Savings Collection',
+                    label: 'Security Deposit Collection',
                     data: <?= json_encode($monthly_trend['savings']) ?>,
                     borderColor: '#28a745',
                     backgroundColor: 'rgba(40, 167, 69, 0.1)',

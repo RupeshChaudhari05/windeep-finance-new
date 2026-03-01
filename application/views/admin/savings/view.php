@@ -3,7 +3,7 @@
     <div class="col-md-4">
         <div class="card card-success card-outline">
             <div class="card-header">
-                <h3 class="card-title"><i class="fas fa-piggy-bank mr-1"></i> Savings Account Details</h3>
+                <h3 class="card-title"><i class="fas fa-piggy-bank mr-1"></i> Security Deposit Account Details</h3>
             </div>
             <div class="card-body">
                 <div class="text-center mb-3">
