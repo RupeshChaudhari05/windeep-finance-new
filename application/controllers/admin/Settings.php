@@ -1112,6 +1112,378 @@ class Settings extends Admin_Controller {
         redirect('admin/settings#email');
     }
 
+    // =========================================
+    // MAINTENANCE — Web Cron Trigger & DB Health
+    // =========================================
+
+    /**
+     * Run cron jobs from web (for shared hosting / manual trigger)
+     * Accepts: POST (admin panel) or GET with secret key (webcron service)
+     */
+    public function run_cron()
+    {
+        $job = $this->input->get_post('job') ?: 'all';
+        $key = $this->input->get_post('key');
+
+        // If called via GET with key (webcron), validate secret
+        if (!$this->session->userdata('admin_id')) {
+            $stored_key = $this->Setting_model->get_setting('cron_secret_key', '');
+            if (empty($stored_key) || $key !== $stored_key) {
+                $this->output->set_status_header(403);
+                echo json_encode(['success' => false, 'message' => 'Unauthorized']);
+                return;
+            }
+        }
+
+        // Load all required models (same as CLI Cron controller)
+        $this->load->model([
+            'Savings_model', 'Loan_model', 'Fine_model',
+            'Member_model', 'Notification_model'
+        ]);
+        $this->load->helper(['email', 'date']);
+
+        $results = [];
+        $allowed = ['daily', 'weekly', 'monthly', 'hourly', 'all'];
+        if (!in_array($job, $allowed)) {
+            echo json_encode(['success' => false, 'message' => 'Invalid job type. Use: ' . implode(', ', $allowed)]);
+            return;
+        }
+
+        $jobs_to_run = ($job === 'all') ? ['hourly', 'daily', 'weekly', 'monthly'] : [$job];
+
+        foreach ($jobs_to_run as $j) {
+            $results[$j] = $this->_run_cron_group($j);
+        }
+
+        $this->output->set_content_type('application/json');
+        echo json_encode(['success' => true, 'results' => $results, 'ran_at' => date('Y-m-d H:i:s')]);
+    }
+
+    /**
+     * Execute a group of cron tasks and return results
+     */
+    private function _run_cron_group($group)
+    {
+        $tasks = [];
+
+        switch ($group) {
+            case 'hourly':
+                $tasks[] = $this->_cron_task('Process Email Queue', function () {
+                    if (!$this->db->table_exists('email_queue')) return 'Skipped — email_queue table not found';
+                    $pending = $this->db->where('status', 'pending')
+                        ->where('attempts <', 3)->order_by('created_at', 'ASC')
+                        ->limit(50)->get('email_queue')->result();
+                    if (empty($pending)) return 'No pending emails';
+                    $sent = 0; $failed = 0;
+                    foreach ($pending as $email) {
+                        $result = send_email($email->to_email, $email->subject, $email->body);
+                        if ($result['success']) {
+                            $this->db->where('id', $email->id)->update('email_queue', ['status' => 'sent', 'sent_at' => date('Y-m-d H:i:s')]);
+                            $sent++;
+                        } else {
+                            $this->db->where('id', $email->id)->update('email_queue', [
+                                'attempts' => $email->attempts + 1,
+                                'last_error' => $result['message'],
+                                'status' => $email->attempts >= 2 ? 'failed' : 'pending'
+                            ]);
+                            $failed++;
+                        }
+                    }
+                    return "Sent: {$sent}, Failed: {$failed}";
+                });
+
+                $tasks[] = $this->_cron_task('Check Pending Consents', function () {
+                    if (!$this->db->table_exists('loan_guarantors')) return 'Skipped — loan_guarantors table not found';
+                    // Build query using actual schema columns
+                    $this->db->select('lg.*, m.email, m.first_name')
+                        ->from('loan_guarantors lg')
+                        ->join('members m', 'm.id = lg.guarantor_member_id')
+                        ->where('lg.consent_status', 'pending')
+                        ->where('lg.created_at <', date('Y-m-d H:i:s', strtotime('-3 days')));
+                    // Only filter by reminder_count if the column exists
+                    $has_reminder_count = $this->db->field_exists('reminder_count', 'loan_guarantors');
+                    if ($has_reminder_count) {
+                        $this->db->where('lg.reminder_count <', 3);
+                    }
+                    $pending = $this->db->get()->result();
+                    $sent = 0;
+                    foreach ($pending as $g) {
+                        if (!empty($g->email)) {
+                            $result = send_email($g->email, 'Reminder: Guarantor Consent Required',
+                                "<p>Dear {$g->first_name}, your guarantor consent is pending. Please review.</p>");
+                            if ($result['success']) {
+                                $update_data = ['updated_at' => date('Y-m-d H:i:s')];
+                                if ($has_reminder_count) {
+                                    $update_data['reminder_count'] = ($g->reminder_count ?? 0) + 1;
+                                }
+                                if ($this->db->field_exists('last_reminder_at', 'loan_guarantors')) {
+                                    $update_data['last_reminder_at'] = date('Y-m-d H:i:s');
+                                }
+                                $this->db->where('id', $g->id)->update('loan_guarantors', $update_data);
+                                $sent++;
+                            }
+                        }
+                    }
+                    return "Reminders sent: {$sent}";
+                });
+                break;
+
+            case 'daily':
+                $tasks[] = $this->_cron_task('Apply Overdue Fines', function () {
+                    $auto = $this->Setting_model->get_setting('auto_apply_fines', '0');
+                    if (!$auto || $auto === '0' || $auto === 'false') {
+                        return 'Skipped — auto_apply_fines is OFF';
+                    }
+                    $count = $this->Fine_model->run_late_fine_job(1);
+                    return "Applied/updated {$count} fines";
+                });
+
+                $tasks[] = $this->_cron_task('Mark Overdue Installments', function () {
+                    if (!$this->db->table_exists('loan_installments')) return 'Skipped — loan_installments table not found';
+                    $this->db->where('status', 'pending')->where('due_date <', date('Y-m-d'))
+                        ->update('loan_installments', ['status' => 'overdue', 'updated_at' => date('Y-m-d H:i:s')]);
+                    $loans = $this->db->affected_rows();
+                    $this->db->where('status', 'pending')->where('due_date <', date('Y-m-d'))
+                        ->update('savings_schedule', ['status' => 'overdue', 'updated_at' => date('Y-m-d H:i:s')]);
+                    $savings = $this->db->affected_rows();
+                    return "Loans: {$loans}, Savings: {$savings}";
+                });
+
+                $tasks[] = $this->_cron_task('Update NPA Status', function () {
+                    $npa_days = $this->Setting_model->get_setting('npa_days', 90);
+                    $npa_loans = $this->db->distinct()
+                        ->select('l.id', FALSE)
+                        ->from('loans l')
+                        ->join('loan_installments li', 'li.loan_id = l.id')
+                        ->where('l.status', 'active')
+                        ->where('li.status', 'overdue')
+                        ->where('li.due_date <', date('Y-m-d', strtotime("-{$npa_days} days")))
+                        ->get()->result();
+                    $count = 0;
+                    foreach ($npa_loans as $loan) {
+                        $this->db->where('id', $loan->id)->update('loans', [
+                            'status' => 'npa', 'npa_date' => date('Y-m-d'), 'updated_at' => date('Y-m-d H:i:s')
+                        ]);
+                        $count++;
+                    }
+                    return "Marked {$count} loans as NPA";
+                });
+
+                $tasks[] = $this->_cron_task('Cleanup Old Sessions', function () {
+                    if (!$this->db->table_exists('ci_sessions')) return 'Skipped — ci_sessions table not found';
+                    $this->db->where('timestamp <', time() - 86400 * 7)->delete('ci_sessions');
+                    return "Deleted {$this->db->affected_rows()} sessions";
+                });
+                break;
+
+            case 'weekly':
+                $tasks[] = $this->_cron_task('Cleanup Old Notifications', function () {
+                    if (!$this->db->table_exists('notifications')) return 'Skipped — notifications table not found';
+                    $this->db->where('is_read', 1)
+                        ->where('created_at <', date('Y-m-d H:i:s', strtotime('-30 days')))
+                        ->delete('notifications');
+                    return "Deleted {$this->db->affected_rows()} old notifications";
+                });
+                break;
+
+            case 'monthly':
+                $tasks[] = $this->_cron_task('Archive Old Logs', function () {
+                    $log_path = APPPATH . 'logs/';
+                    $archive_path = $log_path . 'archive/';
+                    if (!is_dir($archive_path)) @mkdir($archive_path, 0755, true);
+                    $files = glob($log_path . '*.php');
+                    $archived = 0;
+                    foreach ($files as $file) {
+                        if (filemtime($file) < strtotime('-30 days')) {
+                            @rename($file, $archive_path . basename($file));
+                            $archived++;
+                        }
+                    }
+                    return "Archived {$archived} log files";
+                });
+                break;
+        }
+
+        return $tasks;
+    }
+
+    /**
+     * Execute a single cron task with error handling
+     */
+    private function _cron_task($name, $callback)
+    {
+        try {
+            $result = $callback();
+            return ['task' => $name, 'status' => 'success', 'message' => $result];
+        } catch (Exception $e) {
+            return ['task' => $name, 'status' => 'error', 'message' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Save Cron Secret Key (AJAX)
+     */
+    public function save_cron_key()
+    {
+        if ($this->input->method() !== 'post') {
+            echo json_encode(['success' => false, 'message' => 'Invalid request']);
+            return;
+        }
+
+        $key = $this->input->post('cron_secret_key');
+        if (empty($key)) {
+            // Generate a random key
+            $key = bin2hex(random_bytes(16));
+        }
+
+        $this->Setting_model->update_settings(['cron_secret_key' => $key]);
+        echo json_encode(['success' => true, 'key' => $key]);
+    }
+
+    /**
+     * Database Health Check
+     * Verifies all required tables exist. Creates missing ones using embedded SQL.
+     * Works on shared hosting — only needs normal MySQL CREATE TABLE privilege.
+     */
+    public function db_health_check()
+    {
+        if (!$this->input->is_ajax_request() && $this->input->method() !== 'post') {
+            redirect('admin/settings#maintenance');
+        }
+
+        $this->output->set_content_type('application/json');
+
+        // Full list of required tables
+        $required_tables = [
+            'active_sessions', 'activity_logs', 'admin_details', 'admin_sessions',
+            'admin_users', 'api_tokens', 'audit_logs', 'bank_accounts',
+            'bank_balance_history', 'bank_statement_imports', 'bank_transactions',
+            'bonus_transactions', 'chart_of_accounts', 'chat_box', 'ci_sessions',
+            'expenditure', 'expense_transactions', 'failed_login_attempts',
+            'financial_years', 'fine_rules', 'fines', 'general_ledger',
+            'loan_applications', 'loan_foreclosure_requests', 'loan_guarantors',
+            'loan_installments', 'loan_payments', 'loan_products',
+            'loan_transaction_details', 'loan_transactions', 'loans',
+            'member_code_sequence', 'member_details', 'member_ledger',
+            'member_other_transactions', 'members', 'non_member_funds', 'non_members',
+            'notifications', 'other_member_details', 'password_history',
+            'requests_status', 'rule_code_sequence', 'savings_accounts',
+            'savings_schedule', 'savings_schemes', 'savings_transactions',
+            'schema_migrations', 'security_logs', 'send_form', 'shares',
+            'system_settings', 'transaction_mappings', 'two_factor_auth',
+            'verification_tokens', 'view_requests',
+            // Migration tables
+            'internal_transactions', 'disbursement_tracking',
+            // Email & messaging tables
+            'email_queue',
+        ];
+
+        // Get existing tables from the database
+        $existing = [];
+        $tables = $this->db->list_tables();
+        foreach ($tables as $t) {
+            $existing[] = $t;
+        }
+
+        $report = [
+            'total_required' => count($required_tables),
+            'total_existing' => 0,
+            'missing' => [],
+            'present' => [],
+            'created' => [],
+            'failed' => [],
+            'extra_tables' => []
+        ];
+
+        foreach ($required_tables as $table) {
+            if (in_array($table, $existing)) {
+                $report['present'][] = $table;
+                $report['total_existing']++;
+            } else {
+                $report['missing'][] = $table;
+            }
+        }
+
+        // Find extra tables (exist in DB but not in required list)
+        foreach ($existing as $table) {
+            if (!in_array($table, $required_tables)) {
+                $report['extra_tables'][] = $table;
+            }
+        }
+
+        // If auto_fix requested, try to create missing tables
+        $auto_fix = $this->input->get_post('fix') === '1';
+        if ($auto_fix && !empty($report['missing'])) {
+            $report['created'] = [];
+            $report['failed'] = [];
+
+            // Try to read SQL from install_complete.sql
+            $sql_file = FCPATH . 'database/install_complete.sql';
+            $sql_content = '';
+            if (file_exists($sql_file)) {
+                $sql_content = file_get_contents($sql_file);
+            }
+
+            // Also read migration files
+            $migration_dir = APPPATH . 'migrations/';
+            if (is_dir($migration_dir)) {
+                $mig_files = glob($migration_dir . '*.sql');
+                foreach ($mig_files as $mf) {
+                    $sql_content .= "\n" . file_get_contents($mf);
+                }
+            }
+
+            foreach ($report['missing'] as $table) {
+                $created = $this->_create_missing_table($table, $sql_content);
+                if ($created) {
+                    $report['created'][] = $table;
+                } else {
+                    $report['failed'][] = $table;
+                }
+            }
+
+            // Recalculate after fix
+            $report['total_existing'] = count($report['present']) + count($report['created']);
+            // Remove created tables from missing
+            $report['missing'] = array_values(array_diff($report['missing'], $report['created']));
+        }
+
+        $report['healthy'] = empty($report['missing']);
+        $report['database_name'] = $this->db->database;
+        $report['checked_at'] = date('Y-m-d H:i:s');
+
+        echo json_encode(['success' => true, 'report' => $report]);
+    }
+
+    /**
+     * Try to create a missing table from SQL file content
+     */
+    private function _create_missing_table($table, $sql_content)
+    {
+        if (empty($sql_content)) return false;
+
+        // Extract CREATE TABLE statement for this table
+        // Match: CREATE TABLE [IF NOT EXISTS] `table_name` ( ... ) ENGINE=...;
+        $pattern = '/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?`?' . preg_quote($table, '/') . '`?\s*\(.*?\)\s*(?:ENGINE\s*=\s*\w+)?(?:\s*(?:DEFAULT\s+)?CHARSET\s*=\s*\w+)?(?:\s*COLLATE\s*=\s*[\w_]+)?(?:\s*AUTO_INCREMENT\s*=\s*\d+)?(?:\s*COMMENT\s*=\s*\'[^\']*\')?[^;]*;/is';
+
+        if (preg_match($pattern, $sql_content, $matches)) {
+            try {
+                $create_sql = $matches[0];
+                // Add IF NOT EXISTS for safety
+                if (stripos($create_sql, 'IF NOT EXISTS') === false) {
+                    $create_sql = preg_replace('/CREATE\s+TABLE\s+/i', 'CREATE TABLE IF NOT EXISTS ', $create_sql);
+                }
+                $this->db->query($create_sql);
+                return true;
+            } catch (Exception $e) {
+                log_message('error', "Failed to create table {$table}: " . $e->getMessage());
+                return false;
+            }
+        }
+
+        return false;
+    }
+
     /**
      * Update existing schedules to use Fixed Due Day
      */

@@ -371,15 +371,190 @@ class Dashboard extends Admin_Controller {
      * Fee Detail (for modal)
      */
     public function card_fees() {
-        $membership_fees = $this->db->select('bt.id, bt.transaction_date, bt.amount, bt.description, bt.reference_number, m.member_code, m.first_name, m.last_name')
-                                     ->from('bank_transactions bt')
-                                     ->join('members m', 'm.id = bt.paid_by_member_id', 'left')
-                                     ->where('bt.transaction_category', 'membership_fee')
-                                     ->where('bt.mapping_status', 'mapped')
-                                     ->order_by('bt.transaction_date', 'DESC')
-                                     ->limit(50)
-                                     ->get()
-                                     ->result();
-        $this->json_response(['data' => $membership_fees]);
+        // Combine membership fees from bank transactions and member_other_transactions
+        $fees = [];
+        // bank transactions
+        $bt = $this->db->select('bt.id, bt.transaction_date, bt.amount, bt.description, bt.reference_number, m.member_code, m.first_name, m.last_name')
+                       ->from('bank_transactions bt')
+                       ->join('members m', 'm.id = bt.paid_by_member_id', 'left')
+                       ->where('bt.transaction_category', 'membership_fee')
+                       ->where('bt.mapping_status', 'mapped')
+                       ->order_by('bt.transaction_date', 'DESC')
+                       ->limit(50)
+                       ->get()
+                       ->result();
+        $fees = array_merge($fees, $bt);
+
+        // member_other_transactions
+        if ($this->db->table_exists('member_other_transactions')) {
+            $mot = $this->db->select('mot.id, mot.transaction_date, mot.amount, mot.description, mot.transaction_type, m.member_code, m.first_name, m.last_name')
+                            ->from('member_other_transactions mot')
+                            ->join('members m', 'm.id = mot.member_id', 'left')
+                            ->where('mot.transaction_type', 'membership_fee')
+                            ->order_by('mot.transaction_date', 'DESC')
+                            ->limit(50)
+                            ->get()
+                            ->result();
+            $fees = array_merge($fees, $mot);
+        }
+
+        $this->json_response(['data' => $fees]);
+    }
+    
+    /**
+     * Other Member Fees Detail (for modal)
+     */
+    public function card_other_fees() {
+        $fees = [];
+        // from member_other_transactions
+        if ($this->db->table_exists('member_other_transactions')) {
+            $fees = $this->db->select('mot.id, mot.transaction_date, mot.amount, mot.transaction_type, mot.description, m.member_code, m.first_name, m.last_name')
+                            ->from('member_other_transactions mot')
+                            ->join('members m', 'm.id = mot.member_id', 'left')
+                            ->where('mot.transaction_type !=', 'membership_fee')
+                            ->order_by('mot.transaction_date', 'DESC')
+                            ->limit(100)
+                            ->get()
+                            ->result();
+        }
+        // also include mapped bank transactions of type "other"
+        $mapped = $this->db->select('bt.id, bt.transaction_date, bt.amount, bt.description, bt.reference_number, m.member_code, m.first_name, m.last_name')
+                         ->from('bank_transactions bt')
+                         ->join('members m', 'm.id = bt.paid_by_member_id', 'left')
+                         ->where('bt.mapping_status', 'mapped')
+                         ->where('bt.mapping_type', 'other')
+                         ->order_by('bt.transaction_date', 'DESC')
+                         ->limit(100)
+                         ->get()
+                         ->result();
+        $fees = array_merge($fees, $mapped);
+
+        $this->json_response(['data' => $fees]);
+    }
+
+    /**
+     * Fund Providers Detail (for modal)
+     */
+    public function card_fund_providers() {
+        $providers = $this->db->select('nm.id, nm.name, nm.phone, nm.email, nm.status,
+            COALESCE((SELECT SUM(nmf.amount) FROM non_member_funds nmf WHERE nmf.non_member_id = nm.id AND nmf.transaction_type = "received"), 0) as total_funded,
+            COALESCE((SELECT SUM(nmf.amount) FROM non_member_funds nmf WHERE nmf.non_member_id = nm.id AND nmf.transaction_type = "returned"), 0) as total_repaid,
+            COALESCE((SELECT SUM(nmf.amount) FROM non_member_funds nmf WHERE nmf.non_member_id = nm.id AND nmf.transaction_type = "received"), 0) - COALESCE((SELECT SUM(nmf.amount) FROM non_member_funds nmf WHERE nmf.non_member_id = nm.id AND nmf.transaction_type = "returned"), 0) as outstanding_balance', FALSE)
+                              ->from('non_members nm')
+                              ->order_by('outstanding_balance', 'DESC')
+                              ->limit(50)
+                              ->get()
+                              ->result();
+        
+        $totals_row = $this->db->select('
+            COALESCE(SUM(CASE WHEN transaction_type = "received" THEN amount ELSE 0 END), 0) as total_funded,
+            COALESCE(SUM(CASE WHEN transaction_type = "returned" THEN amount ELSE 0 END), 0) as total_repaid', FALSE)
+                               ->get('non_member_funds')
+                               ->row();
+        $totals = new stdClass();
+        $totals->total_funded = $totals_row->total_funded;
+        $totals->total_repaid = $totals_row->total_repaid;
+        $totals->outstanding = $totals_row->total_funded - $totals_row->total_repaid;
+        
+        $total = $this->db->count_all('non_members');
+        $this->json_response(['data' => $providers, 'totals' => $totals, 'total' => $total]);
+    }
+    
+    /**
+     * Office Expenses Detail (for modal)
+     */
+    public function card_expenses() {
+        // use internal_transactions same as summary logic
+        $expense_types = ['bank_charge', 'dividend_paid', 'other'];
+        $expenses = [];
+        if ($this->db->table_exists('internal_transactions')) {
+            $expenses = $this->db->select('id, transaction_date, amount, transaction_type as category, description, reference_number')
+                                 ->from('internal_transactions')
+                                 ->where('status', 'completed')
+                                 ->where_in('transaction_type', $expense_types)
+                                 ->order_by('transaction_date', 'DESC')
+                                 ->limit(100)
+                                 ->get()
+                                 ->result();
+
+            $total_expenses = $this->db->select_sum('amount')
+                                       ->from('internal_transactions')
+                                       ->where('status', 'completed')
+                                       ->where_in('transaction_type', $expense_types)
+                                       ->get()
+                                       ->row()
+                                       ->total_expenses ?? 0;
+
+            $this_month = $this->db->select_sum('amount')
+                                   ->from('internal_transactions')
+                                   ->where('status', 'completed')
+                                   ->where_in('transaction_type', $expense_types)
+                                   ->where('MONTH(transaction_date)', date('m'))
+                                   ->where('YEAR(transaction_date)', date('Y'))
+                                   ->get()
+                                   ->row()
+                                   ->this_month ?? 0;
+
+            $total_count = $this->db->from('internal_transactions')
+                                    ->where('status', 'completed')
+                                    ->where_in('transaction_type', $expense_types)
+                                    ->count_all_results();
+        } else {
+            // fallback to previous bank_transactions logic
+            $expenses = $this->db->select('id, transaction_date, amount, description, reference_number, transaction_category as category')
+                                 ->where_in('transaction_category', ['office_expense', 'salary', 'rent', 'utilities', 'other_expense'])
+                                 ->where('mapping_status', 'mapped')
+                                 ->order_by('transaction_date', 'DESC')
+                                 ->limit(100)
+                                 ->get('bank_transactions')
+                                 ->result();
+
+            $total_expenses = $this->db->select_sum('amount')
+                                       ->where_in('transaction_category', ['office_expense', 'salary', 'rent', 'utilities', 'other_expense'])
+                                       ->where('mapping_status', 'mapped')
+                                       ->get('bank_transactions')
+                                       ->row()
+                                       ->amount ?? 0;
+
+            $this_month = $this->db->select_sum('amount')
+                                   ->where_in('transaction_category', ['office_expense', 'salary', 'rent', 'utilities', 'other_expense'])
+                                   ->where('mapping_status', 'mapped')
+                                   ->where('MONTH(transaction_date)', date('m'))
+                                   ->where('YEAR(transaction_date)', date('Y'))
+                                   ->get('bank_transactions')
+                                   ->row()
+                                   ->amount ?? 0;
+
+            $total_count = $this->db->where_in('transaction_category', ['office_expense', 'salary', 'rent', 'utilities', 'other_expense'])
+                                    ->where('mapping_status', 'mapped')
+                                    ->count_all_results('bank_transactions');
+        }
+        
+        $this->json_response([
+            'data' => $expenses,
+            'totals' => [
+                'total_expenses' => $total_expenses,
+                'this_month' => $this_month,
+                'total_count' => $total_count
+            ]
+        ]);
+    }
+    
+    /**
+     * Interest Earned Detail (for modal)
+     */
+    public function card_interest() {
+        $interest_stats = $this->Report_model->get_interest_earned_stats();
+        $monthly = $this->Report_model->get_monthly_interest_report(date('Y'));
+        
+        $this->json_response([
+            'totals' => [
+                'total_interest' => $interest_stats['total_interest'] ?? 0,
+                'this_year' => $interest_stats['this_year_interest'] ?? 0,
+                'this_month' => $interest_stats['this_month_interest'] ?? 0,
+                'active_loans' => $interest_stats['active_loan_count'] ?? 0
+            ],
+            'monthly' => $monthly
+        ]);
     }
 }

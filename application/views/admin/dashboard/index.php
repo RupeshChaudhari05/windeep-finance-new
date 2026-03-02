@@ -131,7 +131,7 @@
         </div>
     </div>
     <div class="col-lg-3 col-6">
-        <div class="info-box dashboard-card" data-card="fees" style="cursor:pointer" data-toggle="tooltip" title="Click to view other fees detail">
+        <div class="info-box dashboard-card" data-card="other_fees" style="cursor:pointer" data-toggle="tooltip" title="Click to view other fees detail">
             <span class="info-box-icon bg-purple"><i class="fas fa-receipt"></i></span>
             <div class="info-box-content">
                 <span class="info-box-text">Other Members Fee</span>
@@ -140,7 +140,7 @@
         </div>
     </div>
     <div class="col-lg-3 col-6">
-        <div class="info-box dashboard-card" style="cursor:pointer" data-toggle="tooltip" title="Total funds from non-member providers">
+        <div class="info-box dashboard-card" data-card="fund_providers" style="cursor:pointer" data-toggle="tooltip" title="Click to view fund providers detail">
             <span class="info-box-icon bg-olive"><i class="fas fa-user-tie"></i></span>
             <div class="info-box-content">
                 <span class="info-box-text">Fund Providers Balance</span>
@@ -150,7 +150,7 @@
         </div>
     </div>
     <div class="col-lg-3 col-6">
-        <div class="info-box dashboard-card" style="cursor:pointer" data-toggle="tooltip" title="Office expenses from bank transactions">
+        <div class="info-box dashboard-card" data-card="expenses" style="cursor:pointer" data-toggle="tooltip" title="Click to view office expense detail">
             <span class="info-box-icon bg-maroon"><i class="fas fa-building"></i></span>
             <div class="info-box-content">
                 <span class="info-box-text">Office Expenses</span>
@@ -164,7 +164,7 @@
 <!-- Interest Earned Row -->
 <div class="row">
     <div class="col-lg-3 col-6">
-        <div class="info-box bg-gradient-success" data-toggle="tooltip" title="Total interest earned from all loan payments">
+        <div class="info-box bg-gradient-success dashboard-card" data-card="interest" style="cursor:pointer" data-toggle="tooltip" title="Click to view interest detail">
             <span class="info-box-icon"><i class="fas fa-percentage"></i></span>
             <div class="info-box-content">
                 <span class="info-box-text">Total Interest Earned</span>
@@ -173,7 +173,7 @@
         </div>
     </div>
     <div class="col-lg-3 col-6">
-        <div class="info-box bg-gradient-info" data-toggle="tooltip" title="Interest earned this year">
+        <div class="info-box bg-gradient-info dashboard-card" data-card="interest" style="cursor:pointer" data-toggle="tooltip" title="Click to view interest detail">
             <span class="info-box-icon"><i class="fas fa-calendar-check"></i></span>
             <div class="info-box-content">
                 <span class="info-box-text">This Year Interest</span>
@@ -182,7 +182,7 @@
         </div>
     </div>
     <div class="col-lg-3 col-6">
-        <div class="info-box bg-gradient-warning" data-toggle="tooltip" title="Interest earned this month">
+        <div class="info-box bg-gradient-warning dashboard-card" data-card="interest" style="cursor:pointer" data-toggle="tooltip" title="Click to view interest detail">
             <span class="info-box-icon"><i class="fas fa-calendar-day"></i></span>
             <div class="info-box-content">
                 <span class="info-box-text">This Month Interest</span>
@@ -191,7 +191,7 @@
         </div>
     </div>
     <div class="col-lg-3 col-6">
-        <div class="info-box bg-gradient-primary" data-toggle="tooltip" title="Number of active loans">
+        <div class="info-box bg-gradient-primary dashboard-card" data-card="interest" style="cursor:pointer" data-toggle="tooltip" title="Click to view interest detail">
             <span class="info-box-icon"><i class="fas fa-file-invoice-dollar"></i></span>
             <div class="info-box-content">
                 <span class="info-box-text">Active Loans</span>
@@ -645,10 +645,54 @@ document.addEventListener('DOMContentLoaded', function() {
                     break;
                     
                 case 'fees':
-                    $title.html('<i class="fas fa-receipt mr-2 text-teal"></i>Fee Collections');
+                    $title.html('<i class="fas fa-receipt mr-2 text-teal"></i>Membership Fee Collections');
                     html = '<div class="table-responsive"><table class="table table-hover table-sm"><thead class="thead-light"><tr><th>Date</th><th>Member</th><th>Amount</th><th>Reference</th><th>Description</th></tr></thead><tbody>';
                     $.each(res.data, function(i, f) {
                         html += '<tr><td>' + formatDate(f.transaction_date) + '</td><td>' + (f.member_code ? f.member_code + ' - ' + f.first_name + ' ' + f.last_name : '-') + '</td><td class="text-right font-weight-bold">' + formatCurrency(f.amount) + '</td><td>' + (f.reference_number || '-') + '</td><td>' + (f.description || '-') + '</td></tr>';
+                    });
+                    html += '</tbody></table></div>';
+                    break;
+
+                case 'other_fees':
+                    $title.html('<i class="fas fa-receipt mr-2 text-purple"></i>Other Member Fees');
+                    html = '<div class="table-responsive"><table class="table table-hover table-sm"><thead class="thead-light"><tr><th>Date</th><th>Member</th><th>Type</th><th>Amount</th><th>Description</th></tr></thead><tbody>';
+                    $.each(res.data, function(i, f) {
+                        html += '<tr><td>' + formatDate(f.transaction_date) + '</td><td>' + (f.member_code ? f.member_code + ' - ' + f.first_name + ' ' + f.last_name : '-') + '</td><td>' + (f.transaction_type || '-') + '</td><td class="text-right font-weight-bold">' + formatCurrency(f.amount) + '</td><td>' + (f.description || '-') + '</td></tr>';
+                    });
+                    html += '</tbody></table></div>';
+                    break;
+                
+                case 'fund_providers':
+                    $title.html('<i class="fas fa-user-tie mr-2 text-olive"></i>Fund Providers (' + (res.total || 0) + ')');
+                    html = '<div class="row mb-3"><div class="col-md-4"><div class="callout callout-success"><h5>' + formatCurrency(res.totals.total_funded) + '</h5><small>Total Funded</small></div></div><div class="col-md-4"><div class="callout callout-warning"><h5>' + formatCurrency(res.totals.total_repaid) + '</h5><small>Total Repaid</small></div></div><div class="col-md-4"><div class="callout callout-danger"><h5>' + formatCurrency(res.totals.outstanding) + '</h5><small>Outstanding</small></div></div></div>';
+                    html += '<div class="table-responsive"><table class="table table-hover table-sm"><thead class="thead-light"><tr><th>Name</th><th>Phone</th><th>Total Funded</th><th>Total Repaid</th><th>Outstanding</th><th>Status</th><th></th></tr></thead><tbody>';
+                    $.each(res.data, function(i, p) {
+                        var sBadge = p.status === 'active' ? 'success' : 'secondary';
+                        html += '<tr><td>' + p.name + '</td><td>' + (p.phone || '-') + '</td><td class="text-right">' + formatCurrency(p.total_funded) + '</td><td class="text-right">' + formatCurrency(p.total_repaid) + '</td><td class="text-right font-weight-bold text-danger">' + formatCurrency(p.outstanding_balance) + '</td><td><span class="badge badge-' + sBadge + '">' + p.status + '</span></td><td><a href="<?= site_url("admin/non_members/view/") ?>' + p.id + '" class="btn btn-xs btn-outline-primary"><i class="fas fa-eye"></i></a></td></tr>';
+                    });
+                    html += '</tbody></table></div>';
+                    html += '<div class="text-center mt-2"><a href="<?= site_url("admin/non_members") ?>" class="btn btn-sm btn-outline-primary"><i class="fas fa-list mr-1"></i>View All Fund Providers</a></div>';
+                    break;
+                
+                case 'expenses':
+                    $title.html('<i class="fas fa-building mr-2 text-maroon"></i>Office Expenses (Total: ' + formatCurrency(res.totals.total_expenses) + ')');
+                    html = '<div class="row mb-3"><div class="col-md-4"><div class="callout callout-danger"><h5>' + formatCurrency(res.totals.total_expenses) + '</h5><small>Total Expenses</small></div></div><div class="col-md-4"><div class="callout callout-warning"><h5>' + formatCurrency(res.totals.this_month) + '</h5><small>This Month</small></div></div><div class="col-md-4"><div class="callout callout-info"><h5>' + res.totals.total_count + '</h5><small>Total Transactions</small></div></div></div>';
+                    html += '<div class="table-responsive"><table class="table table-hover table-sm"><thead class="thead-light"><tr><th>Date</th><th>Description</th><th>Category</th><th>Amount</th><th>Reference</th></tr></thead><tbody>';
+                    $.each(res.data, function(i, e) {
+                        html += '<tr><td>' + formatDate(e.transaction_date) + '</td><td>' + (e.description || '-') + '</td><td><span class="badge badge-info">' + (e.category || 'General') + '</span></td><td class="text-right font-weight-bold text-danger">' + formatCurrency(e.amount) + '</td><td>' + (e.reference_number || '-') + '</td></tr>';
+                    });
+                    html += '</tbody></table></div>';
+                    break;
+                
+                case 'interest':
+                    $title.html('<i class="fas fa-percentage mr-2 text-success"></i>Interest Earned Analytics');
+                    html = '<div class="row mb-3"><div class="col-md-3"><div class="callout callout-success"><h5>' + formatCurrency(res.totals.total_interest) + '</h5><small>Total Interest</small></div></div><div class="col-md-3"><div class="callout callout-info"><h5>' + formatCurrency(res.totals.this_year) + '</h5><small>This Year</small></div></div><div class="col-md-3"><div class="callout callout-warning"><h5>' + formatCurrency(res.totals.this_month) + '</h5><small>This Month</small></div></div><div class="col-md-3"><div class="callout callout-primary"><h5>' + res.totals.active_loans + '</h5><small>Active Loans</small></div></div></div>';
+                    html += '<h6 class="text-muted"><i class="fas fa-chart-bar mr-1"></i>Monthly Interest Breakdown (<?= date("Y") ?>)</h6>';
+                    html += '<div class="table-responsive"><table class="table table-hover table-sm"><thead class="thead-light"><tr><th>Month</th><th class="text-right">Interest Earned</th><th class="text-right">Principal Collected</th><th class="text-right">Total Collection</th></tr></thead><tbody>';
+                    $.each(res.monthly, function(i, m) {
+                        if (m.interest > 0 || m.principal > 0) {
+                            html += '<tr><td>' + m.month_name + '</td><td class="text-right text-success font-weight-bold">' + formatCurrency(m.interest) + '</td><td class="text-right">' + formatCurrency(m.principal) + '</td><td class="text-right font-weight-bold">' + formatCurrency(parseFloat(m.interest) + parseFloat(m.principal)) + '</td></tr>';
+                        }
                     });
                     html += '</tbody></table></div>';
                     break;

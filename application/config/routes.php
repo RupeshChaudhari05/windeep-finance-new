@@ -57,8 +57,8 @@ $route['translate_uri_dashes'] = FALSE;
 $route['public/guarantor_consent/(:num)/(:any)'] = 'publiccontroller/guarantor_consent/$1/$2';
 $route['public/guarantor_consent/(:num)'] = 'publiccontroller/guarantor_consent/$1';
 
-// Root redirect
-$route['^$'] = 'admin/auth/index';
+// Root redirect - show landing page
+$route['^$'] = 'welcome/index';
 
 // Admin routes
 $route['admin'] = 'admin/dashboard';
@@ -189,6 +189,9 @@ $route['admin/settings/financial_years'] = 'admin/settings/financial_years';
 $route['admin/settings/admin_users'] = 'admin/settings/admin_users';
 $route['admin/settings/save_savings_scheme'] = 'admin/settings/save_savings_scheme';
 $route['admin/settings/toggle_savings_scheme'] = 'admin/settings/toggle_savings_scheme';
+$route['admin/settings/run_cron'] = 'admin/settings/run_cron';
+$route['admin/settings/save_cron_key'] = 'admin/settings/save_cron_key';
+$route['admin/settings/db_health_check'] = 'admin/settings/db_health_check';
 
 // System Management routes
 $route['admin/system'] = 'admin/system/index';
@@ -262,3 +265,14 @@ $route['member/fines'] = 'member/fines/index';
 $route['member/fines/view/(:num)'] = 'member/fines/view/$1';
 $route['member/fines/request-waiver/(:num)'] = 'member/fines/request_waiver/$1';
 $route['member/fines/waiver-status/(:num)'] = 'member/fines/waiver_status/$1';
+
+/* Static Pages Mapping */
+$route['terms'] = 'pages/view/terms';
+$route['privacy'] = 'pages/view/privacy';
+$route['security'] = 'pages/view/security';
+$route['compliance'] = 'pages/view/compliance';
+$route['about'] = 'pages/view/about';
+$route['contact'] = 'pages/view/contact';
+$route['careers'] = 'pages/view/careers';
+
+$route['case_studies'] = 'pages/view/case_studies';

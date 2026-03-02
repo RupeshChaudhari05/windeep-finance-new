@@ -53,6 +53,11 @@
                             <i class="fas fa-database mr-2"></i> Backup & Restore
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#maintenance" data-toggle="pill">
+                            <i class="fas fa-tools mr-2"></i> Maintenance
+                        </a>
+                    </li>
                 </ul>
             </div>
         </div>
@@ -234,28 +239,36 @@
                                 </div>
                             </div>
                             
-                            <div class="alert alert-info mt-3">
-                                <i class="fas fa-robot mr-2"></i><strong>Automatic Features:</strong>
-                                <ul class="mb-0 mt-2">
-                                    <li><strong>Email Alerts:</strong> Members receive email on due date if email is present</li>
-                                    <li><strong>Fine Application:</strong> Late fees are automatically applied after due date based on Fine Rules</li>
-                                    <li><strong>Status Updates:</strong> Installments marked as overdue automatically</li>
-                                </ul>
+                            <div class="card card-info card-outline mt-3">
+                                <div class="card-header">
+                                    <h3 class="card-title"><i class="fas fa-robot mr-2"></i> Automatic Features</h3>
+                                </div>
+                                <div class="card-body pb-2">
+                                    <ul class="list-unstyled mb-0">
+                                        <li class="mb-2"><i class="fas fa-envelope text-info mr-2"></i><strong>Email Alerts:</strong> Members receive email on due date if email is present</li>
+                                        <li class="mb-2"><i class="fas fa-gavel text-info mr-2"></i><strong>Fine Application:</strong> Late fees are automatically applied after due date based on Fine Rules</li>
+                                        <li class="mb-0"><i class="fas fa-sync-alt text-info mr-2"></i><strong>Status Updates:</strong> Installments marked as overdue automatically</li>
+                                    </ul>
+                                </div>
                             </div>
-                            
-                            <div class="alert alert-warning mt-3">
-                                <i class="fas fa-exclamation-triangle mr-2"></i><strong>Update Existing Schedules:</strong>
-                                <p class="mb-2">The Fixed Due Day setting only applies to <strong>NEW</strong> loans and savings created after enabling it. Existing schedules keep their original due dates.</p>
-                                <p class="mb-2">If you want to update <strong>all existing future schedules</strong> to use the new Fixed Due Day, click the button below:</p>
-                                <a href="<?= base_url('admin/settings/update_existing_schedules') ?>" 
-                                   class="btn btn-warning" 
-                                   <?= !($settings['force_fixed_due_day'] ?? 0) ? 'disabled style="pointer-events:none;opacity:0.5;"' : '' ?>
-                                   onclick="return confirm('This will update ALL future loan installments and savings schedules to use Fixed Due Day <?= $settings['fixed_due_day'] ?? 10 ?>. Are you sure?');">
-                                    <i class="fas fa-sync-alt mr-1"></i> Update All Existing Schedules
-                                </a>
-                                <?php if (!($settings['force_fixed_due_day'] ?? 0)): ?>
-                                    <small class="text-muted ml-2">Enable Fixed Due Day first</small>
-                                <?php endif; ?>
+
+                            <div class="card card-warning card-outline mt-3">
+                                <div class="card-header">
+                                    <h3 class="card-title"><i class="fas fa-exclamation-triangle mr-2"></i> Update Existing Schedules</h3>
+                                </div>
+                                <div class="card-body">
+                                    <p class="mb-2">The Fixed Due Day setting only applies to <strong>NEW</strong> loans and savings created after enabling it. Existing schedules keep their original due dates.</p>
+                                    <p class="mb-3">If you want to update <strong>all existing future schedules</strong> to use the new Fixed Due Day, click the button below:</p>
+                                    <a href="<?= base_url('admin/settings/update_existing_schedules') ?>"
+                                       class="btn btn-warning"
+                                       <?= !($settings['force_fixed_due_day'] ?? 0) ? 'disabled style="pointer-events:none;opacity:0.5;"' : '' ?>
+                                       onclick="return confirm('This will update ALL future loan installments and savings schedules to use Fixed Due Day <?= $settings['fixed_due_day'] ?? 10 ?>. Are you sure?');">
+                                        <i class="fas fa-sync-alt mr-1"></i> Update All Existing Schedules
+                                    </a>
+                                    <?php if (!($settings['force_fixed_due_day'] ?? 0)): ?>
+                                        <small class="text-muted ml-2">Enable Fixed Due Day first</small>
+                                    <?php endif; ?>
+                                </div>
                             </div>
                         </div>
                         
@@ -713,6 +726,142 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Maintenance Tab -->
+            <div class="tab-pane fade" id="maintenance">
+                <div class="row">
+                    <!-- Cron Jobs Section -->
+                    <div class="col-md-12">
+                        <div class="card card-primary card-outline">
+                            <div class="card-header">
+                                <h3 class="card-title"><i class="fas fa-clock mr-1"></i> Run Cron Jobs</h3>
+                                <div class="card-tools">
+                                    <span class="badge badge-info" id="cronLastRun"></span>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <p class="text-muted mb-3">Manually trigger scheduled tasks. Useful for shared hosting or immediate data updates.</p>
+                                <div class="row">
+                                    <div class="col-md-3 col-sm-6 mb-3">
+                                        <div class="card bg-light h-100">
+                                            <div class="card-body text-center p-3">
+                                                <i class="fas fa-hourglass-half fa-2x text-info mb-2"></i>
+                                                <h6>Hourly</h6>
+                                                <small class="text-muted d-block mb-2">Email queue, consent reminders</small>
+                                                <button class="btn btn-info btn-sm btn-block btn-run-cron" data-job="hourly">
+                                                    <i class="fas fa-play mr-1"></i> Run
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3 col-sm-6 mb-3">
+                                        <div class="card bg-light h-100">
+                                            <div class="card-body text-center p-3">
+                                                <i class="fas fa-calendar-day fa-2x text-warning mb-2"></i>
+                                                <h6>Daily</h6>
+                                                <small class="text-muted d-block mb-2">Fines, overdue, NPA, reminders</small>
+                                                <button class="btn btn-warning btn-sm btn-block btn-run-cron" data-job="daily">
+                                                    <i class="fas fa-play mr-1"></i> Run
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3 col-sm-6 mb-3">
+                                        <div class="card bg-light h-100">
+                                            <div class="card-body text-center p-3">
+                                                <i class="fas fa-calendar-week fa-2x text-success mb-2"></i>
+                                                <h6>Weekly</h6>
+                                                <small class="text-muted d-block mb-2">Schedule extension, cleanup</small>
+                                                <button class="btn btn-success btn-sm btn-block btn-run-cron" data-job="weekly">
+                                                    <i class="fas fa-play mr-1"></i> Run
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3 col-sm-6 mb-3">
+                                        <div class="card bg-light h-100">
+                                            <div class="card-body text-center p-3">
+                                                <i class="fas fa-calendar-alt fa-2x text-primary mb-2"></i>
+                                                <h6>Monthly</h6>
+                                                <small class="text-muted d-block mb-2">Interest, reports, backup</small>
+                                                <button class="btn btn-primary btn-sm btn-block btn-run-cron" data-job="monthly">
+                                                    <i class="fas fa-play mr-1"></i> Run
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="text-center mt-2">
+                                    <button class="btn btn-dark btn-run-cron" data-job="all">
+                                        <i class="fas fa-sync-alt mr-1"></i> Run All Cron Jobs
+                                    </button>
+                                </div>
+
+                                <!-- Cron Results -->
+                                <div id="cronResults" class="mt-3" style="display:none;">
+                                    <h6><i class="fas fa-list-alt mr-1"></i> Results</h6>
+                                    <div id="cronResultsBody"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Cron Secret Key Section -->
+                    <div class="col-md-6">
+                        <div class="card card-secondary card-outline">
+                            <div class="card-header">
+                                <h3 class="card-title"><i class="fas fa-key mr-1"></i> Cron Secret Key</h3>
+                            </div>
+                            <div class="card-body">
+                                <p class="text-muted mb-2">Set a secret key for webcron services to trigger jobs via URL.</p>
+                                <div class="input-group mb-2">
+                                    <input type="text" class="form-control" id="cronSecretKey" value="<?= htmlspecialchars($settings['cron_secret_key'] ?? '') ?>" placeholder="Enter or generate a key">
+                                    <div class="input-group-append">
+                                        <button class="btn btn-outline-secondary" type="button" id="generateCronKey">
+                                            <i class="fas fa-random"></i> Generate
+                                        </button>
+                                        <button class="btn btn-primary" type="button" id="saveCronKey">
+                                            <i class="fas fa-save"></i> Save
+                                        </button>
+                                    </div>
+                                </div>
+                                <div id="cronUrlPreview" class="small text-muted" style="word-break:break-all;">
+                                    <?php if (!empty($settings['cron_secret_key'])): ?>
+                                        <strong>Webcron URL:</strong> <?= base_url('admin/settings/run_cron?job=all&key=' . htmlspecialchars($settings['cron_secret_key'])) ?>
+                                    <?php else: ?>
+                                        Save a key to see the webcron URL.
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- DB Health Check Section -->
+                    <div class="col-md-6">
+                        <div class="card card-danger card-outline">
+                            <div class="card-header">
+                                <h3 class="card-title"><i class="fas fa-heartbeat mr-1"></i> Database Health Check</h3>
+                            </div>
+                            <div class="card-body">
+                                <p class="text-muted mb-2">Verify all required database tables exist. Auto-fix creates missing tables.</p>
+                                <div class="btn-group mb-2">
+                                    <button class="btn btn-outline-info" id="btnDbCheck">
+                                        <i class="fas fa-stethoscope mr-1"></i> Check Only
+                                    </button>
+                                    <button class="btn btn-outline-danger" id="btnDbFix" onclick="return confirm('This will create missing tables. Continue?')">
+                                        <i class="fas fa-wrench mr-1"></i> Check & Auto-Fix
+                                    </button>
+                                </div>
+                                <div id="dbHealthResult" style="display:none;">
+                                    <hr>
+                                    <div id="dbHealthSummary"></div>
+                                    <div id="dbHealthDetails" class="mt-2" style="max-height:300px; overflow-y:auto;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -822,6 +971,158 @@ $(document).ready(function() {
                 } else {
                     $('.nav-link[data-toggle="pill"]').first().trigger('click');
                 }
+            }
+        });
+    }
+
+    // ===== MAINTENANCE TAB: Cron Trigger =====
+    $('.btn-run-cron').on('click', function() {
+        var $btn = $(this);
+        var job = $btn.data('job');
+        var originalHtml = $btn.html();
+
+        $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin mr-1"></i> Running...');
+        $('#cronResults').show();
+        $('#cronResultsBody').html('<div class="text-center text-muted"><i class="fas fa-spinner fa-spin"></i> Running ' + job + ' jobs...</div>');
+
+        $.ajax({
+            url: '<?= site_url("admin/settings/run_cron") ?>',
+            type: 'POST',
+            data: {
+                '<?= $this->security->get_csrf_token_name() ?>': '<?= $this->security->get_csrf_hash() ?>',
+                job: job
+            },
+            dataType: 'json',
+            success: function(resp) {
+                if (resp.success) {
+                    var html = '';
+                    $.each(resp.results, function(group, tasks) {
+                        html += '<div class="mb-2"><strong class="text-uppercase">' + group + '</strong></div>';
+                        if (tasks.length === 0) {
+                            html += '<div class="text-muted ml-3">No tasks in this group</div>';
+                        }
+                        $.each(tasks, function(i, t) {
+                            var icon = t.status === 'success' ? '<i class="fas fa-check-circle text-success mr-1"></i>' : '<i class="fas fa-times-circle text-danger mr-1"></i>';
+                            html += '<div class="ml-3">' + icon + '<strong>' + t.task + ':</strong> ' + t.message + '</div>';
+                        });
+                    });
+                    html += '<div class="text-muted mt-2 small">Completed at: ' + resp.ran_at + '</div>';
+                    $('#cronResultsBody').html(html);
+                    $('#cronLastRun').text('Last run: ' + resp.ran_at);
+                } else {
+                    $('#cronResultsBody').html('<div class="text-danger"><i class="fas fa-exclamation-triangle mr-1"></i> ' + (resp.message || 'Unknown error') + '</div>');
+                }
+            },
+            error: function(xhr) {
+                $('#cronResultsBody').html('<div class="text-danger"><i class="fas fa-exclamation-triangle mr-1"></i> Request failed: ' + xhr.statusText + '</div>');
+            },
+            complete: function() {
+                $btn.prop('disabled', false).html(originalHtml);
+            }
+        });
+    });
+
+    // ===== MAINTENANCE TAB: Cron Secret Key =====
+    $('#generateCronKey').on('click', function() {
+        var chars = 'abcdef0123456789';
+        var key = '';
+        for (var i = 0; i < 32; i++) {
+            key += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        $('#cronSecretKey').val(key);
+    });
+
+    $('#saveCronKey').on('click', function() {
+        var key = $('#cronSecretKey').val();
+        var $btn = $(this);
+        $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i>');
+
+        $.ajax({
+            url: '<?= site_url("admin/settings/save_cron_key") ?>',
+            type: 'POST',
+            data: {
+                '<?= $this->security->get_csrf_token_name() ?>': '<?= $this->security->get_csrf_hash() ?>',
+                cron_secret_key: key
+            },
+            dataType: 'json',
+            success: function(resp) {
+                if (resp.success) {
+                    var url = '<?= base_url("admin/settings/run_cron") ?>?job=all&key=' + resp.key;
+                    $('#cronUrlPreview').html('<strong>Webcron URL:</strong> ' + url);
+                    alert('Cron secret key saved!');
+                } else {
+                    alert('Failed to save key');
+                }
+            },
+            error: function() { alert('Request failed'); },
+            complete: function() { $btn.prop('disabled', false).html('<i class="fas fa-save"></i> Save'); }
+        });
+    });
+
+    // ===== MAINTENANCE TAB: DB Health Check =====
+    $('#btnDbCheck').on('click', function() { runDbHealthCheck(false); });
+    $('#btnDbFix').on('click', function() { runDbHealthCheck(true); });
+
+    function runDbHealthCheck(autoFix) {
+        var $result = $('#dbHealthResult');
+        var $summary = $('#dbHealthSummary');
+        var $details = $('#dbHealthDetails');
+
+        $result.show();
+        $summary.html('<div class="text-center"><i class="fas fa-spinner fa-spin"></i> Checking database...</div>');
+        $details.html('');
+
+        $.ajax({
+            url: '<?= site_url("admin/settings/db_health_check") ?>' + (autoFix ? '?fix=1' : ''),
+            type: 'POST',
+            data: { '<?= $this->security->get_csrf_token_name() ?>': '<?= $this->security->get_csrf_hash() ?>' },
+            dataType: 'json',
+            success: function(resp) {
+                if (!resp.success) {
+                    $summary.html('<div class="alert alert-danger">Health check failed.</div>');
+                    return;
+                }
+                var r = resp.report;
+                var statusClass = r.healthy ? 'success' : 'danger';
+                var statusIcon = r.healthy ? 'check-circle' : 'exclamation-triangle';
+                var statusText = r.healthy ? 'All tables present' : r.missing.length + ' table(s) missing';
+
+                var html = '<div class="alert alert-' + statusClass + '">';
+                html += '<i class="fas fa-' + statusIcon + ' mr-1"></i> <strong>' + statusText + '</strong>';
+                html += ' &mdash; ' + r.total_existing + ' / ' + r.total_required + ' tables found';
+                html += '<br><small>Database: ' + r.database_name + ' | Checked: ' + r.checked_at + '</small>';
+                html += '</div>';
+
+                if (r.created && r.created.length > 0) {
+                    html += '<div class="alert alert-success"><i class="fas fa-plus-circle mr-1"></i> Created: ' + r.created.join(', ') + '</div>';
+                }
+                if (r.failed && r.failed.length > 0) {
+                    html += '<div class="alert alert-warning"><i class="fas fa-exclamation-circle mr-1"></i> Failed to create: ' + r.failed.join(', ') + '</div>';
+                }
+
+                $summary.html(html);
+
+                // Details table
+                var tbl = '<table class="table table-sm table-bordered table-striped mb-0"><thead><tr><th>Table</th><th>Status</th></tr></thead><tbody>';
+                // Show missing first
+                $.each(r.missing, function(i, t) {
+                    tbl += '<tr class="table-danger"><td>' + t + '</td><td><i class="fas fa-times text-danger"></i> Missing</td></tr>';
+                });
+                // Then created
+                if (r.created) {
+                    $.each(r.created, function(i, t) {
+                        tbl += '<tr class="table-success"><td>' + t + '</td><td><i class="fas fa-plus-circle text-success"></i> Created</td></tr>';
+                    });
+                }
+                // Then present
+                $.each(r.present, function(i, t) {
+                    tbl += '<tr><td>' + t + '</td><td><i class="fas fa-check text-success"></i> OK</td></tr>';
+                });
+                tbl += '</tbody></table>';
+                $details.html(tbl);
+            },
+            error: function(xhr) {
+                $summary.html('<div class="alert alert-danger"><i class="fas fa-exclamation-triangle mr-1"></i> Request failed: ' + xhr.statusText + '</div>');
             }
         });
     }

@@ -137,7 +137,7 @@
                             <p>
                                 Loans
                                 <i class="fas fa-angle-left right"></i>
-                                <span class="badge badge-warning right" id="pending-loans-badge">0</span>
+                                <span class="badge badge-warning right" id="pending-loans-badge"<?= ($pending_loan_count ?? 0) == 0 ? ' style="display:none"' : '' ?>><?= $pending_loan_count ?? 0 ?></span>
                             </p>
                         </a>
                         <ul class="nav nav-treeview">

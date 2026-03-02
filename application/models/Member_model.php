@@ -49,6 +49,28 @@ class Member_model extends MY_Model {
         // Format: MEMB + 6 digit zero-padded number
         return 'MEMB' . str_pad($next_number, 6, '0', STR_PAD_LEFT);
     }
+
+    /**
+     * Get member by email address
+     */
+    public function get_by_email($email)
+    {
+        return $this->db->where('email', $email)
+                        ->where('deleted_at IS NULL', null, false)
+                        ->get($this->table)
+                        ->row();
+    }
+
+    /**
+     * Get member by member_code
+     */
+    public function get_by_member_code($member_code)
+    {
+        return $this->db->where('member_code', $member_code)
+                        ->where('deleted_at IS NULL', null, false)
+                        ->get($this->table)
+                        ->row();
+    }
     
     /**
      * Create Member

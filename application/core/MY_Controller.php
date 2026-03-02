@@ -205,11 +205,17 @@ class Admin_Controller extends MY_Controller {
         // Check admin authentication
         $this->_check_auth();
         
+        // Pending loan applications count for sidebar badge
+        $pending_loan_count = $this->db
+            ->where_in('status', ['pending', 'under_review', 'guarantor_pending'])
+            ->count_all_results('loan_applications');
+
         // Load admin data for views
         $this->load->vars([
-            'admin' => $this->admin_data,
-            'settings' => $this->settings,
-            'financial_year' => $this->current_financial_year
+            'admin'              => $this->admin_data,
+            'settings'           => $this->settings,
+            'financial_year'     => $this->current_financial_year,
+            'pending_loan_count' => (int) $pending_loan_count,
         ]);
         // Load member helper for admin views
         $this->load->helper('member');

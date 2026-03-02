@@ -100,9 +100,16 @@ class Verify extends CI_Controller
         }
 
         // Always show success message to prevent email enumeration
-        $this->session->set_flashdata('success', 'If an account exists with this email, you will receive a password reset link shortly.');
+        $this->session->set_flashdata('success', 'If an account exists with this email, you will receive a password reset link shortly. Please check your inbox and spam folder.');
 
         if ($user) {
+            // Invalidate any existing tokens for this user
+            $this->db->where('user_id', $user->id)
+                ->where('user_type', $user_type)
+                ->where('type', 'password_reset')
+                ->where('used_at IS NULL', null, false)
+                ->update('verification_tokens', ['used_at' => date('Y-m-d H:i:s')]);
+
             // Generate token
             $token = bin2hex(random_bytes(32));
             $expires = date('Y-m-d H:i:s', strtotime('+1 hour'));
@@ -117,8 +124,9 @@ class Verify extends CI_Controller
             ]);
 
             // Send email
+            $name = isset($user->name) ? $user->name : (isset($user->first_name) ? $user->first_name : 'User');
             $reset_url = base_url('verify/reset_password/' . $token);
-            $this->_send_reset_email($email, $user->name ?? $user->first_name, $reset_url);
+            $this->_send_reset_email($email, $name, $reset_url);
         }
 
         redirect('verify/forgot_password');
@@ -224,7 +232,7 @@ class Verify extends CI_Controller
             'success',
             'Password Reset Successfully!',
             'Your password has been reset. You can now login with your new password.',
-            $token_data->user_type === 'member' ? 'members/login' : 'admin/login'
+            $token_data->user_type === 'member' ? 'member/login' : 'admin/login'
         );
     }
 
@@ -233,12 +241,13 @@ class Verify extends CI_Controller
      */
     private function _show_message($type, $title, $message, $redirect_url = null)
     {
+        $company_row = $this->db->select('setting_value')->where('setting_key', 'company_name')->get('system_settings')->row();
         $data = [
             'type' => $type,
             'title' => $title,
             'message' => $message,
             'redirect_url' => $redirect_url,
-            'company_name' => $this->db->select('value')->where('key', 'company_name')->get('settings')->row()->value ?? 'Windeep Finance'
+            'company_name' => $company_row ? $company_row->setting_value : 'Windeep Finance'
         ];
 
         $this->load->view('public/message', $data);
@@ -251,7 +260,8 @@ class Verify extends CI_Controller
     {
         $this->load->library('email');
         
-        $company_name = $this->db->select('value')->where('key', 'company_name')->get('settings')->row()->value ?? 'Windeep Finance';
+        $company_row = $this->db->select('setting_value')->where('setting_key', 'company_name')->get('system_settings')->row();
+        $company_name = $company_row ? $company_row->setting_value : 'Windeep Finance';
         
         $subject = "Password Reset Request - {$company_name}";
         $body = "
