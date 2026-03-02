@@ -139,6 +139,66 @@
             </div>
         </div>
     </div>
+    <div class="col-lg-3 col-6">
+        <div class="info-box dashboard-card" style="cursor:pointer" data-toggle="tooltip" title="Total funds from non-member providers">
+            <span class="info-box-icon bg-olive"><i class="fas fa-user-tie"></i></span>
+            <div class="info-box-content">
+                <span class="info-box-text">Fund Providers Balance</span>
+                <span class="info-box-number"><?= format_amount($non_member_summary['outstanding'] ?? 0, 0) ?></span>
+                <span class="info-box-text small text-muted"><?= $non_member_summary['active_providers'] ?? 0 ?> providers</span>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-3 col-6">
+        <div class="info-box dashboard-card" style="cursor:pointer" data-toggle="tooltip" title="Office expenses from bank transactions">
+            <span class="info-box-icon bg-maroon"><i class="fas fa-building"></i></span>
+            <div class="info-box-content">
+                <span class="info-box-text">Office Expenses</span>
+                <span class="info-box-number"><?= format_amount($expense_summary['total_expenses'] ?? 0, 0) ?></span>
+                <span class="info-box-text small text-muted">This Month: <?= format_amount($expense_summary['this_month'] ?? 0, 0) ?></span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Interest Earned Row -->
+<div class="row">
+    <div class="col-lg-3 col-6">
+        <div class="info-box bg-gradient-success" data-toggle="tooltip" title="Total interest earned from all loan payments">
+            <span class="info-box-icon"><i class="fas fa-percentage"></i></span>
+            <div class="info-box-content">
+                <span class="info-box-text">Total Interest Earned</span>
+                <span class="info-box-number"><?= format_amount($interest_stats['total_interest'] ?? 0, 0) ?></span>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-3 col-6">
+        <div class="info-box bg-gradient-info" data-toggle="tooltip" title="Interest earned this year">
+            <span class="info-box-icon"><i class="fas fa-calendar-check"></i></span>
+            <div class="info-box-content">
+                <span class="info-box-text">This Year Interest</span>
+                <span class="info-box-number"><?= format_amount($interest_stats['this_year_interest'] ?? 0, 0) ?></span>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-3 col-6">
+        <div class="info-box bg-gradient-warning" data-toggle="tooltip" title="Interest earned this month">
+            <span class="info-box-icon"><i class="fas fa-calendar-day"></i></span>
+            <div class="info-box-content">
+                <span class="info-box-text">This Month Interest</span>
+                <span class="info-box-number"><?= format_amount($interest_stats['this_month_interest'] ?? 0, 0) ?></span>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-3 col-6">
+        <div class="info-box bg-gradient-primary" data-toggle="tooltip" title="Number of active loans">
+            <span class="info-box-icon"><i class="fas fa-file-invoice-dollar"></i></span>
+            <div class="info-box-content">
+                <span class="info-box-text">Active Loans</span>
+                <span class="info-box-number"><?= $interest_stats['active_loan_count'] ?? 0 ?></span>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div class="row">
@@ -228,6 +288,62 @@
                     <span>EMIs Due Today:</span>
                     <strong><?= count($due_today) ?></strong>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Monthly Interest Analytics Chart -->
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">
+                    <i class="fas fa-chart-bar mr-1"></i>
+                    Monthly Interest Analytics (<?= date('Y') ?>)
+                </h3>
+                <div class="card-tools">
+                    <button type="button" class="btn btn-tool" data-card-widget="collapse">
+                        <i class="fas fa-minus"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <canvas id="interestChart" style="height: 300px;"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header bg-gradient-success">
+                <h3 class="card-title"><i class="fas fa-percentage mr-1"></i> Interest Breakdown</h3>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm table-striped mb-0">
+                    <thead class="thead-light">
+                        <tr><th>Month</th><th class="text-right">Interest</th><th class="text-right">Principal</th></tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($monthly_interest as $mi): ?>
+                        <?php if ($mi['interest'] > 0 || $mi['principal'] > 0): ?>
+                        <tr>
+                            <td><?= $mi['month_name'] ?></td>
+                            <td class="text-right text-success"><?= format_amount($mi['interest'], 0) ?></td>
+                            <td class="text-right"><?= format_amount($mi['principal'], 0) ?></td>
+                        </tr>
+                        <?php endif; ?>
+                        <?php endforeach; ?>
+                        <?php
+                        $total_int = array_sum(array_column($monthly_interest, 'interest'));
+                        $total_prin = array_sum(array_column($monthly_interest, 'principal'));
+                        ?>
+                        <tr class="font-weight-bold bg-light">
+                            <td>Total</td>
+                            <td class="text-right text-success"><?= format_amount($total_int, 0) ?></td>
+                            <td class="text-right"><?= format_amount($total_prin, 0) ?></td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
@@ -598,6 +714,52 @@ document.addEventListener('DOMContentLoaded', function() {
                 legend: {
                     position: 'top'
                 }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(value) {
+                            return '<?= get_currency_symbol() ?>' + (value / 1000).toFixed(0) + 'K';
+                        }
+                    }
+                }
+            }
+        }
+    });
+    
+    // Monthly Interest Chart
+    var intCtx = document.getElementById('interestChart').getContext('2d');
+    var interestLabels = <?= json_encode(array_column($monthly_interest, 'month_name')) ?>;
+    var interestData = <?= json_encode(array_map('floatval', array_column($monthly_interest, 'interest'))) ?>;
+    var principalData = <?= json_encode(array_map('floatval', array_column($monthly_interest, 'principal'))) ?>;
+
+    new Chart(intCtx, {
+        type: 'bar',
+        data: {
+            labels: interestLabels,
+            datasets: [
+                {
+                    label: 'Interest Earned',
+                    data: interestData,
+                    backgroundColor: 'rgba(40, 167, 69, 0.7)',
+                    borderColor: '#28a745',
+                    borderWidth: 1
+                },
+                {
+                    label: 'Principal Collected',
+                    data: principalData,
+                    backgroundColor: 'rgba(23, 162, 184, 0.5)',
+                    borderColor: '#17a2b8',
+                    borderWidth: 1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'top' }
             },
             scales: {
                 y: {

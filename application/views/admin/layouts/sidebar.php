@@ -62,6 +62,31 @@
                         </ul>
                     </li>
 
+                    <!-- Non-Member Fund Providers -->
+                    <li class="nav-item <?= in_array($this->uri->segment(2), ['non_members']) ? 'menu-open' : '' ?>">
+                        <a href="#" class="nav-link <?= in_array($this->uri->segment(2), ['non_members']) ? 'active' : '' ?>">
+                            <i class="nav-icon fas fa-user-tie"></i>
+                            <p>
+                                Fund Providers
+                                <i class="fas fa-angle-left right"></i>
+                            </p>
+                        </a>
+                        <ul class="nav nav-treeview">
+                            <li class="nav-item">
+                                <a href="<?= base_url('admin/non_members') ?>" class="nav-link">
+                                    <i class="far fa-circle nav-icon"></i>
+                                    <p>All Providers</p>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="<?= base_url('admin/non_members/create') ?>" class="nav-link">
+                                    <i class="far fa-circle nav-icon"></i>
+                                    <p>Add Provider</p>
+                                </a>
+                            </li>
+                        </ul>
+                    </li>
+
                     <!-- Security Deposit Management -->
                     <li class="nav-item <?= in_array($this->uri->segment(2), ['savings']) ? 'menu-open' : '' ?>">
                         <a href="#" class="nav-link <?= in_array($this->uri->segment(2), ['savings']) ? 'active' : '' ?>">
@@ -94,6 +119,12 @@
                                 <a href="<?= base_url('admin/savings/schemes') ?>" class="nav-link">
                                     <i class="far fa-circle nav-icon"></i>
                                     <p>SD Schemes</p>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="<?= base_url('admin/savings/bonus') ?>" class="nav-link">
+                                    <i class="fas fa-gift nav-icon text-success"></i>
+                                    <p>Bonus</p>
                                 </a>
                             </li>
                         </ul>

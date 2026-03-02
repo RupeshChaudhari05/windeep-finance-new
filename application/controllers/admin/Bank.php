@@ -73,9 +73,17 @@ class Bank extends Admin_Controller {
             'transaction_type' => $this->input->get('transaction_type'),
         ];
 
-        // Use financial year date range
-        if ($selected_fy) {
+        // Date filtering: use explicit from_date/to_date if provided, otherwise use financial year range
+        $from_date = $this->input->get('from_date');
+        $to_date = $this->input->get('to_date');
+        if (!empty($from_date)) {
+            $filters['from_date'] = $from_date;
+        } elseif ($selected_fy) {
             $filters['from_date'] = $selected_fy->start_date;
+        }
+        if (!empty($to_date)) {
+            $filters['to_date'] = $to_date;
+        } elseif ($selected_fy) {
             $filters['to_date'] = $selected_fy->end_date;
         }
 

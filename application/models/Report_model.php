@@ -726,4 +726,176 @@ class Report_model extends MY_Model {
 
         return $summary;
     }
+
+    // ═══════════════════════════════════════════════════════════
+    // Office Expenses (from bank mapping - internal transactions)
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Get Office Expense Summary
+     * Pulls data from internal_transactions table (bank_charge, etc.) 
+     * and transaction_mappings where related_type='internal'
+     */
+    public function get_office_expense_summary() {
+        $summary = [
+            'total_expenses' => 0,
+            'this_month' => 0,
+            'by_type' => []
+        ];
+
+        // From internal_transactions
+        if ($this->db->table_exists('internal_transactions')) {
+            // Total expenses (debit-side internal transactions)
+            $expense_types = ['bank_charge', 'dividend_paid', 'other'];
+            $total = $this->db->select('COALESCE(SUM(amount), 0) as total')
+                              ->where('status', 'completed')
+                              ->where_in('transaction_type', $expense_types)
+                              ->get('internal_transactions')
+                              ->row();
+            $summary['total_expenses'] = floatval($total->total ?? 0);
+
+            // This month
+            $monthly = $this->db->select('COALESCE(SUM(amount), 0) as total')
+                                ->where('status', 'completed')
+                                ->where_in('transaction_type', $expense_types)
+                                ->where('MONTH(transaction_date)', date('m'))
+                                ->where('YEAR(transaction_date)', date('Y'))
+                                ->get('internal_transactions')
+                                ->row();
+            $summary['this_month'] = floatval($monthly->total ?? 0);
+
+            // By type
+            $by_type = $this->db->select('transaction_type, COALESCE(SUM(amount), 0) as total')
+                                ->where('status', 'completed')
+                                ->group_by('transaction_type')
+                                ->get('internal_transactions')
+                                ->result();
+            foreach ($by_type as $t) {
+                $summary['by_type'][$t->transaction_type] = floatval($t->total);
+            }
+        }
+
+        // Also check transaction_mappings for 'expense' type entries
+        $expense_mappings = $this->db->select('COALESCE(SUM(amount), 0) as total')
+                                      ->where('related_type', 'internal')
+                                      ->where('is_reversed', 0)
+                                      ->get('transaction_mappings')
+                                      ->row();
+        if (floatval($expense_mappings->total ?? 0) > $summary['total_expenses']) {
+            $summary['total_expenses'] = floatval($expense_mappings->total);
+        }
+
+        return $summary;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // Interest Earned Analytics
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Get Total Interest Earned from Loan Payments
+     */
+    public function get_interest_earned_stats() {
+        $stats = [];
+
+        // Total interest earned all time
+        $total = $this->db->select('COALESCE(SUM(interest_component), 0) as total')
+                          ->where('is_reversed', 0)
+                          ->get('loan_payments')
+                          ->row();
+        $stats['total_interest'] = floatval($total->total ?? 0);
+
+        // This month
+        $monthly = $this->db->select('COALESCE(SUM(interest_component), 0) as total')
+                            ->where('is_reversed', 0)
+                            ->where('MONTH(payment_date)', date('m'))
+                            ->where('YEAR(payment_date)', date('Y'))
+                            ->get('loan_payments')
+                            ->row();
+        $stats['this_month_interest'] = floatval($monthly->total ?? 0);
+
+        // This year
+        $yearly = $this->db->select('COALESCE(SUM(interest_component), 0) as total')
+                           ->where('is_reversed', 0)
+                           ->where('YEAR(payment_date)', date('Y'))
+                           ->get('loan_payments')
+                           ->row();
+        $stats['this_year_interest'] = floatval($yearly->total ?? 0);
+
+        // Active loans count with outstanding
+        $stats['active_loan_count'] = $this->db->where('status', 'active')
+                                                ->count_all_results('loans');
+
+        return $stats;
+    }
+
+    /**
+     * Get Monthly Interest Breakdown for a Given Year
+     */
+    public function get_monthly_interest_report($year = null) {
+        $year = $year ?: date('Y');
+
+        $result = $this->db->select("
+            MONTH(payment_date) as month_num,
+            DATE_FORMAT(payment_date, '%b') as month_name,
+            COALESCE(SUM(interest_component), 0) as interest,
+            COALESCE(SUM(principal_component), 0) as principal,
+            COALESCE(SUM(total_amount), 0) as total_collected,
+            COUNT(*) as payment_count
+        ")
+        ->where('is_reversed', 0)
+        ->where('YEAR(payment_date)', $year)
+        ->group_by('MONTH(payment_date)')
+        ->order_by('MONTH(payment_date)', 'ASC')
+        ->get('loan_payments')
+        ->result();
+
+        // Fill in all 12 months
+        $months = [];
+        $month_names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        for ($i = 1; $i <= 12; $i++) {
+            $months[$i] = [
+                'month_num' => $i,
+                'month_name' => $month_names[$i - 1],
+                'interest' => 0,
+                'principal' => 0,
+                'total_collected' => 0,
+                'payment_count' => 0
+            ];
+        }
+
+        foreach ($result as $row) {
+            $m = (int) $row->month_num;
+            $months[$m] = [
+                'month_num' => $m,
+                'month_name' => $row->month_name,
+                'interest' => floatval($row->interest),
+                'principal' => floatval($row->principal),
+                'total_collected' => floatval($row->total_collected),
+                'payment_count' => (int) $row->payment_count
+            ];
+        }
+
+        return array_values($months);
+    }
+
+    /**
+     * Get Yearly Interest Summary (last N years)
+     */
+    public function get_yearly_interest_summary($num_years = 5) {
+        $result = $this->db->select("
+            YEAR(payment_date) as year,
+            COALESCE(SUM(interest_component), 0) as interest,
+            COALESCE(SUM(principal_component), 0) as principal,
+            COALESCE(SUM(total_amount), 0) as total
+        ")
+        ->where('is_reversed', 0)
+        ->where('YEAR(payment_date) >=', date('Y') - $num_years + 1)
+        ->group_by('YEAR(payment_date)')
+        ->order_by('YEAR(payment_date)', 'ASC')
+        ->get('loan_payments')
+        ->result();
+
+        return $result;
+    }
 }

@@ -51,6 +51,18 @@ class Dashboard extends Admin_Controller {
         // Fee summaries (membership fee, other member fees)
         $data['fee_summary'] = $this->Report_model->get_fee_summary();
         
+        // Non-member fund provider totals
+        $this->load->model('NonMember_model');
+        $data['non_member_summary'] = $this->NonMember_model->get_dashboard_summary();
+        
+        // Office expense summary (from bank mapping internal transactions)
+        $data['expense_summary'] = $this->Report_model->get_office_expense_summary();
+        
+        // Interest earned analytics
+        $data['interest_stats'] = $this->Report_model->get_interest_earned_stats();
+        $data['monthly_interest'] = $this->Report_model->get_monthly_interest_report(date('Y'));
+        $data['yearly_interest'] = $this->Report_model->get_yearly_interest_summary();
+        
         $this->load_view('admin/dashboard/index', $data);
     }
     

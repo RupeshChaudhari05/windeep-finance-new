@@ -897,4 +897,161 @@ class Savings extends Admin_Controller {
              ->set_content_type('application/json')
              ->set_output(json_encode($accounts));
     }
+
+    // ═══════════════════════════════════════════════════════════
+    // Bonus Management
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Bonus Distribution Page
+     */
+    public function bonus() {
+        $data['title'] = 'Bonus Distribution';
+        $data['page_title'] = 'Bonus Distribution';
+        $data['breadcrumb'] = [
+            ['title' => 'Dashboard', 'url' => 'admin/dashboard'],
+            ['title' => 'Security Deposit', 'url' => 'admin/savings'],
+            ['title' => 'Bonus', 'url' => '']
+        ];
+
+        // Get all active members with their default savings accounts
+        $data['members'] = $this->db->select('m.id, m.member_code, m.first_name, m.last_name, m.phone,
+                                              sa.id as savings_account_id, sa.account_number, sa.current_balance')
+                                     ->from('members m')
+                                     ->join('savings_accounts sa', 'sa.member_id = m.id AND sa.status = "active"', 'left')
+                                     ->where('m.status', 'active')
+                                     ->order_by('m.first_name', 'ASC')
+                                     ->get()
+                                     ->result();
+
+        // Get bonus history
+        $data['bonus_history'] = $this->db->select('bt.*, m.member_code, m.first_name, m.last_name')
+                                          ->from('bonus_transactions bt')
+                                          ->join('members m', 'm.id = bt.member_id')
+                                          ->order_by('bt.created_at', 'DESC')
+                                          ->limit(100)
+                                          ->get()
+                                          ->result();
+
+        // Get bonus year-wise summary
+        $data['yearly_summary'] = $this->db->select('bonus_year, COUNT(*) as member_count, SUM(amount) as total_amount')
+                                           ->from('bonus_transactions')
+                                           ->where('status', 'credited')
+                                           ->group_by('bonus_year')
+                                           ->order_by('bonus_year', 'DESC')
+                                           ->get()
+                                           ->result();
+
+        $this->load_view('admin/savings/bonus', $data);
+    }
+
+    /**
+     * Process Bonus Distribution (AJAX)
+     */
+    public function process_bonus() {
+        if (!$this->input->is_ajax_request()) {
+            redirect('admin/savings/bonus');
+        }
+
+        $member_ids = $this->input->post('member_ids');
+        $bonus_year = $this->input->post('bonus_year');
+        $amount = floatval($this->input->post('amount'));
+        $description = $this->input->post('description');
+        $admin_id = $this->session->userdata('admin_id');
+
+        if (empty($member_ids) || !is_array($member_ids)) {
+            $this->error_response('Please select at least one member.');
+            return;
+        }
+        if ($amount <= 0) {
+            $this->error_response('Amount must be greater than zero.');
+            return;
+        }
+        if (empty($bonus_year)) {
+            $this->error_response('Please select a bonus year.');
+            return;
+        }
+
+        $success_count = 0;
+        $fail_count = 0;
+        $errors = [];
+
+        foreach ($member_ids as $member_id) {
+            // Find the member's default/first active savings account
+            $sa = $this->db->where('member_id', $member_id)
+                           ->where('status', 'active')
+                           ->order_by('id', 'ASC')
+                           ->get('savings_accounts')
+                           ->row();
+
+            if (!$sa) {
+                $member = $this->db->select('first_name, last_name, member_code')
+                                   ->where('id', $member_id)
+                                   ->get('members')
+                                   ->row();
+                $errors[] = ($member->member_code ?? "ID:$member_id") . ' - No active savings account';
+                $fail_count++;
+                continue;
+            }
+
+            // Check for duplicate bonus for same year
+            $existing = $this->db->where('member_id', $member_id)
+                                 ->where('bonus_year', $bonus_year)
+                                 ->where('status', 'credited')
+                                 ->get('bonus_transactions')
+                                 ->row();
+            if ($existing) {
+                $member = $this->db->select('member_code')->where('id', $member_id)->get('members')->row();
+                $errors[] = ($member->member_code ?? "ID:$member_id") . ' - Bonus already credited for year ' . $bonus_year;
+                $fail_count++;
+                continue;
+            }
+
+            // Credit to savings account
+            $payment_result = $this->Savings_model->record_payment([
+                'savings_account_id' => $sa->id,
+                'transaction_type' => 'deposit',
+                'amount' => $amount,
+                'payment_mode' => 'adjustment',
+                'narration' => 'Bonus for year ' . $bonus_year . ($description ? ': ' . $description : ''),
+                'transaction_date' => date('Y-m-d'),
+                'created_by' => $admin_id
+            ]);
+
+            if ($payment_result && isset($payment_result['transaction_id'])) {
+                // Record in bonus_transactions
+                $this->db->insert('bonus_transactions', [
+                    'member_id' => $member_id,
+                    'savings_account_id' => $sa->id,
+                    'bonus_year' => $bonus_year,
+                    'amount' => $amount,
+                    'description' => $description ?: 'Annual bonus',
+                    'status' => 'credited',
+                    'savings_transaction_id' => $payment_result['transaction_id'],
+                    'created_by' => $admin_id,
+                    'created_at' => date('Y-m-d H:i:s')
+                ]);
+                $success_count++;
+            } else {
+                $member = $this->db->select('member_code')->where('id', $member_id)->get('members')->row();
+                $errors[] = ($member->member_code ?? "ID:$member_id") . ' - Failed to credit savings';
+                $fail_count++;
+            }
+        }
+
+        $this->log_activity('Processed bonus distribution',
+            "Year: $bonus_year, Amount: " . number_format($amount, 2) .
+            ", Success: $success_count, Failed: $fail_count");
+
+        $message = "Bonus credited to $success_count member(s).";
+        if ($fail_count > 0) {
+            $message .= " Failed: $fail_count.";
+        }
+
+        $this->success_response($message, [
+            'success_count' => $success_count,
+            'fail_count' => $fail_count,
+            'errors' => $errors
+        ]);
+    }
 }

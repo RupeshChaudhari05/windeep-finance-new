@@ -576,31 +576,24 @@ class Loans extends Member_Controller {
 
     /**
      * Calculate Foreclosure Settlement Amount
+     * Uses Loan_model::calculate_foreclosure_amount for accurate breakdown
      */
     private function _calculate_foreclosure_amount($loan_id) {
-        // Get loan details
-        $loan = $this->db->select('principal_amount, outstanding_principal, disbursed_amount')
-                        ->where('id', $loan_id)
-                        ->get('loans')
-                        ->row();
+        $calculation = $this->Loan_model->calculate_foreclosure_amount($loan_id);
+        if (!$calculation) return null;
 
-        if (!$loan) return null;
-
-        // Calculate outstanding amount (this is a simplified calculation)
-        // In a real system, this would include:
-        // - Remaining principal
-        // - Accrued interest up to foreclosure date
-        // - Any applicable foreclosure fees
-        // - Outstanding fines/penalties
-
-        $outstanding_principal = $loan->outstanding_principal ?? $loan->principal_amount;
-        $pending_fines = $this->_get_pending_fines_for_loan($loan_id);
-
+        // Map to view-expected keys
         return [
-            'outstanding_principal' => $outstanding_principal,
-            'pending_fines' => $pending_fines,
-            'total_settlement' => $outstanding_principal + $pending_fines,
-            'calculated_at' => date('Y-m-d H:i:s')
+            'outstanding_principal' => $calculation['outstanding_principal'],
+            'outstanding_interest'  => $calculation['outstanding_interest'] ?? 0,
+            'accrued_interest'      => $calculation['outstanding_interest'] ?? 0,
+            'prepayment_charge'     => $calculation['prepayment_charge'] ?? 0,
+            'penalty_amount'        => $calculation['prepayment_charge'] ?? 0,
+            'foreclosure_fee'       => 0,
+            'pending_fines'         => $calculation['pending_fines'] ?? 0,
+            'total_settlement'      => $calculation['total_amount'],
+            'total_amount'          => $calculation['total_amount'],
+            'calculated_at'         => date('Y-m-d H:i:s')
         ];
     }
 
@@ -637,43 +630,77 @@ class Loans extends Member_Controller {
      * Process Foreclosure Request
      */
     private function _process_foreclosure_request($loan_id, $settlement) {
+        $is_ajax = $this->input->is_ajax_request();
         $reason = $this->input->post('reason');
-        $confirmation = $this->input->post('confirm_foreclosure');
+        $confirmation = $this->input->post('agree_terms') ?: $this->input->post('acknowledgement');
+        $settlement_date = $this->input->post('preferred_date') ?: $this->input->post('settlement_date') ?: date('Y-m-d', strtotime('+3 days'));
 
         if (empty($reason)) {
+            if ($is_ajax) {
+                echo json_encode(['success' => false, 'message' => 'Please provide a reason for foreclosure request.']);
+                return;
+            }
             $this->session->set_flashdata('error', 'Please provide a reason for foreclosure request.');
             redirect('member/loans/request_foreclosure/' . $loan_id);
             return;
         }
 
         if (empty($confirmation)) {
+            if ($is_ajax) {
+                echo json_encode(['success' => false, 'message' => 'Please confirm that you understand the foreclosure terms.']);
+                return;
+            }
             $this->session->set_flashdata('error', 'Please confirm that you understand the foreclosure terms.');
             redirect('member/loans/request_foreclosure/' . $loan_id);
             return;
         }
 
-        // Create foreclosure request record (you might want to create a separate table for this)
-        // For now, we'll log it as an activity and notify admins
-        $request_data = [
-            'loan_id' => $loan_id,
-            'member_id' => $this->member->id,
-            'request_type' => 'foreclosure',
-            'reason' => $reason,
-            'settlement_amount' => $settlement['total_settlement'],
-            'requested_at' => date('Y-m-d H:i:s'),
-            'status' => 'pending'
-        ];
+        // Use Loan_model to save the request to loan_foreclosure_requests table
+        $result = $this->Loan_model->request_foreclosure(
+            $loan_id,
+            $this->member->id,
+            $reason,
+            $settlement_date
+        );
 
-        // You could create a loan_requests table or use loan_applications table
-        // For now, we'll just log the activity
-        $this->log_activity('Member requested loan foreclosure',
-                          "Loan ID: $loan_id, Settlement: " . format_amount($settlement['total_settlement']) . ", Reason: $reason");
+        if ($result['success']) {
+            // Log activity
+            $this->log_activity('Member requested loan foreclosure',
+                "Loan ID: $loan_id, Settlement: " . format_amount($settlement['total_settlement']) . ", Reason: $reason");
 
-        // Send notification to admins (this would need to be implemented)
-        // $this->_notify_admins_foreclosure_request($request_data);
+            // Notify admins
+            $this->load->model('Notification_model');
+            $loan = $this->db->select('loan_number')->where('id', $loan_id)->get('loans')->row();
+            $title = 'Foreclosure Request: ' . ($loan->loan_number ?? "Loan #$loan_id");
+            $message = 'Member ' . ($this->member->first_name ?? '') . ' ' . ($this->member->last_name ?? '') 
+                     . ' has requested foreclosure for loan ' . ($loan->loan_number ?? "#$loan_id")
+                     . '. Settlement Amount: ' . format_amount($settlement['total_settlement'])
+                     . '. Reason: ' . $reason;
 
-        $this->session->set_flashdata('success',
-            'Foreclosure request submitted successfully. Our team will review your request and contact you within 2-3 business days.');
+            $admins = $this->db->where('is_active', 1)->get('admin_users')->result();
+            foreach ($admins as $a) {
+                $this->Notification_model->create('admin', $a->id, 'foreclosure_request', $title, $message, [
+                    'loan_id' => $loan_id,
+                    'url' => site_url('admin/loans/view/' . $loan_id)
+                ]);
+                if (!empty($a->email)) {
+                    send_email($a->email, $title, '<p>' . htmlspecialchars($message) . '</p>');
+                }
+            }
+
+            if ($is_ajax) {
+                echo json_encode(['success' => true, 'message' => 'Foreclosure request submitted successfully. Our team will review your request and contact you within 2-3 business days.']);
+                return;
+            }
+            $this->session->set_flashdata('success',
+                'Foreclosure request submitted successfully. Our team will review your request and contact you within 2-3 business days.');
+        } else {
+            if ($is_ajax) {
+                echo json_encode(['success' => false, 'message' => $result['message'] ?? 'Failed to submit foreclosure request.']);
+                return;
+            }
+            $this->session->set_flashdata('error', $result['message'] ?? 'Failed to submit foreclosure request.');
+        }
 
         redirect('member/loans/view/' . $loan_id);
     }

@@ -27,7 +27,14 @@
         <?php endif; ?>
 
         <!-- Foreclosure Section -->
-        <?php if ($loan->status === 'active' && ($loan->outstanding_principal ?? 0) > 0): ?>
+        <?php if (in_array($loan->status, ['active', 'overdue']) && ($loan->outstanding_principal ?? 0) > 0): ?>
+            <?php 
+                // Check if there's already a pending foreclosure request
+                $pending_foreclosure = $this->db->where('loan_id', $loan->id)
+                    ->where('status', 'pending')
+                    ->get('loan_foreclosure_requests')
+                    ->row();
+            ?>
             <div class="mt-4">
                 <div class="card border-danger">
                     <div class="card-header bg-danger text-white">
@@ -36,9 +43,17 @@
                         </h6>
                     </div>
                     <div class="card-body">
+                        <?php if ($pending_foreclosure): ?>
+                        <div class="alert alert-warning">
+                            <i class="fas fa-clock mr-2"></i>
+                            <strong>Foreclosure request already submitted</strong> on <?= format_date($pending_foreclosure->requested_at) ?>.
+                            <br>Settlement Amount: <strong><?= format_amount($pending_foreclosure->foreclosure_amount) ?></strong>
+                            <br>Status: <span class="badge badge-warning">Pending Review</span>
+                        </div>
+                        <?php else: ?>
                         <div class="row">
                             <div class="col-md-8">
-                                <p>If you wish to close this loan early, you can request foreclosure. The foreclosure amount will be calculated based on the outstanding principal, any applicable prepayment charges, and pending fines.</p>
+                                <p>If you wish to close this loan early, you can request foreclosure. The foreclosure amount will be calculated based on the outstanding principal, interest, any applicable prepayment charges, and pending fines.</p>
 
                                 <div class="alert alert-warning">
                                     <strong>Note:</strong> Foreclosure requests are subject to approval. Early closure may involve prepayment charges as per the loan agreement.
@@ -47,9 +62,9 @@
                                 <button type="button" class="btn btn-danger" onclick="showForeclosureCalculator()">
                                     <i class="fas fa-calculator"></i> Calculate Foreclosure Amount
                                 </button>
-                                <button type="button" class="btn btn-outline-danger ml-2" onclick="requestForeclosure()">
+                                <a href="<?= site_url('member/loans/request_foreclosure/' . $loan->id) ?>" class="btn btn-outline-danger ml-2">
                                     <i class="fas fa-paper-plane"></i> Request Foreclosure
-                                </button>
+                                </a>
                             </div>
                             <div class="col-md-4">
                                 <div class="card bg-light">
@@ -61,6 +76,7 @@
                                 </div>
                             </div>
                         </div>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
@@ -90,7 +106,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-danger" onclick="requestForeclosure()">Request Foreclosure</button>
+                <a href="<?= site_url('member/loans/request_foreclosure/' . $loan->id) ?>" class="btn btn-danger">Request Foreclosure</a>
             </div>
         </div>
     </div>

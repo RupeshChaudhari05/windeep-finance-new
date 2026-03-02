@@ -78,6 +78,15 @@ $route['admin/members/view/(:num)'] = 'admin/members/view/$1';
 $route['admin/members/edit/(:num)'] = 'admin/members/edit/$1';
 $route['admin/members/add_other_transaction/(:num)'] = 'admin/members/add_other_transaction/$1';
 
+// Non-Member Fund Providers
+$route['admin/non_members'] = 'admin/NonMembers/index';
+$route['admin/non_members/create'] = 'admin/NonMembers/create';
+$route['admin/non_members/view/(:num)'] = 'admin/NonMembers/view/$1';
+$route['admin/non_members/edit/(:num)'] = 'admin/NonMembers/edit/$1';
+$route['admin/non_members/delete/(:num)'] = 'admin/NonMembers/delete/$1';
+$route['admin/non_members/add_fund'] = 'admin/NonMembers/add_fund';
+$route['admin/non_members/delete_fund'] = 'admin/NonMembers/delete_fund';
+
 // Savings routes
 $route['admin/savings'] = 'admin/savings/index';
 $route['admin/savings/create'] = 'admin/savings/create';
@@ -86,6 +95,8 @@ $route['admin/savings/view/(:num)'] = 'admin/savings/view/$1';
 $route['admin/savings/collection'] = 'admin/savings/collect';
 $route['admin/savings/collection/(:num)'] = 'admin/savings/collect/$1';
 $route['admin/savings/collect/(:num)'] = 'admin/savings/collect/$1';
+$route['admin/savings/bonus'] = 'admin/savings/bonus';
+$route['admin/savings/process_bonus'] = 'admin/savings/process_bonus';
 
 // Loans routes
 $route['admin/loans'] = 'admin/loans/index';

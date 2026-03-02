@@ -62,6 +62,16 @@
                            value="<?= $filters['member_id'] ?>" placeholder="Filter by member">
                 </div>
                 <div class="col-md-2">
+                    <label class="small font-weight-bold">From Date</label>
+                    <input type="date" class="form-control form-control-sm" name="from_date" 
+                           value="<?= $filters['from_date'] ?? '' ?>">
+                </div>
+                <div class="col-md-2">
+                    <label class="small font-weight-bold">To Date</label>
+                    <input type="date" class="form-control form-control-sm" name="to_date" 
+                           value="<?= $filters['to_date'] ?? '' ?>">
+                </div>
+                <div class="col-md-2">
                     <label class="small font-weight-bold">&nbsp;</label>
                     <div>
                         <button type="submit" class="btn btn-primary btn-sm">
