@@ -525,13 +525,8 @@
         <section class="content">
             <div class="container-fluid">
                 
-                <!-- Flash Messages -->
+                <!-- Flash Messages (toastr only) -->
                 <?php if ($this->session->flashdata('success')): ?>
-                    <div class="alert alert-success alert-dismissible fade show">
-                        <button type="button" class="close" data-dismiss="alert">&times;</button>
-                        <i class="fas fa-check-circle mr-2"></i>
-                        <?= $this->session->flashdata('success') ?>
-                    </div>
                     <script>
                         $(document).ready(function() {
                             toastr.success('<?= addslashes($this->session->flashdata('success')) ?>');
@@ -540,11 +535,6 @@
                 <?php endif; ?>
                 
                 <?php if ($this->session->flashdata('error')): ?>
-                    <div class="alert alert-danger alert-dismissible fade show">
-                        <button type="button" class="close" data-dismiss="alert">&times;</button>
-                        <i class="fas fa-exclamation-circle mr-2"></i>
-                        <?= $this->session->flashdata('error') ?>
-                    </div>
                     <script>
                         $(document).ready(function() {
                             toastr.error('<?= addslashes($this->session->flashdata('error')) ?>');
@@ -553,11 +543,6 @@
                 <?php endif; ?>
                 
                 <?php if ($this->session->flashdata('warning')): ?>
-                    <div class="alert alert-warning alert-dismissible fade show">
-                        <button type="button" class="close" data-dismiss="alert">&times;</button>
-                        <i class="fas fa-exclamation-triangle mr-2"></i>
-                        <?= $this->session->flashdata('warning') ?>
-                    </div>
                     <script>
                         $(document).ready(function() {
                             toastr.warning('<?= addslashes($this->session->flashdata('warning')) ?>');
@@ -566,11 +551,6 @@
                 <?php endif; ?>
                 
                 <?php if ($this->session->flashdata('info')): ?>
-                    <div class="alert alert-info alert-dismissible fade show">
-                        <button type="button" class="close" data-dismiss="alert">&times;</button>
-                        <i class="fas fa-info-circle mr-2"></i>
-                        <?= $this->session->flashdata('info') ?>
-                    </div>
                     <script>
                         $(document).ready(function() {
                             toastr.info('<?= addslashes($this->session->flashdata('info')) ?>');
