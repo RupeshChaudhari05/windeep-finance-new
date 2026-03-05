@@ -184,6 +184,9 @@ class Loans extends Admin_Controller {
                         ->where('status', 'pending')->where('due_date <', date('Y-m-d'))->get('loan_installments')->row();
         $data['overdue_amount'] = $row->overdue ?? 0;
 
+        // Part payment history
+        $data['part_payment_history'] = $this->Loan_model->get_part_payment_history($id);
+
         $this->load_view('admin/loans/view', $data);
     }
     
@@ -1425,5 +1428,181 @@ class Loans extends Admin_Controller {
              ->set_content_type('application/json')
              ->set_output(json_encode($loans));
     }
-}
 
+    // ================================================================
+    // PART PAYMENT (PARTIAL PREPAYMENT)
+    // ================================================================
+
+    /**
+     * Part Payment Form
+     */
+    public function part_payment($loan_id) {
+        $loan = $this->Loan_model->get_loan_details($loan_id);
+
+        if (!$loan) {
+            $this->session->set_flashdata('error', 'Loan not found.');
+            redirect('admin/loans');
+        }
+
+        if (!in_array($loan->status, ['active', 'npa'])) {
+            $this->session->set_flashdata('error', 'Part payment is only available for active loans.');
+            redirect('admin/loans/view/' . $loan_id);
+        }
+
+        $data['title'] = 'Part Payment';
+        $data['page_title'] = 'Part Payment (Partial Prepayment)';
+        $data['breadcrumb'] = [
+            ['title' => 'Dashboard', 'url' => 'admin/dashboard'],
+            ['title' => 'Loans', 'url' => 'admin/loans'],
+            ['title' => $loan->loan_number, 'url' => 'admin/loans/view/' . $loan_id],
+            ['title' => 'Part Payment', 'url' => ''],
+        ];
+
+        $data['loan'] = $loan;
+        $data['member'] = $this->Member_model->get_member_details($loan->member_id);
+        $data['product'] = $this->db->where('id', $loan->loan_product_id)->get('loan_products')->row();
+
+        // Remaining tenure from unpaid installments
+        $data['remaining_tenure'] = (int) $this->db->where('loan_id', $loan_id)
+                                                    ->where_in('status', ['upcoming', 'pending', 'partial', 'overdue'])
+                                                    ->count_all_results('loan_installments');
+        if ($data['remaining_tenure'] <= 0) {
+            $data['remaining_tenure'] = (int) $loan->tenure_months;
+        }
+
+        // Part payment history
+        $data['part_payment_history'] = $this->Loan_model->get_part_payment_history($loan_id);
+
+        // Prepayment penalty
+        $data['prepayment_penalty_percent'] = ($data['product'] && isset($data['product']->prepayment_penalty_percent))
+            ? (float) $data['product']->prepayment_penalty_percent : 0;
+
+        $this->load_view('admin/loans/part_payment', $data);
+    }
+
+    /**
+     * AJAX: Calculate Part Payment Options
+     */
+    public function calculate_part_payment() {
+        if (!$this->input->is_ajax_request()) {
+            $this->json_response(['success' => false, 'message' => 'Invalid request'], 400);
+            return;
+        }
+
+        $this->load->helper('part_payment');
+
+        $loan_id     = (int) $this->input->post('loan_id');
+        $part_amount = (float) $this->input->post('part_payment_amount');
+
+        $loan = $this->db->where('id', $loan_id)->get('loans')->row();
+        if (!$loan) {
+            $this->json_response(['success' => false, 'message' => 'Loan not found'], 404);
+            return;
+        }
+
+        $result = validate_part_payment($loan, $part_amount);
+
+        $this->json_response([
+            'success' => $result['valid'],
+            'errors'  => $result['errors'],
+            'options' => $result['options'],
+        ]);
+    }
+
+    /**
+     * AJAX: Calculate Manual Override
+     */
+    public function calculate_manual_override() {
+        if (!$this->input->is_ajax_request()) {
+            $this->json_response(['success' => false, 'message' => 'Invalid request'], 400);
+            return;
+        }
+
+        $this->load->helper('part_payment');
+
+        $new_principal = (float) $this->input->post('new_principal');
+        $annual_rate   = (float) $this->input->post('interest_rate');
+        $manual_emi    = $this->input->post('manual_emi');
+        $manual_tenure = $this->input->post('manual_tenure');
+
+        $manual_emi    = ($manual_emi !== '' && $manual_emi !== null) ? (float)$manual_emi : null;
+        $manual_tenure = ($manual_tenure !== '' && $manual_tenure !== null) ? (int)$manual_tenure : null;
+
+        $result = validate_manual_override($new_principal, $annual_rate, $manual_emi, $manual_tenure);
+
+        // Also calculate interest savings compared to no part payment
+        $old_principal = (float) $this->input->post('old_principal');
+        $old_emi       = (float) $this->input->post('old_emi');
+        $old_tenure    = (int) $this->input->post('old_tenure');
+
+        $interest_savings = 0;
+        if ($result['valid'] && $old_principal > 0) {
+            $interest_savings = calculate_interest_savings(
+                $old_principal, $new_principal, $annual_rate,
+                $old_tenure, $old_emi,
+                $result['calculated_tenure'], $result['calculated_emi']
+            );
+        }
+
+        $this->json_response([
+            'success'          => $result['valid'],
+            'errors'           => $result['errors'],
+            'calculated_emi'   => $result['calculated_emi'],
+            'calculated_tenure' => $result['calculated_tenure'],
+            'total_interest'   => $result['total_interest'],
+            'interest_savings' => $interest_savings,
+        ]);
+    }
+
+    /**
+     * Process Part Payment Submission
+     */
+    public function process_part_payment() {
+        if ($this->input->method() !== 'post') {
+            redirect('admin/loans');
+        }
+
+        $loan_id = (int) $this->input->post('loan_id');
+
+        // Validate CSRF and required fields
+        $this->load->library('form_validation');
+        $this->form_validation->set_rules('loan_id', 'Loan ID', 'required|integer');
+        $this->form_validation->set_rules('part_payment_amount', 'Part Payment Amount', 'required|numeric|greater_than[0]');
+        $this->form_validation->set_rules('adjustment_type', 'Adjustment Type', 'required|in_list[reduce_emi,reduce_tenure,manual]');
+        $this->form_validation->set_rules('payment_mode', 'Payment Mode', 'required');
+        $this->form_validation->set_rules('payment_date', 'Payment Date', 'required');
+
+        if ($this->form_validation->run() === FALSE) {
+            $this->session->set_flashdata('error', validation_errors());
+            redirect('admin/loans/part_payment/' . $loan_id);
+            return;
+        }
+
+        $data = [
+            'loan_id'              => $loan_id,
+            'part_payment_amount'  => (float) $this->input->post('part_payment_amount'),
+            'adjustment_type'      => $this->input->post('adjustment_type'),
+            'manual_emi'           => $this->input->post('manual_emi') ?: null,
+            'manual_tenure'        => $this->input->post('manual_tenure') ?: null,
+            'payment_mode'         => $this->input->post('payment_mode'),
+            'payment_reference'    => $this->input->post('payment_reference'),
+            'payment_date'         => $this->input->post('payment_date'),
+            'remarks'              => $this->input->post('remarks'),
+        ];
+
+        try {
+            $result = $this->Loan_model->process_part_payment($data, $this->admin_data->id);
+
+            if ($result['success']) {
+                $this->session->set_flashdata('success', $result['message']);
+                redirect('admin/loans/view/' . $loan_id);
+            } else {
+                $this->session->set_flashdata('error', $result['message']);
+                redirect('admin/loans/part_payment/' . $loan_id);
+            }
+        } catch (Exception $e) {
+            $this->session->set_flashdata('error', 'Part payment failed: ' . $e->getMessage());
+            redirect('admin/loans/part_payment/' . $loan_id);
+        }
+    }
+}

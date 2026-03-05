@@ -1865,13 +1865,15 @@ class Loan_model extends MY_Model {
         if ($result) {
             // Log the foreclosure request
             $this->load->model('Audit_model');
-            $this->Audit_model->log_activity(
-                'loan_foreclosure_requested',
-                'loans',
-                $loan_id,
-                "Member requested foreclosure for loan #{$loan->loan_number}: {$reason}",
-                $member_id
-            );
+            $this->Audit_model->create([
+                'user_type'  => 'member',
+                'user_id'    => $member_id,
+                'action'     => 'loan_foreclosure_requested',
+                'module'     => 'loans',
+                'table_name' => 'loans',
+                'record_id'  => $loan_id,
+                'remarks'    => "Member requested foreclosure for loan #{$loan->loan_number}: {$reason}",
+            ]);
 
             return ['success' => true, 'message' => 'Foreclosure request submitted successfully'];
         }
@@ -1947,17 +1949,415 @@ class Loan_model extends MY_Model {
         if ($result) {
             // Log the processing
             $this->load->model('Audit_model');
-            $this->Audit_model->log_activity(
-                'loan_foreclosure_' . $action . 'd',
-                'loan_foreclosure_requests',
-                $request_id,
-                "Foreclosure request {$action}d for loan #{$request->loan_id}",
-                $admin_id
-            );
+            $this->Audit_model->create([
+                'user_type'  => 'admin',
+                'user_id'    => $admin_id,
+                'action'     => 'loan_foreclosure_' . $action . 'd',
+                'module'     => 'loans',
+                'table_name' => 'loan_foreclosure_requests',
+                'record_id'  => $request_id,
+                'remarks'    => "Foreclosure request {$action}d for loan #{$request->loan_id}",
+            ]);
 
             return ['success' => true, 'message' => "Foreclosure request {$action}d successfully"];
         }
 
         return ['success' => false, 'message' => 'Failed to process foreclosure request'];
+    }
+
+    // ================================================================
+    // PART PAYMENT (PARTIAL PREPAYMENT) METHODS
+    // ================================================================
+
+    /**
+     * Process Part Payment (Partial Prepayment)
+     *
+     * Deducts from outstanding principal, recalculates EMI/tenure,
+     * regenerates remaining amortization schedule, and logs full audit trail.
+     *
+     * @param array $data [
+     *   'loan_id'           => int,
+     *   'part_payment_amount' => float,
+     *   'adjustment_type'   => 'reduce_emi' | 'reduce_tenure' | 'manual',
+     *   'manual_emi'        => float|null,  (only if manual)
+     *   'manual_tenure'     => int|null,    (only if manual)
+     *   'payment_mode'      => string,
+     *   'payment_reference' => string|null,
+     *   'payment_date'      => string Y-m-d,
+     *   'remarks'           => string|null,
+     * ]
+     * @param int $admin_id  Admin user performing the action
+     * @return array ['success' => bool, 'message' => string, 'data' => [...]]
+     */
+    public function process_part_payment($data, $admin_id) {
+        $this->load->helper('part_payment');
+
+        $this->db->trans_begin();
+
+        try {
+            // Lock loan row
+            $loan = $this->db->query(
+                'SELECT * FROM ' . $this->table . ' WHERE id = ? FOR UPDATE',
+                [$data['loan_id']]
+            )->row();
+
+            if (!$loan || !in_array($loan->status, ['active', 'npa'])) {
+                throw new Exception('Loan not found or not active (status: ' . ($loan ? $loan->status : 'not found') . ').');
+            }
+
+            $part_amount = round((float)$data['part_payment_amount'], 2);
+            $principal   = round((float)$loan->outstanding_principal, 2);
+
+            // Validate
+            if ($part_amount <= 0) {
+                throw new Exception('Part payment amount must be greater than zero.');
+            }
+            if ($part_amount >= $principal) {
+                throw new Exception('Part payment (₹' . number_format($part_amount, 2) . ') must be less than outstanding principal (₹' . number_format($principal, 2) . '). Use Foreclosure for full repayment.');
+            }
+
+            $annual_rate  = (float)$loan->interest_rate;
+            $current_emi  = (float)$loan->emi_amount;
+
+            // Calculate remaining tenure from unpaid installments
+            $remaining_installments = $this->db->where('loan_id', $loan->id)
+                                          ->where_in('status', ['upcoming', 'pending', 'partial', 'overdue'])
+                                          ->order_by('installment_number', 'ASC')
+                                          ->get('loan_installments')
+                                          ->result();
+            $remaining_tenure = count($remaining_installments);
+            if ($remaining_tenure <= 0) {
+                throw new Exception('No remaining installments to adjust.');
+            }
+
+            // Prepayment penalty (from product settings)
+            $product = $this->db->where('id', $loan->loan_product_id)->get('loan_products')->row();
+            $penalty_percent = ($product && isset($product->prepayment_penalty_percent)) 
+                             ? (float)$product->prepayment_penalty_percent : 0;
+            $penalty_amount = round($part_amount * ($penalty_percent / 100), 2);
+
+            $new_principal = round($principal - $part_amount, 2);
+            $new_emi = 0;
+            $new_tenure = 0;
+            $adjustment_type = $data['adjustment_type'];
+
+            // --- Calculate based on adjustment type ---
+            switch ($adjustment_type) {
+                case 'reduce_emi':
+                    $new_tenure = $remaining_tenure;
+                    $new_emi = calculate_new_emi($new_principal, $annual_rate, $new_tenure);
+                    break;
+
+                case 'reduce_tenure':
+                    $new_emi = $current_emi;
+                    $new_tenure = calculate_new_tenure($new_principal, $annual_rate, $current_emi);
+                    if ($new_tenure <= 0) {
+                        throw new Exception('Unable to calculate valid tenure. EMI may be too low to cover monthly interest on the reduced principal.');
+                    }
+                    break;
+
+                case 'manual':
+                    $manual_emi = isset($data['manual_emi']) && $data['manual_emi'] !== '' ? (float)$data['manual_emi'] : null;
+                    $manual_tenure = isset($data['manual_tenure']) && $data['manual_tenure'] !== '' ? (int)$data['manual_tenure'] : null;
+
+                    $validation = validate_manual_override($new_principal, $annual_rate, $manual_emi, $manual_tenure);
+                    if (!$validation['valid']) {
+                        throw new Exception(implode(' ', $validation['errors']));
+                    }
+
+                    $new_emi = $validation['calculated_emi'];
+                    $new_tenure = $validation['calculated_tenure'];
+                    break;
+
+                default:
+                    throw new Exception('Invalid adjustment type: ' . $adjustment_type);
+            }
+
+            // Safety validations
+            if ($new_emi < 1) {
+                throw new Exception('Calculated EMI (₹' . number_format($new_emi, 2) . ') is too low.');
+            }
+            if ($new_tenure < 1) {
+                throw new Exception('Calculated tenure (' . $new_tenure . ' months) is invalid.');
+            }
+
+            // Interest savings calculation
+            $old_total_interest = calculate_total_interest_remaining($principal, $annual_rate, $remaining_tenure, $current_emi);
+            $new_total_interest = calculate_total_interest_remaining($new_principal, $annual_rate, $new_tenure, $new_emi);
+            $interest_savings = round(max(0, $old_total_interest - $new_total_interest), 2);
+
+            // --- 1. Record payment in loan_payments ---
+            $payment_code = 'PP-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -6));
+            $payment_data = [
+                'payment_code'              => $payment_code,
+                'loan_id'                   => $loan->id,
+                'installment_id'            => null,
+                'payment_type'              => 'part_payment',
+                'payment_date'              => $data['payment_date'] ?? date('Y-m-d'),
+                'total_amount'              => $part_amount + $penalty_amount,
+                'principal_component'       => $part_amount,
+                'interest_component'        => 0,
+                'fine_component'            => $penalty_amount,
+                'excess_amount'             => 0,
+                'outstanding_principal_after' => $new_principal,
+                'outstanding_interest_after'  => $new_total_interest,
+                'payment_mode'              => $data['payment_mode'] ?? 'cash',
+                'reference_number'          => $data['payment_reference'] ?? null,
+                'narration'                 => 'Part Payment: ₹' . number_format($part_amount, 2) 
+                                             . ' | Type: ' . ucfirst(str_replace('_', ' ', $adjustment_type))
+                                             . ($penalty_amount > 0 ? ' | Penalty: ₹' . number_format($penalty_amount, 2) : ''),
+                'created_by'                => $admin_id,
+                'created_at'                => date('Y-m-d H:i:s'),
+            ];
+            $this->db->insert('loan_payments', $payment_data);
+            $payment_id = $this->db->insert_id();
+
+            // --- 2. Record audit trail in loan_part_payments ---
+            $audit_data = [
+                'loan_id'                    => $loan->id,
+                'payment_id'                 => $payment_id,
+                'part_payment_amount'        => $part_amount,
+                'prepayment_penalty_percent' => $penalty_percent,
+                'prepayment_penalty_amount'  => $penalty_amount,
+                'previous_principal'         => $principal,
+                'new_principal'              => $new_principal,
+                'previous_emi'               => $current_emi,
+                'new_emi'                    => $new_emi,
+                'previous_tenure'            => $remaining_tenure,
+                'new_tenure'                 => $new_tenure,
+                'previous_total_interest'    => $old_total_interest,
+                'new_total_interest'         => $new_total_interest,
+                'interest_savings'           => $interest_savings,
+                'interest_rate'              => $annual_rate,
+                'interest_type'              => $loan->interest_type,
+                'adjustment_type'            => $adjustment_type,
+                'manual_emi_input'           => ($adjustment_type === 'manual') ? ($data['manual_emi'] ?? null) : null,
+                'manual_tenure_input'        => ($adjustment_type === 'manual') ? ($data['manual_tenure'] ?? null) : null,
+                'payment_mode'               => $data['payment_mode'] ?? 'cash',
+                'payment_reference'          => $data['payment_reference'] ?? null,
+                'payment_date'               => $data['payment_date'] ?? date('Y-m-d'),
+                'remarks'                    => $data['remarks'] ?? null,
+                'status'                     => 'approved',
+                'approved_by'                => $admin_id,
+                'approved_at'                => date('Y-m-d H:i:s'),
+                'created_by'                 => $admin_id,
+                'created_at'                 => date('Y-m-d H:i:s'),
+            ];
+            $this->db->insert('loan_part_payments', $audit_data);
+            $part_payment_id = $this->db->insert_id();
+
+            // --- 3. Delete remaining unpaid installments ---
+            $remaining_ids = array_column($remaining_installments, 'id');
+            if (!empty($remaining_ids)) {
+                // Delete associated fines for these installments first
+                $this->db->where('related_type', 'loan_installment')
+                         ->where_in('related_id', $remaining_ids)
+                         ->where('status', 'pending')
+                         ->delete('fines');
+
+                $this->db->where('loan_id', $loan->id)
+                         ->where_in('id', $remaining_ids)
+                         ->delete('loan_installments');
+            }
+
+            // --- 4. Regenerate amortization schedule ---
+            // Find the next due date from the first remaining installment
+            $first_remaining = reset($remaining_installments);
+            $next_due_date = $first_remaining->due_date;
+
+            // Get the max existing installment number (from paid ones)
+            $max_paid = $this->db->select_max('installment_number', 'max_num')
+                                 ->where('loan_id', $loan->id)
+                                 ->get('loan_installments')
+                                 ->row();
+            $start_number = ($max_paid && $max_paid->max_num) ? (int)$max_paid->max_num + 1 : 1;
+
+            $this->regenerate_schedule_from(
+                $loan->id, $new_principal, $annual_rate, $new_tenure,
+                $loan->interest_type, $new_emi, $next_due_date, $start_number
+            );
+
+            // --- 5. Update loan master record ---
+            $last_new_installment = $this->db->where('loan_id', $loan->id)
+                                             ->order_by('installment_number', 'DESC')
+                                             ->limit(1)
+                                             ->get('loan_installments')
+                                             ->row();
+
+            $loan_update = [
+                'outstanding_principal'  => $new_principal,
+                'outstanding_interest'   => $new_total_interest,
+                'emi_amount'             => $new_emi,
+                'tenure_months'          => $this->get_total_installment_count($loan->id),
+                'total_amount_paid'      => $loan->total_amount_paid + $part_amount + $penalty_amount,
+                'total_principal_paid'   => $loan->total_principal_paid + $part_amount,
+                'total_fine_paid'        => $loan->total_fine_paid + $penalty_amount,
+                'total_interest'         => $loan->total_interest_paid + $new_total_interest,
+                'total_payable'          => $new_principal + $new_total_interest,
+                'last_emi_date'          => $last_new_installment ? $last_new_installment->due_date : $loan->last_emi_date,
+                'updated_at'             => date('Y-m-d H:i:s'),
+                'updated_by'             => $admin_id,
+            ];
+            $this->db->where('id', $loan->id)->update($this->table, $loan_update);
+
+            // --- 6. Audit log ---
+            $this->load->model('Audit_model');
+            $this->Audit_model->create([
+                'user_type'  => 'admin',
+                'user_id'    => $admin_id,
+                'action'     => 'loan_part_payment',
+                'module'     => 'loans',
+                'table_name' => 'loans',
+                'record_id'  => $loan->id,
+                'remarks'    => sprintf(
+                    'Part payment of Rs.%s on loan #%s. Principal: Rs.%s to Rs.%s, EMI: Rs.%s to Rs.%s, Tenure: %d to %d months. Type: %s. Interest saved: Rs.%s',
+                    number_format($part_amount, 2), $loan->loan_number,
+                    number_format($principal, 2), number_format($new_principal, 2),
+                    number_format($current_emi, 2), number_format($new_emi, 2),
+                    $remaining_tenure, $new_tenure,
+                    ucfirst(str_replace('_', ' ', $adjustment_type)),
+                    number_format($interest_savings, 2)
+                ),
+            ]);
+
+            // --- 7. Send notification to member ---
+            $this->load->model('Notification_model');
+            $this->Notification_model->create([
+                'recipient_type'    => 'member',
+                'recipient_id'     => $loan->member_id,
+                'notification_type' => 'loan_part_payment',
+                'title'            => 'Part Payment Processed',
+                'message'          => sprintf(
+                    'Your part payment of ₹%s has been processed for loan %s. New EMI: ₹%s, Remaining Tenure: %d months. Interest saved: ₹%s.',
+                    number_format($part_amount, 2), $loan->loan_number,
+                    number_format($new_emi, 2), $new_tenure,
+                    number_format($interest_savings, 2)
+                ),
+                'data' => json_encode([
+                    'loan_id'         => $loan->id,
+                    'part_payment_id' => $part_payment_id,
+                    'amount'          => $part_amount,
+                ]),
+            ]);
+
+            if ($this->db->trans_status() === FALSE) {
+                $this->db->trans_rollback();
+                return ['success' => false, 'message' => 'Transaction failed.'];
+            }
+
+            $this->db->trans_commit();
+
+            return [
+                'success' => true,
+                'message' => 'Part payment of ₹' . number_format($part_amount, 2) . ' processed successfully.',
+                'data'    => [
+                    'part_payment_id'  => $part_payment_id,
+                    'payment_id'       => $payment_id,
+                    'payment_code'     => $payment_code,
+                    'previous_principal' => $principal,
+                    'new_principal'    => $new_principal,
+                    'previous_emi'     => $current_emi,
+                    'new_emi'          => $new_emi,
+                    'previous_tenure'  => $remaining_tenure,
+                    'new_tenure'       => $new_tenure,
+                    'interest_savings' => $interest_savings,
+                    'penalty_amount'   => $penalty_amount,
+                    'adjustment_type'  => $adjustment_type,
+                ],
+            ];
+
+        } catch (Exception $e) {
+            $this->db->trans_rollback();
+            throw $e;
+        }
+    }
+
+    /**
+     * Regenerate installment schedule starting from a given installment number
+     *
+     * Used after part payment to create new schedule for remaining tenure.
+     */
+    private function regenerate_schedule_from($loan_id, $principal, $rate, $tenure, $interest_type, $emi, $first_due_date, $start_number = 1) {
+        $monthly_rate = ($rate / 12) / 100;
+        $balance = $principal;
+        $total_principal_allocated = 0;
+
+        $due_date = new DateTime($first_due_date);
+
+        for ($i = 1; $i <= $tenure; $i++) {
+            $inst_number = $start_number + $i - 1;
+
+            if ($interest_type === 'flat') {
+                $years = $tenure / 12;
+                $total_interest = $principal * ($rate / 100) * $years;
+                $interest = $total_interest / $tenure;
+                $principal_part = $principal / $tenure;
+            } else {
+                $interest = $balance * $monthly_rate;
+                $principal_part = $emi - $interest;
+            }
+
+            $outstanding_before = $balance;
+
+            if ($i === $tenure) {
+                $principal_part = $principal - $total_principal_allocated;
+                $balance = 0;
+            } else {
+                $principal_part = round($principal_part, 2);
+                $balance -= $principal_part;
+                $total_principal_allocated += $principal_part;
+            }
+
+            $interest = round($interest, 2);
+            $emi_amount = $principal_part + $interest;
+
+            $this->db->insert('loan_installments', [
+                'loan_id'                      => $loan_id,
+                'installment_number'           => $inst_number,
+                'due_date'                     => $due_date->format('Y-m-d'),
+                'principal_amount'             => round($principal_part, 2),
+                'interest_amount'              => $interest,
+                'emi_amount'                   => round($emi_amount, 2),
+                'outstanding_principal_before' => round($outstanding_before, 2),
+                'outstanding_principal_after'  => round(max(0, $balance), 2),
+                'status'                       => $i === 1 ? 'pending' : 'upcoming',
+                'created_at'                   => date('Y-m-d H:i:s'),
+            ]);
+
+            $due_date->modify('+1 month');
+        }
+    }
+
+    /**
+     * Get total installment count for a loan
+     */
+    private function get_total_installment_count($loan_id) {
+        return (int) $this->db->where('loan_id', $loan_id)
+                              ->count_all_results('loan_installments');
+    }
+
+    /**
+     * Get Part Payment History for a Loan
+     */
+    public function get_part_payment_history($loan_id) {
+        return $this->db->where('loan_id', $loan_id)
+                        ->where('is_reversed', 0)
+                        ->order_by('created_at', 'DESC')
+                        ->get('loan_part_payments')
+                        ->result();
+    }
+
+    /**
+     * Get Single Part Payment Details
+     */
+    public function get_part_payment($id) {
+        return $this->db->select('lpp.*, l.loan_number, l.interest_rate, l.interest_type, m.first_name, m.last_name, m.member_code, au.full_name as admin_name')
+                        ->from('loan_part_payments lpp')
+                        ->join('loans l', 'l.id = lpp.loan_id')
+                        ->join('members m', 'm.id = l.member_id')
+                        ->join('admin_users au', 'au.id = lpp.created_by', 'left')
+                        ->where('lpp.id', $id)
+                        ->get()
+                        ->row();
     }
 }

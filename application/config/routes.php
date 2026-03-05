@@ -117,6 +117,11 @@ $route['admin/loans/overdue'] = 'admin/loans/overdue';
 $route['admin/loans/products'] = 'admin/loans/products';
 $route['admin/loans/calculator'] = 'admin/loans/calculator';
 $route['admin/loans/statement/(:num)'] = 'admin/loans/statement/$1';
+$route['admin/loans/part-payment/(:num)'] = 'admin/loans/part_payment/$1';
+$route['admin/loans/part_payment/(:num)'] = 'admin/loans/part_payment/$1';
+$route['admin/loans/calculate_part_payment'] = 'admin/loans/calculate_part_payment';
+$route['admin/loans/calculate_manual_override'] = 'admin/loans/calculate_manual_override';
+$route['admin/loans/process_part_payment'] = 'admin/loans/process_part_payment';
 
 // Fines routes
 $route['admin/fines'] = 'admin/fines/index';

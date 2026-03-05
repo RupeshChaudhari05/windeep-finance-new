@@ -119,6 +119,9 @@
                 <a href="<?= site_url('admin/loans/collect/' . $loan->id) ?>" class="btn btn-success btn-block">
                     <i class="fas fa-rupee-sign mr-1"></i> Collect EMI
                 </a>
+                <a href="<?= site_url('admin/loans/part_payment/' . $loan->id) ?>" class="btn btn-warning btn-block mt-2">
+                    <i class="fas fa-hand-holding-usd mr-1"></i> Part Payment (Prepayment)
+                </a>
                 <a href="<?= site_url('admin/loans/repayment_history?loan_id=' . $loan->id) ?>" class="btn btn-info btn-block mt-2">
                     <i class="fas fa-history mr-1"></i> View Repayment History
                 </a>
@@ -182,6 +185,14 @@
                             <i class="fas fa-gavel mr-1"></i> Fines
                             <?php if (!empty($fines)): ?>
                                 <span class="badge badge-danger"><?= count($fines) ?></span>
+                            <?php endif; ?>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#part_payments" data-toggle="tab">
+                            <i class="fas fa-hand-holding-usd mr-1"></i> Part Payments
+                            <?php if (!empty($part_payment_history)): ?>
+                                <span class="badge badge-warning"><?= count($part_payment_history) ?></span>
                             <?php endif; ?>
                         </a>
                     </li>
@@ -383,6 +394,78 @@
                                         </tr>
                                         <?php endforeach; ?>
                                     </tbody>
+                                </table>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+
+                    <!-- Part Payments Tab -->
+                    <div class="tab-pane" id="part_payments">
+                        <?php if (empty($part_payment_history)): ?>
+                            <div class="text-center py-4 text-muted">
+                                <i class="fas fa-hand-holding-usd fa-3x mb-3"></i>
+                                <p>No part payments recorded</p>
+                                <?php if ($loan->status == 'active'): ?>
+                                <a href="<?= site_url('admin/loans/part_payment/' . $loan->id) ?>" class="btn btn-sm btn-warning">
+                                    <i class="fas fa-plus mr-1"></i> Make Part Payment
+                                </a>
+                                <?php endif; ?>
+                            </div>
+                        <?php else: ?>
+                            <div class="mb-3">
+                                <?php if ($loan->status == 'active'): ?>
+                                <a href="<?= site_url('admin/loans/part_payment/' . $loan->id) ?>" class="btn btn-sm btn-warning float-right">
+                                    <i class="fas fa-plus mr-1"></i> New Part Payment
+                                </a>
+                                <?php endif; ?>
+                                <h6><i class="fas fa-hand-holding-usd mr-2"></i>Part Payment History</h6>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-hover">
+                                    <thead class="thead-light">
+                                        <tr>
+                                            <th>Date</th>
+                                            <th class="text-right">Amount</th>
+                                            <th>Type</th>
+                                            <th class="text-right">Old EMI</th>
+                                            <th class="text-right">New EMI</th>
+                                            <th>Old Tenure</th>
+                                            <th>New Tenure</th>
+                                            <th class="text-right">Interest Saved</th>
+                                            <th>Mode</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($part_payment_history as $pp): ?>
+                                        <tr>
+                                            <td><?= date('d M Y', strtotime($pp->payment_date)) ?></td>
+                                            <td class="text-right font-weight-bold"><?= format_amount($pp->part_payment_amount) ?></td>
+                                            <td>
+                                                <?php
+                                                $pp_badges = ['reduce_emi' => 'primary', 'reduce_tenure' => 'success', 'manual' => 'warning'];
+                                                ?>
+                                                <span class="badge badge-<?= $pp_badges[$pp->adjustment_type] ?? 'secondary' ?>">
+                                                    <?= ucfirst(str_replace('_', ' ', $pp->adjustment_type)) ?>
+                                                </span>
+                                            </td>
+                                            <td class="text-right"><?= format_amount($pp->previous_emi) ?></td>
+                                            <td class="text-right text-primary"><?= format_amount($pp->new_emi) ?></td>
+                                            <td><?= $pp->previous_tenure ?> mo</td>
+                                            <td class="text-success"><?= $pp->new_tenure ?> mo</td>
+                                            <td class="text-right text-success"><?= format_amount($pp->interest_savings) ?></td>
+                                            <td><small><?= ucfirst(str_replace('_', ' ', $pp->payment_mode)) ?></small></td>
+                                        </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                    <tfoot class="table-warning">
+                                        <tr>
+                                            <th>Total</th>
+                                            <th class="text-right"><?= format_amount(array_sum(array_column($part_payment_history, 'part_payment_amount'))) ?></th>
+                                            <th colspan="5"></th>
+                                            <th class="text-right"><?= format_amount(array_sum(array_column($part_payment_history, 'interest_savings'))) ?></th>
+                                            <th></th>
+                                        </tr>
+                                    </tfoot>
                                 </table>
                             </div>
                         <?php endif; ?>
