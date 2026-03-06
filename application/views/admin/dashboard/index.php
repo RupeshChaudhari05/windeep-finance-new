@@ -201,6 +201,120 @@
     </div>
 </div>
 
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- Profit & Loss (Net Earnings) Card — Industry-Standard P&L     -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<?php
+    $pl = isset($profit_loss) ? $profit_loss : ['summary' => ['total_revenue' => 0, 'total_expenses' => 0, 'net_profit' => 0, 'month_revenue' => 0, 'month_expenses' => 0, 'month_profit' => 0, 'profit_margin' => 0], 'revenue' => [], 'expenses' => []];
+    $net  = $pl['summary']['net_profit'];
+    $is_profit = $net >= 0;
+?>
+<div class="row">
+    <div class="col-12">
+        <div class="card card-outline <?= $is_profit ? 'card-success' : 'card-danger' ?> dashboard-card" data-card="profit_loss" style="cursor:pointer" data-toggle="tooltip" title="Click for detailed Profit & Loss breakdown">
+            <div class="card-header">
+                <h3 class="card-title">
+                    <i class="fas fa-chart-pie mr-2"></i>
+                    <strong>Net Earnings (Profit & Loss)</strong>
+                </h3>
+                <div class="card-tools">
+                    <span class="badge badge-<?= $is_profit ? 'success' : 'danger' ?> mr-2" style="font-size: 0.9rem;">
+                        <?= $is_profit ? 'PROFIT' : 'LOSS' ?>: <?= format_amount(abs($net), 0) ?>
+                    </span>
+                    <button type="button" class="btn btn-tool" data-card-widget="collapse">
+                        <i class="fas fa-minus"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <!-- REVENUE Section -->
+                    <div class="col-lg-5">
+                        <h6 class="text-success text-uppercase mb-3"><i class="fas fa-arrow-circle-up mr-1"></i> Revenue (Income)</h6>
+                        <table class="table table-sm table-borderless mb-2">
+                            <tbody>
+                                <tr>
+                                    <td><i class="fas fa-id-badge text-teal mr-1"></i> Membership Fee</td>
+                                    <td class="text-right font-weight-bold"><?= format_amount($pl['revenue']['membership_fee']['total'] ?? 0, 0) ?></td>
+                                    <td class="text-right text-muted small"><?= format_amount($pl['revenue']['membership_fee']['this_month'] ?? 0, 0) ?> <small>this mo.</small></td>
+                                </tr>
+                                <tr>
+                                    <td><i class="fas fa-receipt text-purple mr-1"></i> Other Member Fee</td>
+                                    <td class="text-right font-weight-bold"><?= format_amount($pl['revenue']['other_member_fee']['total'] ?? 0, 0) ?></td>
+                                    <td class="text-right text-muted small"><?= format_amount($pl['revenue']['other_member_fee']['this_month'] ?? 0, 0) ?> <small>this mo.</small></td>
+                                </tr>
+                                <tr>
+                                    <td><i class="fas fa-gavel text-danger mr-1"></i> Collected Fines</td>
+                                    <td class="text-right font-weight-bold"><?= format_amount($pl['revenue']['fines_collected']['total'] ?? 0, 0) ?></td>
+                                    <td class="text-right text-muted small"><?= format_amount($pl['revenue']['fines_collected']['this_month'] ?? 0, 0) ?> <small>this mo.</small></td>
+                                </tr>
+                                <tr>
+                                    <td><i class="fas fa-percentage text-success mr-1"></i> Interest on Loan</td>
+                                    <td class="text-right font-weight-bold"><?= format_amount($pl['revenue']['interest_earned']['total'] ?? 0, 0) ?></td>
+                                    <td class="text-right text-muted small"><?= format_amount($pl['revenue']['interest_earned']['this_month'] ?? 0, 0) ?> <small>this mo.</small></td>
+                                </tr>
+                            </tbody>
+                            <tfoot>
+                                <tr class="border-top">
+                                    <td class="font-weight-bold text-success">Total Revenue</td>
+                                    <td class="text-right font-weight-bold text-success" style="font-size: 1.1rem;"><?= format_amount($pl['summary']['total_revenue'], 0) ?></td>
+                                    <td class="text-right text-muted small font-weight-bold"><?= format_amount($pl['summary']['month_revenue'], 0) ?></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+
+                    <!-- EXPENSES Section -->
+                    <div class="col-lg-4">
+                        <h6 class="text-danger text-uppercase mb-3"><i class="fas fa-arrow-circle-down mr-1"></i> Expenses (Deductions)</h6>
+                        <table class="table table-sm table-borderless mb-2">
+                            <tbody>
+                                <tr>
+                                    <td><i class="fas fa-building text-maroon mr-1"></i> Office Expenses</td>
+                                    <td class="text-right font-weight-bold"><?= format_amount($pl['expenses']['office_expenses']['total'] ?? 0, 0) ?></td>
+                                    <td class="text-right text-muted small"><?= format_amount($pl['expenses']['office_expenses']['this_month'] ?? 0, 0) ?> <small>this mo.</small></td>
+                                </tr>
+                                <tr>
+                                    <td><i class="fas fa-gift text-info mr-1"></i> Bonus Distributed</td>
+                                    <td class="text-right font-weight-bold"><?= format_amount($pl['expenses']['bonus_paid']['total'] ?? 0, 0) ?></td>
+                                    <td class="text-right text-muted small"><?= format_amount($pl['expenses']['bonus_paid']['this_month'] ?? 0, 0) ?> <small>this mo.</small></td>
+                                </tr>
+                            </tbody>
+                            <tfoot>
+                                <tr class="border-top">
+                                    <td class="font-weight-bold text-danger">Total Expenses</td>
+                                    <td class="text-right font-weight-bold text-danger" style="font-size: 1.1rem;"><?= format_amount($pl['summary']['total_expenses'], 0) ?></td>
+                                    <td class="text-right text-muted small font-weight-bold"><?= format_amount($pl['summary']['month_expenses'], 0) ?></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+
+                    <!-- NET PROFIT Section -->
+                    <div class="col-lg-3 text-center d-flex flex-column justify-content-center">
+                        <div class="p-3 rounded <?= $is_profit ? 'bg-gradient-success' : 'bg-gradient-danger' ?>" style="color: #fff;">
+                            <i class="fas fa-<?= $is_profit ? 'trophy' : 'exclamation-triangle' ?> fa-2x mb-2"></i>
+                            <h6 class="mb-1 text-uppercase" style="opacity: 0.85;">Net <?= $is_profit ? 'Profit' : 'Loss' ?></h6>
+                            <h3 class="mb-1" style="font-size: 1.8rem;"><?= format_amount(abs($net), 0) ?></h3>
+                            <?php if ($pl['summary']['profit_margin'] != 0): ?>
+                            <small style="opacity: 0.8;">Margin: <?= $pl['summary']['profit_margin'] ?>%</small>
+                            <?php endif; ?>
+                        </div>
+                        <div class="mt-2">
+                            <small class="text-muted">This Month: <strong class="<?= $pl['summary']['month_profit'] >= 0 ? 'text-success' : 'text-danger' ?>"><?= format_amount(abs($pl['summary']['month_profit']), 0) ?></strong></small>
+                        </div>
+                        <div class="mt-2">
+                            <button class="btn btn-sm btn-outline-<?= $is_profit ? 'success' : 'danger' ?>" onclick="event.stopPropagation(); openCardModal('profit_loss');">
+                                <i class="fas fa-search-dollar mr-1"></i> View Full P&L
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="row">
     <!-- Monthly Trend Chart -->
     <div class="col-lg-8">
@@ -547,6 +661,9 @@ document.addEventListener('DOMContentLoaded', function() {
         openCardModal(card);
     });
     
+    // Exposed to window for inline onclick usage
+    window.openCardModal = openCardModal;
+    
     function openCardModal(card) {
         var $modal = $('#dashboardDetailModal');
         var $body = $('#dashboardDetailBody');
@@ -695,6 +812,72 @@ document.addEventListener('DOMContentLoaded', function() {
                         }
                     });
                     html += '</tbody></table></div>';
+                    break;
+
+                case 'profit_loss':
+                    var s = res.summary;
+                    var isProfit = s.net_profit >= 0;
+                    var profitClass = isProfit ? 'success' : 'danger';
+                    var profitLabel = isProfit ? 'PROFIT' : 'LOSS';
+                    
+                    $title.html('<i class="fas fa-chart-pie mr-2 text-' + profitClass + '"></i>Profit & Loss Statement <span class="badge badge-' + profitClass + ' ml-2">' + profitLabel + '</span>');
+                    
+                    // Summary callouts
+                    html = '<div class="row mb-4">';
+                    html += '<div class="col-md-4"><div class="callout callout-success"><h5>' + formatCurrency(s.total_revenue) + '</h5><small>Total Revenue</small><br><small class="text-muted">This Month: ' + formatCurrency(s.month_revenue) + '</small></div></div>';
+                    html += '<div class="col-md-4"><div class="callout callout-danger"><h5>' + formatCurrency(s.total_expenses) + '</h5><small>Total Expenses</small><br><small class="text-muted">This Month: ' + formatCurrency(s.month_expenses) + '</small></div></div>';
+                    html += '<div class="col-md-4"><div class="callout callout-' + profitClass + '"><h5>' + formatCurrency(Math.abs(s.net_profit)) + '</h5><small>Net ' + profitLabel + ' (' + s.profit_margin + '%)</small><br><small class="text-muted">This Month: ' + formatCurrency(Math.abs(s.month_profit)) + '</small></div></div>';
+                    html += '</div>';
+                    
+                    // Revenue breakdown table
+                    html += '<h6 class="text-success text-uppercase mb-2"><i class="fas fa-arrow-circle-up mr-1"></i> Revenue Breakdown</h6>';
+                    html += '<div class="table-responsive"><table class="table table-hover table-sm mb-4"><thead class="thead-light"><tr><th>Revenue Source</th><th class="text-right">All Time</th><th class="text-right">This Month</th><th class="text-right">% of Revenue</th></tr></thead><tbody>';
+                    
+                    var revenueItems = [
+                        {key: 'membership_fee', label: 'Membership Fee', icon: 'fa-id-badge text-teal'},
+                        {key: 'other_member_fee', label: 'Other Member Fee', icon: 'fa-receipt text-purple'},
+                        {key: 'fines_collected', label: 'Collected Fines', icon: 'fa-gavel text-danger'},
+                        {key: 'interest_earned', label: 'Interest on Loan', icon: 'fa-percentage text-success'}
+                    ];
+                    $.each(revenueItems, function(i, item) {
+                        var r = res.revenue[item.key] || {total: 0, this_month: 0};
+                        var pct = s.total_revenue > 0 ? ((r.total / s.total_revenue) * 100).toFixed(1) : '0.0';
+                        html += '<tr><td><i class="fas ' + item.icon + ' mr-1"></i> ' + item.label + '</td>';
+                        html += '<td class="text-right font-weight-bold text-success">' + formatCurrency(r.total) + '</td>';
+                        html += '<td class="text-right">' + formatCurrency(r.this_month) + '</td>';
+                        html += '<td class="text-right"><div class="progress progress-sm d-inline-block mr-2" style="width: 60px; vertical-align: middle;"><div class="progress-bar bg-success" style="width: ' + pct + '%"></div></div>' + pct + '%</td>';
+                        html += '</tr>';
+                    });
+                    html += '<tr class="bg-light font-weight-bold"><td><i class="fas fa-arrow-circle-up text-success mr-1"></i> Total Revenue</td><td class="text-right text-success">' + formatCurrency(s.total_revenue) + '</td><td class="text-right text-success">' + formatCurrency(s.month_revenue) + '</td><td class="text-right">100%</td></tr>';
+                    html += '</tbody></table></div>';
+                    
+                    // Expenses breakdown table
+                    html += '<h6 class="text-danger text-uppercase mb-2"><i class="fas fa-arrow-circle-down mr-1"></i> Expense Breakdown</h6>';
+                    html += '<div class="table-responsive"><table class="table table-hover table-sm mb-4"><thead class="thead-light"><tr><th>Expense Category</th><th class="text-right">All Time</th><th class="text-right">This Month</th><th class="text-right">% of Expenses</th></tr></thead><tbody>';
+                    
+                    var expenseItems = [
+                        {key: 'office_expenses', label: 'Office Expenses', icon: 'fa-building text-maroon'},
+                        {key: 'bonus_paid', label: 'Bonus Distributed', icon: 'fa-gift text-info'}
+                    ];
+                    $.each(expenseItems, function(i, item) {
+                        var e = res.expenses[item.key] || {total: 0, this_month: 0};
+                        var pct = s.total_expenses > 0 ? ((e.total / s.total_expenses) * 100).toFixed(1) : '0.0';
+                        html += '<tr><td><i class="fas ' + item.icon + ' mr-1"></i> ' + item.label + '</td>';
+                        html += '<td class="text-right font-weight-bold text-danger">' + formatCurrency(e.total) + '</td>';
+                        html += '<td class="text-right">' + formatCurrency(e.this_month) + '</td>';
+                        html += '<td class="text-right"><div class="progress progress-sm d-inline-block mr-2" style="width: 60px; vertical-align: middle;"><div class="progress-bar bg-danger" style="width: ' + pct + '%"></div></div>' + pct + '%</td>';
+                        html += '</tr>';
+                    });
+                    html += '<tr class="bg-light font-weight-bold"><td><i class="fas fa-arrow-circle-down text-danger mr-1"></i> Total Expenses</td><td class="text-right text-danger">' + formatCurrency(s.total_expenses) + '</td><td class="text-right text-danger">' + formatCurrency(s.month_expenses) + '</td><td class="text-right">100%</td></tr>';
+                    html += '</tbody></table></div>';
+                    
+                    // Net Profit summary bar
+                    html += '<div class="alert alert-' + profitClass + ' text-center" style="font-size: 1.1rem;">';
+                    html += '<i class="fas fa-' + (isProfit ? 'trophy' : 'exclamation-triangle') + ' mr-2"></i>';
+                    html += '<strong>Net ' + profitLabel + ': ' + formatCurrency(Math.abs(s.net_profit)) + '</strong>';
+                    html += ' <span class="ml-3">|</span> <span class="ml-3">Profit Margin: <strong>' + s.profit_margin + '%</strong></span>';
+                    html += ' <span class="ml-3">|</span> <span class="ml-3">This Month ' + (s.month_profit >= 0 ? 'Profit' : 'Loss') + ': <strong>' + formatCurrency(Math.abs(s.month_profit)) + '</strong></span>';
+                    html += '</div>';
                     break;
                     
                 default:

@@ -898,4 +898,140 @@ class Report_model extends MY_Model {
 
         return $result;
     }
+
+    // ═══════════════════════════════════════════════════════════
+    // Profit & Loss Summary (Net Earnings)
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Get Profit & Loss Summary
+     *
+     * Industry-standard P&L for cooperative banking:
+     * REVENUE  = Membership Fee + Other Member Fee + Collected Fines + Interest on Loan
+     * EXPENSES = Office Expenses + Bonus Distributed
+     * NET PROFIT = REVENUE - EXPENSES
+     *
+     * Returns all-time and current-month figures for each line item.
+     */
+    public function get_profit_loss_summary() {
+        $current_month = date('m');
+        $current_year  = date('Y');
+
+        // ── REVENUE ─────────────────────────────────────────────
+
+        // 1. Membership Fee (reuse existing logic)
+        $fee_summary = $this->get_fee_summary();
+        $membership_fee_total = floatval($fee_summary['membership_fee']);
+        $other_fee_total      = floatval($fee_summary['other_member_fee']);
+
+        // Membership fee - this month
+        $mf_month = 0;
+        if ($this->db->table_exists('member_other_transactions')) {
+            $r = $this->db->select('COALESCE(SUM(amount), 0) as total')
+                          ->where('transaction_type', 'membership_fee')
+                          ->where('MONTH(transaction_date)', $current_month)
+                          ->where('YEAR(transaction_date)', $current_year)
+                          ->get('member_other_transactions')->row();
+            $mf_month += floatval($r->total ?? 0);
+        }
+        $r = $this->db->select('COALESCE(SUM(amount), 0) as total')
+                      ->where('transaction_category', 'membership_fee')
+                      ->where('mapping_status', 'mapped')
+                      ->where('MONTH(transaction_date)', $current_month)
+                      ->where('YEAR(transaction_date)', $current_year)
+                      ->get('bank_transactions')->row();
+        $mf_month += floatval($r->total ?? 0);
+
+        // Other member fee - this month
+        $of_month = 0;
+        if ($this->db->table_exists('member_other_transactions')) {
+            $r = $this->db->select('COALESCE(SUM(amount), 0) as total')
+                          ->where('transaction_type !=', 'membership_fee')
+                          ->where('MONTH(transaction_date)', $current_month)
+                          ->where('YEAR(transaction_date)', $current_year)
+                          ->get('member_other_transactions')->row();
+            $of_month += floatval($r->total ?? 0);
+        }
+        $r = $this->db->select('COALESCE(SUM(amount), 0) as total')
+                      ->where('mapping_type', 'other')
+                      ->where('is_reversed', 0)
+                      ->where('MONTH(mapped_at)', $current_month)
+                      ->where('YEAR(mapped_at)', $current_year)
+                      ->get('transaction_mappings')->row();
+        $of_month += floatval($r->total ?? 0);
+
+        // 2. Collected Fines (paid_amount from fines with status paid/partial)
+        $fines_total_row = $this->db->select('COALESCE(SUM(paid_amount), 0) as total')
+                                    ->where_in('status', ['paid', 'partial'])
+                                    ->get('fines')->row();
+        $fines_collected_total = floatval($fines_total_row->total ?? 0);
+
+        $fines_month_row = $this->db->select('COALESCE(SUM(paid_amount), 0) as total')
+                                    ->where_in('status', ['paid', 'partial'])
+                                    ->where('MONTH(fine_date)', $current_month)
+                                    ->where('YEAR(fine_date)', $current_year)
+                                    ->get('fines')->row();
+        $fines_collected_month = floatval($fines_month_row->total ?? 0);
+
+        // 3. Interest on Loan (from loan_payments)
+        $interest_stats = $this->get_interest_earned_stats();
+        $interest_total = floatval($interest_stats['total_interest']);
+        $interest_month = floatval($interest_stats['this_month_interest']);
+
+        // ── EXPENSES ────────────────────────────────────────────
+
+        // 4. Office Expenses (reuse existing logic)
+        $expense_summary = $this->get_office_expense_summary();
+        $expenses_total = floatval($expense_summary['total_expenses']);
+        $expenses_month = floatval($expense_summary['this_month']);
+
+        // 5. Bonus Distributed
+        $bonus_total = 0;
+        $bonus_month = 0;
+        if ($this->db->table_exists('bonus_transactions')) {
+            $r = $this->db->select('COALESCE(SUM(amount), 0) as total')
+                          ->where('status', 'credited')
+                          ->get('bonus_transactions')->row();
+            $bonus_total = floatval($r->total ?? 0);
+
+            $r = $this->db->select('COALESCE(SUM(amount), 0) as total')
+                          ->where('status', 'credited')
+                          ->where('MONTH(created_at)', $current_month)
+                          ->where('YEAR(created_at)', $current_year)
+                          ->get('bonus_transactions')->row();
+            $bonus_month = floatval($r->total ?? 0);
+        }
+
+        // ── TOTALS ──────────────────────────────────────────────
+
+        $total_revenue  = $membership_fee_total + $other_fee_total + $fines_collected_total + $interest_total;
+        $total_expenses = $expenses_total + $bonus_total;
+        $net_profit     = $total_revenue - $total_expenses;
+
+        $month_revenue  = $mf_month + $of_month + $fines_collected_month + $interest_month;
+        $month_expenses = $expenses_month + $bonus_month;
+        $month_profit   = $month_revenue - $month_expenses;
+
+        return [
+            'revenue' => [
+                'membership_fee'  => ['total' => $membership_fee_total, 'this_month' => $mf_month],
+                'other_member_fee'=> ['total' => $other_fee_total,      'this_month' => $of_month],
+                'fines_collected' => ['total' => $fines_collected_total, 'this_month' => $fines_collected_month],
+                'interest_earned' => ['total' => $interest_total,       'this_month' => $interest_month],
+            ],
+            'expenses' => [
+                'office_expenses' => ['total' => $expenses_total, 'this_month' => $expenses_month],
+                'bonus_paid'      => ['total' => $bonus_total,    'this_month' => $bonus_month],
+            ],
+            'summary' => [
+                'total_revenue'   => $total_revenue,
+                'total_expenses'  => $total_expenses,
+                'net_profit'      => $net_profit,
+                'month_revenue'   => $month_revenue,
+                'month_expenses'  => $month_expenses,
+                'month_profit'    => $month_profit,
+                'profit_margin'   => $total_revenue > 0 ? round(($net_profit / $total_revenue) * 100, 2) : 0,
+            ],
+        ];
+    }
 }

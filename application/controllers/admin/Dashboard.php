@@ -62,6 +62,9 @@ class Dashboard extends Admin_Controller {
         $data['interest_stats'] = $this->Report_model->get_interest_earned_stats();
         $data['monthly_interest'] = $this->Report_model->get_monthly_interest_report(date('Y'));
         $data['yearly_interest'] = $this->Report_model->get_yearly_interest_summary();
+
+        // Profit & Loss (Net Earnings) summary
+        $data['profit_loss'] = $this->Report_model->get_profit_loss_summary();
         
         $this->load_view('admin/dashboard/index', $data);
     }
@@ -556,5 +559,13 @@ class Dashboard extends Admin_Controller {
             ],
             'monthly' => $monthly
         ]);
+    }
+
+    /**
+     * Profit & Loss Detail (for modal)
+     */
+    public function card_profit_loss() {
+        $pl = $this->Report_model->get_profit_loss_summary();
+        $this->json_response($pl);
     }
 }
