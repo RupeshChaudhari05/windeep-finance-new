@@ -438,16 +438,21 @@ class Savings_model extends MY_Model {
     /**
      * Get Account Transactions
      */
-    public function get_transactions($account_id, $limit = 50) {
+    public function get_transactions($account_id, $limit = 50, $include_reversed = FALSE) {
         // Order by transaction_date (passbook/statement date) not created_at (record-insertion timestamp).
         // This ensures mapped bank transactions appear on the date the money actually moved,
         // not the date the admin performed the mapping.
-        return $this->db->where('savings_account_id', $account_id)
-                        ->order_by('transaction_date', 'DESC')
-                        ->order_by('id', 'DESC') // tiebreaker for same-day entries
-                        ->limit($limit)
-                        ->get('savings_transactions')
-                        ->result();
+        $query = $this->db->where('savings_account_id', $account_id);
+        if (!$include_reversed) {
+            // By default exclude reversed transactions from passbook view.
+            // Pass $include_reversed = TRUE to get full history (e.g. audit/admin).
+            $query->where('is_reversed', 0);
+        }
+        return $query->order_by('transaction_date', 'DESC')
+                     ->order_by('id', 'DESC') // tiebreaker for same-day entries
+                     ->limit($limit)
+                     ->get('savings_transactions')
+                     ->result();
     }
     
     /**

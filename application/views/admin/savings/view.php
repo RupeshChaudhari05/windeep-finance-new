@@ -141,7 +141,8 @@
                                     </thead>
                                     <tbody>
                                         <?php foreach ($transactions as $txn): ?>
-                                        <tr>
+                                        <?php $is_rev = !empty($txn->is_reversed); ?>
+                                        <tr class="<?= $is_rev ? 'table-secondary text-muted' : '' ?>" <?= $is_rev ? 'style="opacity:0.6"' : '' ?>>
                                             <td><?= format_date($txn->transaction_date) ?></td>
                                             <td><small><?= $txn->receipt_number ?></small></td>
                                             <td>
@@ -153,23 +154,30 @@
                                                     'penalty' => 'warning'
                                                 ];
                                                 ?>
-                                                <span class="badge badge-<?= $type_badges[$txn->transaction_type] ?? 'secondary' ?>">
-                                                    <?= ucfirst($txn->transaction_type) ?>
-                                                </span>
+                                                <?php if ($is_rev): ?>
+                                                    <span class="badge badge-secondary">
+                                                        <s><?= ucfirst($txn->transaction_type) ?></s>
+                                                    </span>
+                                                    <span class="badge badge-danger ml-1">REVERSED</span>
+                                                <?php else: ?>
+                                                    <span class="badge badge-<?= $type_badges[$txn->transaction_type] ?? 'secondary' ?>">
+                                                        <?= ucfirst($txn->transaction_type) ?>
+                                                    </span>
+                                                <?php endif; ?>
                                             </td>
                                             <?php
                                             $credit = isset($txn->credit_amount) ? (float) $txn->credit_amount : (in_array($txn->transaction_type, ['deposit','interest','opening_balance','adjustment','fine']) ? (float) ($txn->amount ?? 0) : 0);
                                             $debit = isset($txn->debit_amount) ? (float) $txn->debit_amount : (in_array($txn->transaction_type, ['withdrawal']) ? (float) ($txn->amount ?? 0) : 0);
                                             $balance = $txn->running_balance ?? $txn->balance_after ?? 0;
                                             ?>
-                                            <td class="text-right text-success">
-                                                <?= $credit > 0 ? format_amount($credit) : '-' ?>
+                                            <td class="text-right <?= $is_rev ? '' : 'text-success' ?>">
+                                                <?= ($credit > 0 && !$is_rev) ? format_amount($credit) : ($credit > 0 ? '<s>'.format_amount($credit).'</s>' : '-') ?>
                                             </td>
-                                            <td class="text-right text-danger">
-                                                <?= $debit > 0 ? format_amount($debit) : '-' ?>
+                                            <td class="text-right <?= $is_rev ? '' : 'text-danger' ?>">
+                                                <?= ($debit > 0 && !$is_rev) ? format_amount($debit) : ($debit > 0 ? '<s>'.format_amount($debit).'</s>' : '-') ?>
                                             </td>
                                             <td class="text-right font-weight-bold">
-                                                <?= format_amount((float) $balance) ?>
+                                                <?= $is_rev ? '<s>'.format_amount((float) $balance).'</s>' : format_amount((float) $balance) ?>
                                             </td>
                                             <td><small><?= ucfirst($txn->payment_mode) ?></small></td>
                                         </tr>
