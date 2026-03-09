@@ -1609,4 +1609,268 @@ class Loans extends Admin_Controller {
             redirect('admin/loans/part_payment/' . $loan_id);
         }
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  LOAN TOP-UP
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Top-up Eligibility & Application Form
+     * URL: admin/loans/topup/{loan_id}
+     */
+    public function topup($loan_id) {
+        $eligibility = $this->Loan_model->check_topup_eligibility($loan_id);
+
+        if (!$eligibility->loan) {
+            $this->session->set_flashdata('error', 'Loan not found.');
+            redirect('admin/loans');
+        }
+
+        $loan    = $eligibility->loan;
+        $product = $eligibility->product;
+        $member  = $this->Member_model->get_member_details($loan->member_id);
+
+        $data['title']      = 'Loan Top-up';
+        $data['page_title'] = 'Loan Top-up — ' . $loan->loan_number;
+        $data['breadcrumb'] = [
+            ['title' => 'Dashboard',    'url' => 'admin/dashboard'],
+            ['title' => 'Loans',        'url' => 'admin/loans'],
+            ['title' => $loan->loan_number, 'url' => 'admin/loans/view/' . $loan_id],
+            ['title' => 'Top-up',       'url' => '']
+        ];
+
+        $data['loan']        = $loan;
+        $data['product']     = $product;
+        $data['member']      = $member;
+        $data['eligibility'] = $eligibility;
+        $data['products']    = $this->Loan_model->get_products();
+
+        $this->load_view('admin/loans/topup', $data);
+    }
+
+    /**
+     * AJAX: Calculate top-up preview / summary
+     * POST: admin/loans/topup_calculate
+     */
+    public function topup_calculate() {
+        if ($this->input->method() !== 'post') {
+            echo json_encode(['error' => true, 'message' => 'Invalid request']);
+            return;
+        }
+
+        $loan_id      = (int) $this->input->post('loan_id');
+        $topup_amount = (float) $this->input->post('topup_amount');
+        $tenure       = (int) $this->input->post('tenure');
+        $rate         = $this->input->post('interest_rate');
+        $rate         = ($rate !== '' && $rate !== null) ? (float) $rate : null;
+
+        if ($topup_amount <= 0) {
+            echo json_encode(['error' => true, 'message' => 'Top-up amount must be greater than zero.']);
+            return;
+        }
+        if ($tenure <= 0) {
+            echo json_encode(['error' => true, 'message' => 'Tenure must be greater than zero.']);
+            return;
+        }
+
+        $summary = $this->Loan_model->get_topup_summary($loan_id, $topup_amount, $tenure, $rate);
+        echo json_encode($summary);
+    }
+
+    /**
+     * Submit Top-up Application
+     * POST: admin/loans/submit_topup
+     */
+    public function submit_topup() {
+        if ($this->input->method() !== 'post') {
+            redirect('admin/loans');
+        }
+
+        $loan_id = (int) $this->input->post('parent_loan_id');
+
+        $this->load->library('form_validation');
+        $this->form_validation->set_rules('parent_loan_id', 'Parent Loan', 'required|numeric');
+        $this->form_validation->set_rules('topup_amount', 'Top-up Amount', 'required|numeric|greater_than[0]');
+        $this->form_validation->set_rules('tenure', 'Tenure', 'required|numeric|greater_than[0]');
+        $this->form_validation->set_rules('interest_rate', 'Interest Rate', 'required|numeric|greater_than[0]');
+        $this->form_validation->set_rules('purpose', 'Purpose', 'required');
+
+        if ($this->form_validation->run() === FALSE) {
+            $this->session->set_flashdata('error', validation_errors());
+            redirect('admin/loans/topup/' . $loan_id);
+            return;
+        }
+
+        // Re-check eligibility
+        $eligibility = $this->Loan_model->check_topup_eligibility($loan_id);
+        if (!$eligibility->eligible) {
+            $this->session->set_flashdata('error', 'Top-up not eligible: ' . implode(' ', $eligibility->reasons));
+            redirect('admin/loans/topup/' . $loan_id);
+            return;
+        }
+
+        $loan = $eligibility->loan;
+        $topup_amount = (float) $this->input->post('topup_amount');
+        $tenure       = (int) $this->input->post('tenure');
+        $rate         = (float) $this->input->post('interest_rate');
+
+        // New total principal = outstanding + topup
+        $new_principal = (float) $loan->outstanding_principal + $topup_amount;
+
+        // Create top-up loan application
+        $app_data = [
+            'member_id'                     => $loan->member_id,
+            'loan_product_id'               => $loan->loan_product_id,
+            'requested_amount'              => $new_principal,
+            'requested_tenure_months'       => $tenure,
+            'requested_interest_rate'       => $rate,
+            'purpose'                       => $this->input->post('purpose'),
+            'purpose_details'               => $this->input->post('purpose_details'),
+            'is_topup'                      => 1,
+            'parent_loan_id'                => $loan_id,
+            'topup_amount'                  => $topup_amount,
+            'parent_outstanding_principal'   => (float) $loan->outstanding_principal,
+            'parent_outstanding_interest'    => (float) $loan->outstanding_interest,
+            'approved_amount'               => $new_principal,
+            'approved_tenure_months'        => $tenure,
+            'approved_interest_rate'        => $rate,
+            'status'                        => 'member_approved', // Top-up is admin-initiated, skip review
+            'admin_approved_at'             => date('Y-m-d H:i:s'),
+            'admin_approved_by'             => $this->session->userdata('admin_id'),
+            'member_approved_at'            => date('Y-m-d H:i:s'),
+            'created_by'                    => $this->session->userdata('admin_id')
+        ];
+
+        $application_id = $this->Loan_model->create_application($app_data);
+
+        if ($application_id) {
+            $this->log_audit('create', 'loan_applications', 'loan_applications', $application_id, null, $app_data);
+            $this->session->set_flashdata('success', 'Top-up application created. Proceed to disburse.');
+            redirect('admin/loans/topup_disburse/' . $application_id);
+        } else {
+            $this->session->set_flashdata('error', 'Failed to create top-up application.');
+            redirect('admin/loans/topup/' . $loan_id);
+        }
+    }
+
+    /**
+     * Top-up Disbursement Page
+     * URL: admin/loans/topup_disburse/{application_id}
+     */
+    public function topup_disburse($application_id) {
+        $app = $this->Loan_model->get_application($application_id);
+
+        if (!$app || !$app->is_topup) {
+            $this->session->set_flashdata('error', 'Top-up application not found.');
+            redirect('admin/loans/applications');
+        }
+        if ($app->status !== 'member_approved') {
+            $this->session->set_flashdata('error', 'Application is not ready for disbursement.');
+            redirect('admin/loans/applications');
+        }
+
+        // Handle POST — process the top-up
+        if ($this->input->method() === 'post') {
+            try {
+                $disbursement = [
+                    'disbursement_date'  => $this->input->post('disbursement_date'),
+                    'first_emi_date'     => $this->input->post('first_emi_date'),
+                    'disbursement_mode'  => $this->input->post('disbursement_mode'),
+                    'reference_number'   => $this->input->post('reference_number')
+                ];
+
+                $new_loan_id = $this->Loan_model->process_topup($application_id, $disbursement, $this->session->userdata('admin_id'));
+
+                if ($new_loan_id) {
+                    $new_loan = $this->Loan_model->get_by_id($new_loan_id);
+
+                    // Post ledger entries
+                    $this->load->model('Ledger_model');
+
+                    // Net disbursement (only the additional amount)
+                    if ($new_loan->net_disbursement > 0) {
+                        $this->Ledger_model->post_transaction(
+                            'loan_disbursement',
+                            $new_loan_id,
+                            $new_loan->net_disbursement,
+                            $new_loan->member_id,
+                            'Top-up disbursement (additional amount): ' . $new_loan->loan_number . ' (parent: ' . ($app->parent_loan_id ?? '') . ')',
+                            $this->session->userdata('admin_id')
+                        );
+                    }
+
+                    // Processing fee
+                    if ($new_loan->processing_fee > 0) {
+                        $this->Ledger_model->post_transaction(
+                            'processing_fee',
+                            $new_loan_id,
+                            $new_loan->processing_fee,
+                            $new_loan->member_id,
+                            'Top-up processing fee: ' . $new_loan->loan_number,
+                            $this->session->userdata('admin_id')
+                        );
+
+                        $this->load->model('Member_transaction_model');
+                        $this->Member_transaction_model->record_processing_fee(
+                            $new_loan->member_id,
+                            $new_loan->processing_fee,
+                            $new_loan_id,
+                            $this->session->userdata('admin_id')
+                        );
+                    }
+
+                    $this->log_audit('topup_disbursed', 'loans', 'loans', $new_loan_id, null, $disbursement);
+                    $this->session->set_flashdata('success', 'Loan top-up disbursed successfully! New loan: ' . $new_loan->loan_number);
+                    redirect('admin/loans/view/' . $new_loan_id);
+                }
+
+            } catch (Exception $e) {
+                $this->session->set_flashdata('error', $e->getMessage());
+                redirect('admin/loans/topup_disburse/' . $application_id);
+            }
+        }
+
+        // ── GET: Show disbursement form ──
+        $member  = $this->Member_model->get_by_id($app->member_id);
+        $product = $this->db->where('id', $app->loan_product_id)->get('loan_products')->row();
+        $parent  = $this->Loan_model->get_loan_details($app->parent_loan_id);
+
+        $calc = $this->Loan_model->calculate_emi(
+            $app->approved_amount,
+            $app->approved_interest_rate,
+            $app->approved_tenure_months,
+            $product->interest_type
+        );
+
+        // Top-up fee
+        $fee_type  = $product->topup_fee_type ?? $product->processing_fee_type ?? 'percentage';
+        $fee_value = $product->topup_fee_value ?? $product->processing_fee_value ?? 0;
+        $topup_fee = 0;
+        if ($fee_type === 'percentage') {
+            $topup_fee = round((float) $app->topup_amount * ((float) $fee_value / 100), 2);
+        } else {
+            $topup_fee = (float) $fee_value;
+        }
+
+        $this->load->model('Setting_model');
+
+        $data['title']      = 'Disburse Top-up Loan';
+        $data['page_title'] = 'Top-up Disbursement';
+        $data['breadcrumb'] = [
+            ['title' => 'Dashboard',    'url' => 'admin/dashboard'],
+            ['title' => 'Loans',        'url' => 'admin/loans'],
+            ['title' => 'Top-up Disburse', 'url' => '']
+        ];
+
+        $data['application']   = $app;
+        $data['member']        = $member;
+        $data['product']       = $product;
+        $data['parent_loan']   = $parent;
+        $data['emi_calc']      = $calc;
+        $data['topup_fee']     = $topup_fee;
+        $data['net_disbursement'] = (float) $app->topup_amount - $topup_fee;
+        $data['fixed_due_day'] = (int) $this->Setting_model->get_setting('fixed_due_day', 0);
+
+        $this->load_view('admin/loans/topup_disburse', $data);
+    }
 }

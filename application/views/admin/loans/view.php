@@ -122,6 +122,9 @@
                 <a href="<?= site_url('admin/loans/part_payment/' . $loan->id) ?>" class="btn btn-warning btn-block mt-2">
                     <i class="fas fa-hand-holding-usd mr-1"></i> Part Payment (Prepayment)
                 </a>
+                <a href="<?= site_url('admin/loans/topup/' . $loan->id) ?>" class="btn btn-primary btn-block mt-2">
+                    <i class="fas fa-level-up-alt mr-1"></i> Loan Top-up
+                </a>
                 <a href="<?= site_url('admin/loans/repayment_history?loan_id=' . $loan->id) ?>" class="btn btn-info btn-block mt-2">
                     <i class="fas fa-history mr-1"></i> View Repayment History
                 </a>

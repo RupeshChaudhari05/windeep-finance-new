@@ -2359,4 +2359,401 @@ class Loan_model extends MY_Model {
                         ->get()
                         ->row();
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  LOAN TOP-UP — Industry Standard Implementation
+    // ═══════════════════════════════════════════════════════════════
+    //  Flow:
+    //    1. check_topup_eligibility() — validates repayment track record
+    //    2. get_topup_summary()      — calculates breakdown for preview
+    //    3. process_topup()          — atomically forecloses old loan,
+    //                                  creates new top-up loan with fresh schedule
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Check Top-up Eligibility
+     *
+     * Industry criteria:
+     *  - Loan must be active
+     *  - Product must allow top-ups
+     *  - Minimum EMIs paid (configurable per product, default 6)
+     *  - No overdue EMIs (or within product's allowed overdue limit)
+     *  - Member savings balance meets product requirements
+     *
+     * @param  int $loan_id
+     * @return object  { eligible: bool, reasons: [], loan, product, stats }
+     */
+    public function check_topup_eligibility($loan_id) {
+        $result = (object) [
+            'eligible' => true,
+            'reasons'  => [],
+            'loan'     => null,
+            'product'  => null,
+            'stats'    => (object) []
+        ];
+
+        // ── Fetch loan ──
+        $loan = $this->db->query(
+            'SELECT l.*, lp.product_name, lp.topup_allowed, lp.topup_min_emis_paid,
+                    lp.topup_max_overdue, lp.topup_fee_type, lp.topup_fee_value,
+                    lp.max_amount, lp.interest_rate AS product_rate,
+                    lp.interest_type AS product_interest_type,
+                    lp.min_tenure_months, lp.max_tenure_months,
+                    lp.processing_fee_type, lp.processing_fee_value
+             FROM loans l
+             JOIN loan_products lp ON lp.id = l.loan_product_id
+             WHERE l.id = ?', [$loan_id]
+        )->row();
+
+        if (!$loan) {
+            $result->eligible = false;
+            $result->reasons[] = 'Loan not found.';
+            return $result;
+        }
+
+        $result->loan = $loan;
+
+        $product = $this->db->where('id', $loan->loan_product_id)
+                            ->get('loan_products')->row();
+        $result->product = $product;
+
+        // ── Rule 1: Loan must be active ──
+        if ($loan->status !== 'active') {
+            $result->eligible = false;
+            $result->reasons[] = 'Loan is not active (current status: ' . $loan->status . ').';
+        }
+
+        // ── Rule 2: Product allows top-up ──
+        if (empty($loan->topup_allowed)) {
+            $result->eligible = false;
+            $result->reasons[] = 'This loan product does not allow top-ups.';
+        }
+
+        // ── Rule 3: Minimum EMIs paid ──
+        $min_emis = (int) ($loan->topup_min_emis_paid ?? 6);
+        $paid_count = (int) $this->db->where('loan_id', $loan_id)
+                                     ->where('status', 'paid')
+                                     ->count_all_results('loan_installments');
+        $result->stats->emis_paid = $paid_count;
+        $result->stats->min_emis_required = $min_emis;
+
+        if ($paid_count < $min_emis) {
+            $result->eligible = false;
+            $result->reasons[] = "Only {$paid_count} EMI(s) paid. Minimum {$min_emis} EMIs required for top-up.";
+        }
+
+        // ── Rule 4: Overdue check ──
+        $max_overdue = (int) ($loan->topup_max_overdue ?? 0);
+        $overdue_count = (int) $this->db->where('loan_id', $loan_id)
+                                        ->group_start()
+                                            ->where('status', 'overdue')
+                                            ->or_group_start()
+                                                ->where('status', 'pending')
+                                                ->where('due_date <', date('Y-m-d'))
+                                            ->group_end()
+                                        ->group_end()
+                                        ->count_all_results('loan_installments');
+        $result->stats->overdue_count = $overdue_count;
+
+        if ($overdue_count > $max_overdue) {
+            $result->eligible = false;
+            if ($max_overdue === 0) {
+                $result->reasons[] = "{$overdue_count} overdue EMI(s). All EMIs must be current for top-up.";
+            } else {
+                $result->reasons[] = "{$overdue_count} overdue EMI(s) exceeds maximum allowed ({$max_overdue}).";
+            }
+        }
+
+        // ── Rule 5: Not already a recently topped-up loan in processing ──
+        $pending_topup = $this->db->where('parent_loan_id', $loan_id)
+                                  ->where('is_topup', 1)
+                                  ->where_not_in('status', ['rejected', 'cancelled', 'expired'])
+                                  ->count_all_results('loan_applications');
+        if ($pending_topup > 0) {
+            $result->eligible = false;
+            $result->reasons[] = 'A top-up application for this loan is already in progress.';
+        }
+
+        // ── Compute financial stats for the preview ──
+        $result->stats->outstanding_principal = (float) $loan->outstanding_principal;
+        $result->stats->outstanding_interest  = (float) $loan->outstanding_interest;
+        $result->stats->outstanding_fine      = (float) $loan->outstanding_fine;
+        $result->stats->total_outstanding     = (float) $loan->outstanding_principal + (float) $loan->outstanding_interest + (float) $loan->outstanding_fine;
+        $result->stats->max_product_amount    = (float) ($loan->max_amount ?? 0);
+        $result->stats->max_topup_amount      = max(0, (float) ($loan->max_amount ?? 0) - (float) $loan->outstanding_principal);
+        $result->stats->repayment_percentage  = $loan->principal_amount > 0
+            ? round(((float) $loan->total_principal_paid / (float) $loan->principal_amount) * 100, 1)
+            : 0;
+
+        // Total installments for display
+        $total_installments = (int) $this->db->where('loan_id', $loan_id)
+                                             ->count_all_results('loan_installments');
+        $result->stats->total_installments = $total_installments;
+
+        return $result;
+    }
+
+    /**
+     * Get Top-up Summary / Preview
+     *
+     * Calculates the full financial breakdown before executing top-up:
+     *  - Foreclosure settlement of parent loan
+     *  - New loan principal = outstanding + topup_amount
+     *  - Processing/top-up fee
+     *  - Net disbursement to member
+     *  - New EMI & schedule preview
+     *
+     * @param  int    $loan_id         Parent loan
+     * @param  float  $topup_amount    Additional amount requested
+     * @param  int    $new_tenure      New tenure in months
+     * @param  float  $new_rate        New interest rate (null = same as parent)
+     * @return object
+     */
+    public function get_topup_summary($loan_id, $topup_amount, $new_tenure, $new_rate = null) {
+        $eligibility = $this->check_topup_eligibility($loan_id);
+        if (!$eligibility->eligible) {
+            return (object) ['error' => true, 'reasons' => $eligibility->reasons];
+        }
+
+        $loan    = $eligibility->loan;
+        $product = $eligibility->product;
+
+        // Foreclosure settlement of parent loan
+        $outstanding_principal = (float) $loan->outstanding_principal;
+        $outstanding_interest  = (float) $loan->outstanding_interest;
+        $outstanding_fine      = (float) ($loan->outstanding_fine ?? 0);
+        $settlement_amount     = $outstanding_principal + $outstanding_interest + $outstanding_fine;
+
+        // New loan principal = outstanding principal + new top-up amount
+        // (Interest and fines are settled, not rolled into new loan)
+        $new_principal = $outstanding_principal + (float) $topup_amount;
+
+        // Interest rate
+        $rate = $new_rate ?? (float) $loan->interest_rate;
+        $interest_type = $product->interest_type ?? $loan->interest_type;
+
+        // Calculate new EMI
+        $calc = $this->calculate_emi($new_principal, $rate, $new_tenure, $interest_type);
+
+        // Processing / top-up fee on the ADDITIONAL amount only
+        $topup_fee = 0;
+        $fee_type  = $product->topup_fee_type ?? $product->processing_fee_type ?? 'percentage';
+        $fee_value = $product->topup_fee_value ?? $product->processing_fee_value ?? 0;
+        if ($fee_type === 'percentage') {
+            $topup_fee = round((float) $topup_amount * ((float) $fee_value / 100), 2);
+        } else {
+            $topup_fee = (float) $fee_value;
+        }
+
+        // Net disbursement = additional amount − processing fee
+        // (Outstanding is internally settled, not re-disbursed)
+        $net_disbursement = (float) $topup_amount - $topup_fee;
+
+        return (object) [
+            'error'                  => false,
+            'parent_loan_id'         => $loan->id,
+            'parent_loan_number'     => $loan->loan_number,
+            'member_id'              => $loan->member_id,
+            // Foreclosure
+            'outstanding_principal'  => $outstanding_principal,
+            'outstanding_interest'   => $outstanding_interest,
+            'outstanding_fine'       => $outstanding_fine,
+            'settlement_amount'      => $settlement_amount,
+            // New loan
+            'topup_amount'           => (float) $topup_amount,
+            'new_principal'          => $new_principal,
+            'new_interest_rate'      => $rate,
+            'interest_type'          => $interest_type,
+            'new_tenure'             => (int) $new_tenure,
+            'new_emi'                => $calc['emi'],
+            'new_total_interest'     => $calc['total_interest'],
+            'new_total_payable'      => $calc['total_payable'],
+            // Fees & disbursement
+            'topup_fee'              => $topup_fee,
+            'fee_type'               => $fee_type,
+            'fee_value'              => $fee_value,
+            'net_disbursement'       => $net_disbursement,
+            // Product limits
+            'max_product_amount'     => (float) ($product->max_amount ?? 0),
+            'min_tenure'             => (int) ($product->min_tenure_months ?? 1),
+            'max_tenure'             => (int) ($product->max_tenure_months ?? 360),
+            'product_rate'           => (float) ($product->interest_rate ?? $rate),
+        ];
+    }
+
+    /**
+     * Process Loan Top-up
+     *
+     * Atomic operation:
+     *  1. Foreclose parent loan (settle outstanding, mark as closed/topup)
+     *  2. Create new top-up loan with combined principal
+     *  3. Generate fresh installment schedule
+     *  4. Transfer guarantors from parent to new loan
+     *
+     * @param  int    $application_id  The approved top-up loan application
+     * @param  array  $disbursement    Disbursement details (date, mode, first_emi_date, etc.)
+     * @param  int    $admin_id
+     * @return int    New loan ID
+     * @throws Exception
+     */
+    public function process_topup($application_id, $disbursement, $admin_id) {
+        $this->db->trans_begin();
+
+        try {
+            // ── Load application ──
+            $app = $this->db->where('id', $application_id)->get('loan_applications')->row();
+            if (!$app || !$app->is_topup || empty($app->parent_loan_id)) {
+                throw new Exception('Invalid top-up application.');
+            }
+            if ($app->status !== 'member_approved') {
+                throw new Exception('Application is not ready for disbursement (status: ' . $app->status . ').');
+            }
+
+            // ── Lock parent loan ──
+            $parent = $this->db->query(
+                'SELECT * FROM loans WHERE id = ? FOR UPDATE', [$app->parent_loan_id]
+            )->row();
+            if (!$parent || $parent->status !== 'active') {
+                throw new Exception('Parent loan is not active. Cannot process top-up.');
+            }
+
+            $product = $this->db->where('id', $app->loan_product_id)->get('loan_products')->row();
+
+            // ── Validate dates ──
+            $disb_ts = strtotime($disbursement['disbursement_date']);
+            $emi_ts  = strtotime($disbursement['first_emi_date']);
+            $today   = strtotime(date('Y-m-d'));
+            if ($disb_ts > $today) throw new Exception('Disbursement date cannot be in the future.');
+            if ($emi_ts <= $disb_ts) throw new Exception('First EMI date must be after disbursement date.');
+            $days_diff = ($emi_ts - $disb_ts) / 86400;
+            if ($days_diff < 7) throw new Exception('First EMI date must be at least 7 days after disbursement.');
+            if ($days_diff > 60) throw new Exception('First EMI date cannot be more than 60 days after disbursement.');
+
+            // ── Foreclosure settlement values ──
+            $fc_principal = (float) $parent->outstanding_principal;
+            $fc_interest  = (float) $parent->outstanding_interest;
+            $fc_fine      = (float) ($parent->outstanding_fine ?? 0);
+
+            // ── Close parent loan ──
+            $this->db->where('id', $parent->id)->update('loans', [
+                'status'                => 'closed',
+                'closure_date'          => date('Y-m-d'),
+                'closure_type'          => 'topup',
+                'closure_remarks'       => 'Foreclosed for top-up. New loan application: ' . $app->application_number,
+                'outstanding_principal' => 0,
+                'outstanding_interest'  => 0,
+                'outstanding_fine'      => 0,
+                'total_amount_paid'     => $parent->total_amount_paid + $fc_principal + $fc_interest + $fc_fine,
+                'total_principal_paid'  => $parent->total_principal_paid + $fc_principal,
+                'total_interest_paid'   => $parent->total_interest_paid + $fc_interest,
+                'total_fine_paid'       => $parent->total_fine_paid + $fc_fine,
+                'closed_by'            => $admin_id,
+                'updated_at'           => date('Y-m-d H:i:s')
+            ]);
+
+            // Mark remaining unpaid installments as 'skipped'
+            $this->db->where('loan_id', $parent->id)
+                     ->where_in('status', ['upcoming', 'pending', 'overdue', 'partial'])
+                     ->update('loan_installments', [
+                         'status'  => 'skipped',
+                         'remarks' => 'Loan closed for top-up',
+                         'is_skipped' => 1,
+                         'skip_reason' => 'Top-up foreclosure'
+                     ]);
+
+            // ── Calculate new loan ──
+            $topup_amount  = (float) $app->topup_amount;
+            $new_principal = $fc_principal + $topup_amount;
+            $rate          = (float) $app->approved_interest_rate;
+            $tenure        = (int) $app->approved_tenure_months;
+            $interest_type = $product->interest_type ?? $parent->interest_type;
+
+            $calc = $this->calculate_emi($new_principal, $rate, $tenure, $interest_type);
+
+            // Processing / top-up fee on the additional amount
+            $fee = 0;
+            $fee_type  = $product->topup_fee_type ?? $product->processing_fee_type ?? 'percentage';
+            $fee_value = $product->topup_fee_value ?? $product->processing_fee_value ?? 0;
+            if ($fee_type === 'percentage') {
+                $fee = round($topup_amount * ((float) $fee_value / 100), 2);
+            } else {
+                $fee = (float) $fee_value;
+            }
+            $net_disbursement = $topup_amount - $fee;
+
+            // ── Create new loan ──
+            $loan_data = [
+                'loan_number'           => 'TEMP-' . uniqid(),
+                'loan_application_id'   => $application_id,
+                'member_id'             => $parent->member_id,
+                'loan_product_id'       => $app->loan_product_id,
+                'principal_amount'      => $new_principal,
+                'interest_rate'         => $rate,
+                'interest_type'         => $interest_type,
+                'tenure_months'         => $tenure,
+                'emi_amount'            => $calc['emi'],
+                'total_interest'        => $calc['total_interest'],
+                'total_payable'         => $calc['total_payable'],
+                'processing_fee'        => $fee,
+                'net_disbursement'      => $net_disbursement,
+                'outstanding_principal' => $new_principal,
+                'outstanding_interest'  => $calc['total_interest'],
+                'disbursement_date'     => $disbursement['disbursement_date'],
+                'first_emi_date'        => $disbursement['first_emi_date'],
+                'last_emi_date'         => date('Y-m-d', strtotime($disbursement['first_emi_date'] . ' +' . ($tenure - 1) . ' months')),
+                'status'                => 'active',
+                'is_topup'              => 1,
+                'parent_loan_id'        => $parent->id,
+                'topup_amount'          => $topup_amount,
+                'foreclosed_outstanding'=> $fc_principal,
+                'foreclosed_interest'   => $fc_interest,
+                'disbursement_mode'     => $disbursement['disbursement_mode'] ?? 'bank_transfer',
+                'disbursement_reference'=> $disbursement['reference_number'] ?? null,
+                'disbursed_by'          => $admin_id,
+                'created_by'            => $admin_id,
+                'created_at'            => date('Y-m-d H:i:s')
+            ];
+
+            $this->db->insert($this->table, $loan_data);
+            $new_loan_id = $this->db->insert_id();
+
+            // Race-safe loan number
+            $loan_number = $this->generate_loan_number($new_loan_id);
+            $this->db->where('id', $new_loan_id)
+                     ->update($this->table, ['loan_number' => $loan_number]);
+
+            // ── Generate new installment schedule ──
+            $this->generate_installment_schedule(
+                $new_loan_id, $new_principal, $rate, $tenure,
+                $interest_type, $calc['emi'], $disbursement['first_emi_date']
+            );
+
+            // ── Transfer guarantors from parent loan ──
+            $this->db->where('loan_id', $parent->id)
+                     ->where('consent_status', 'accepted')
+                     ->update('loan_guarantors', [
+                         'loan_id'    => $new_loan_id,
+                         'updated_at' => date('Y-m-d H:i:s')
+                     ]);
+
+            // ── Update application status ──
+            $this->db->where('id', $application_id)->update('loan_applications', [
+                'status'     => 'disbursed',
+                'updated_at' => date('Y-m-d H:i:s')
+            ]);
+
+            // ── Commit ──
+            if ($this->db->trans_status() === FALSE) {
+                $this->db->trans_rollback();
+                return false;
+            }
+
+            $this->db->trans_commit();
+            return $new_loan_id;
+
+        } catch (Exception $e) {
+            $this->db->trans_rollback();
+            throw $e;
+        }
+    }
 }
