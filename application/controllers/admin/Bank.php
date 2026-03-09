@@ -636,7 +636,7 @@ class Bank extends Admin_Controller {
                         if (!empty($paid_for) && is_numeric($paid_for)) {
                             // Record in member_other_transactions
                             $this->load->model('Member_transaction_model');
-                            $this->Member_transaction_model->record([
+                            $other_txn_id = $this->Member_transaction_model->record([
                                 'member_id'          => $paid_for,
                                 'transaction_type'   => $fee_type,
                                 'amount'             => $amount,
@@ -660,11 +660,13 @@ class Bank extends Admin_Controller {
                                 $admin_id
                             );
 
-                            // Insert transaction_mapping row
+                            // Insert transaction_mapping row with related_id pointing to
+                            // the member_other_transactions record for proper reversal
                             $this->db->insert('transaction_mappings', [
                                 'bank_transaction_id' => $transaction_id,
                                 'member_id'           => $paid_for,
                                 'mapping_type'        => 'other',
+                                'related_id'          => $other_txn_id ?: null,
                                 'amount'              => $amount,
                                 'narration'           => $fee_label . ($m_remarks ? ' - ' . $m_remarks : ''),
                                 'mapped_by'           => $admin_id,
@@ -732,6 +734,7 @@ class Bank extends Admin_Controller {
                     }
 
                     $this->db->insert('transaction_mappings', $insert);
+                    $mapping_row_id = $this->db->insert_id();
 
                     // Process the mapped amount immediately
                     switch ($type) {
@@ -755,7 +758,13 @@ class Bank extends Admin_Controller {
                                     'payment_date' => $txn->transaction_date ?? date('Y-m-d'),
                                     'created_by' => $admin_id
                                 ];
-                                $this->Loan_model->record_payment($payment_data);
+                                $payment_id = $this->Loan_model->record_payment($payment_data);
+                                // Update mapping's related_id to point to actual loan_payment record
+                                // (was installment_id, now loan_payment.id for proper reversal)
+                                if ($payment_id && $mapping_row_id) {
+                                    $this->db->where('id', $mapping_row_id)
+                                             ->update('transaction_mappings', ['related_id' => $payment_id]);
+                                }
                             }
                             break;
                         case 'savings':
@@ -772,7 +781,13 @@ class Bank extends Admin_Controller {
                                     'narration'           => $m_remarks ?: ('Bank deposit – ' . ($txn->description ?? $transaction_id)),
                                     'created_by'          => $admin_id
                                 ];
-                                $this->Savings_model->record_payment($payment_data);
+                                $savings_txn_id = $this->Savings_model->record_payment($payment_data);
+                                // Update mapping's related_id to point to actual savings_transaction record
+                                // (was savings_account_id, now savings_transactions.id for proper reversal)
+                                if ($savings_txn_id && $mapping_row_id) {
+                                    $this->db->where('id', $mapping_row_id)
+                                             ->update('transaction_mappings', ['related_id' => $savings_txn_id]);
+                                }
                             }
                             break;
                         case 'fine':
