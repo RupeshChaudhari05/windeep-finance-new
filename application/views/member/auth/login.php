@@ -137,14 +137,14 @@
             <?php if ($this->session->flashdata('error')): ?>
             <div class="alert alert-danger">
                 <i class="fas fa-exclamation-circle mr-1"></i>
-                <?= $this->session->flashdata('error') ?>
+                <?= html_escape($this->session->flashdata('error')) ?>
             </div>
             <?php endif; ?>
             
             <?php if ($this->session->flashdata('success')): ?>
             <div class="alert alert-success">
                 <i class="fas fa-check-circle mr-1"></i>
-                <?= $this->session->flashdata('success') ?>
+                <?= html_escape($this->session->flashdata('success')) ?>
             </div>
             <?php endif; ?>
 

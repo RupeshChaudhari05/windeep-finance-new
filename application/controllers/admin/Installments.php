@@ -92,14 +92,21 @@ class Installments extends Admin_Controller {
         ];
         
         $today = date('Y-m-d');
-        
+
+        // Sync: promote 'upcoming' installments due today → 'pending' BEFORE building the SELECT.
+        // Must be a standalone query (separate from the query below) so CI3's query builder
+        // is clean when we start building the SELECT query.
+        $this->db->where('status', 'upcoming')
+                 ->where('due_date <=', $today)
+                 ->update('loan_installments', ['status' => 'pending', 'updated_at' => date('Y-m-d H:i:s')]);
+
         $this->db->select('li.*, l.loan_number, l.member_id, l.loan_product_id, m.member_code, m.first_name, m.last_name, m.phone, lp.product_name');
         $this->db->from('loan_installments li');
         $this->db->join('loans l', 'l.id = li.loan_id');
         $this->db->join('members m', 'm.id = l.member_id');
         $this->db->join('loan_products lp', 'lp.id = l.loan_product_id');
         $this->db->where('li.due_date', $today);
-        $this->db->where('li.status', 'pending');
+        $this->db->where_in('li.status', ['pending', 'partial']);
         $this->db->where_in('l.status', ['active', 'overdue']);
         $this->db->order_by('m.member_code', 'ASC');
         
@@ -126,15 +133,23 @@ class Installments extends Admin_Controller {
             ['title' => 'Upcoming', 'url' => '']
         ];
         
-        $days = $this->input->get('days') ?: 7;
+        // Default to 30 days — monthly EMI schedules need at least a full month window.
+        $days = (int) ($this->input->get('days') ?: 30);
+        $today = date('Y-m-d');
         $end_date = date('Y-m-d', strtotime("+$days days"));
+
+        // Before querying, run the status-sync inline so the page is always accurate
+        // even when the daily cron has not yet executed today.
+        $this->db->where('status', 'upcoming')
+                 ->where('due_date <=', $today)
+                 ->update('loan_installments', ['status' => 'pending', 'updated_at' => date('Y-m-d H:i:s')]);
         
         $this->db->select('li.*, l.loan_number, l.member_id, m.member_code, m.first_name, m.last_name, m.phone, lp.product_name');
         $this->db->from('loan_installments li');
         $this->db->join('loans l', 'l.id = li.loan_id');
         $this->db->join('members m', 'm.id = l.member_id');
         $this->db->join('loan_products lp', 'lp.id = l.loan_product_id');
-        $this->db->where('li.due_date >', date('Y-m-d'));
+        $this->db->where('li.due_date >', $today);
         $this->db->where('li.due_date <=', $end_date);
         $this->db->where_in('li.status', ['pending', 'upcoming']);
         $this->db->where_in('l.status', ['active', 'overdue']);
@@ -163,13 +178,21 @@ class Installments extends Admin_Controller {
             ['title' => 'Overdue', 'url' => '']
         ];
         
+        $today = date('Y-m-d');
+
+        // Sync: promote any 'upcoming' installments that have now become due/overdue
+        $this->db->where_in('status', ['upcoming'])
+                 ->where('due_date <', $today)
+                 ->update('loan_installments', ['status' => 'overdue', 'updated_at' => date('Y-m-d H:i:s')]);
+
         $this->db->select('li.*, l.loan_number, l.member_id, m.member_code, m.first_name, m.last_name, m.phone, lp.product_name, DATEDIFF(CURDATE(), li.due_date) as days_overdue');
         $this->db->from('loan_installments li');
         $this->db->join('loans l', 'l.id = li.loan_id');
         $this->db->join('members m', 'm.id = l.member_id');
         $this->db->join('loan_products lp', 'lp.id = l.loan_product_id');
-        $this->db->where('li.status', 'pending');
-        $this->db->where('li.due_date <', date('Y-m-d'));
+        // Include 'partial' — installments where a partial payment was made but full EMI is still outstanding past due date
+        $this->db->where_in('li.status', ['pending', 'overdue', 'partial']);
+        $this->db->where('li.due_date <', $today);
         $this->db->where_in('l.status', ['active', 'overdue', 'npa']);
         $this->db->order_by('li.due_date', 'ASC');
         
@@ -378,5 +401,166 @@ class Installments extends Admin_Controller {
         } catch (Exception $e) {
             $this->json_response(['success' => false, 'message' => $e->getMessage()]);
         }
+    }
+
+    /**
+     * Reschedule Installments to Fixed Due Day (Admin Tool — POST/AJAX)
+     *
+     * When admin sets/changes the global "Fixed Due Day" setting,
+     * existing installments that were generated with a different day-of-month
+     * are NOT automatically updated. This method retroactively corrects
+     * all UNPAID loan installments (status: upcoming / pending / overdue)
+     * to use the configured fixed_due_day.
+     *
+     * Rules:
+     *  - Only unpaid installments are touched (paid / partial are left as-is)
+     *  - The MONTH and YEAR stay the same; only the DAY changes
+     *  - Capped at the last day of the month (e.g., Feb never exceeds 28/29)
+     *  - After date changes, status is re-evaluated:
+     *      new due_date = today  → pending
+     *      new due_date < today  → overdue
+     *      new due_date > today  → upcoming
+     *  - optional ?loan_id=X  → restrict to a single loan
+     */
+    public function reschedule_to_fixed_day() {
+        $this->load->model('Setting_model');
+        $fixed_day = (int) $this->Setting_model->get_setting('fixed_due_day', 0);
+
+        if ($fixed_day < 1 || $fixed_day > 28) {
+            $this->json_response([
+                'success' => false,
+                'message' => 'Fixed Due Day is not configured (must be 1–28). Please set it in Settings first.'
+            ]);
+            return;
+        }
+
+        $loan_id   = (int) $this->input->post('loan_id'); // 0 = all loans
+        $today     = date('Y-m-d');
+        $updated   = 0;
+        $skipped   = 0;
+
+        // Fetch unpaid installments that need their day adjusted
+        $this->db->select('li.id, li.due_date, li.status')
+                 ->from('loan_installments li')
+                 ->join('loans l', 'l.id = li.loan_id')
+                 ->where_in('li.status', ['upcoming', 'pending', 'overdue'])
+                 ->where_in('l.status', ['active', 'overdue', 'npa']);
+
+        if ($loan_id > 0) {
+            $this->db->where('li.loan_id', $loan_id);
+        }
+
+        $installments = $this->db->get()->result();
+
+        foreach ($installments as $inst) {
+            list($year, $month, $current_day) = explode('-', $inst->due_date);
+            $current_day = (int) $current_day;
+
+            // Skip if already on the correct day
+            if ($current_day === $fixed_day) {
+                $skipped++;
+                continue;
+            }
+
+            // Cap day to last valid day of that month
+            $last_day_of_month = (int) date('t', mktime(0, 0, 0, (int)$month, 1, (int)$year));
+            $new_day = min($fixed_day, $last_day_of_month);
+            $new_due_date = sprintf('%s-%s-%02d', $year, $month, $new_day);
+
+            // Re-derive status from the new due date
+            if ($new_due_date < $today) {
+                $new_status = 'overdue';
+            } elseif ($new_due_date === $today) {
+                $new_status = 'pending';
+            } else {
+                $new_status = 'upcoming';
+            }
+
+            $this->db->where('id', $inst->id)
+                     ->update('loan_installments', [
+                         'due_date'   => $new_due_date,
+                         'status'     => $new_status,
+                         'updated_at' => date('Y-m-d H:i:s')
+                     ]);
+            $updated++;
+        }
+
+        // Also update loans.last_emi_date for affected loans
+        if ($updated > 0) {
+            $loan_filter = $loan_id > 0 ? "AND l.id = {$loan_id}" : '';
+            $this->db->query("
+                UPDATE loans l
+                SET last_emi_date = (
+                    SELECT MAX(li.due_date) FROM loan_installments li WHERE li.loan_id = l.id
+                )
+                WHERE l.status IN ('active','overdue','npa') {$loan_filter}
+            ");
+        }
+
+        log_message('info', "reschedule_to_fixed_day: fixed_day={$fixed_day}, updated={$updated}, skipped={$skipped}");
+
+        $this->json_response([
+            'success' => true,
+            'message' => "Rescheduled {$updated} installments to day {$fixed_day} of each month. {$skipped} were already correct.",
+            'details' => [
+                'fixed_day' => $fixed_day,
+                'updated'   => $updated,
+                'skipped'   => $skipped,
+            ]
+        ]);
+    }
+
+    /**
+     * Sync Installment Statuses (Admin Tool — POST/AJAX)
+     *
+     * Fixes installments that are stuck in 'upcoming' status because the daily
+     * cron has not yet run or was never configured.  Safe to call repeatedly.
+     *
+     * Transitions applied:
+     *   upcoming  → pending  (due_date = today)
+     *   upcoming  → overdue  (due_date < today, unpaid)
+     *   pending   → overdue  (due_date < today, still pending)
+     */
+    public function sync_statuses() {
+        $today = date('Y-m-d');
+
+        // 0. Correctness guard: future-dated 'pending' → 'upcoming' (data repair)
+        $this->db->where('status', 'pending')
+                 ->where('due_date >', $today)
+                 ->update('loan_installments', ['status' => 'upcoming', 'updated_at' => date('Y-m-d H:i:s')]);
+        $future_pending_fixed = $this->db->affected_rows();
+
+        // 1. upcoming → pending (due today)
+        $this->db->where('status', 'upcoming')
+                 ->where('due_date', $today)
+                 ->update('loan_installments', ['status' => 'pending', 'updated_at' => date('Y-m-d H:i:s')]);
+        $activated_today = $this->db->affected_rows();
+
+        // 2. upcoming → overdue (past due, never activated)
+        $this->db->where('status', 'upcoming')
+                 ->where('due_date <', $today)
+                 ->update('loan_installments', ['status' => 'overdue', 'updated_at' => date('Y-m-d H:i:s')]);
+        $past_upcoming = $this->db->affected_rows();
+
+        // 3. pending → overdue (due date already passed)
+        $this->db->where('status', 'pending')
+                 ->where('due_date <', $today)
+                 ->update('loan_installments', ['status' => 'overdue', 'updated_at' => date('Y-m-d H:i:s')]);
+        $past_pending = $this->db->affected_rows();
+
+        $total = $activated_today + $past_upcoming + $past_pending + $future_pending_fixed;
+
+        log_message('info', "sync_statuses: activated_today={$activated_today}, past_upcoming={$past_upcoming}, past_pending={$past_pending}");
+
+        $this->json_response([
+            'success' => true,
+            'message' => "Sync complete. {$total} installments updated.",
+            'details' => [
+                'future_pending_corrected'   => $future_pending_fixed,
+                'activated_today'            => $activated_today,
+                'past_upcoming_to_overdue'   => $past_upcoming,
+                'past_pending_to_overdue'    => $past_pending,
+            ]
+        ]);
     }
 }

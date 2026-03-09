@@ -151,32 +151,66 @@ class Cron extends CI_Controller {
     }
 
     /**
-     * Mark installments as overdue
+     * Mark installments as overdue and activate upcoming ones
+     *
+     * Transition order (must run top-to-bottom each day):
+     *   1. upcoming  → pending  (due_date = today: EMI is now due)
+     *   2. pending   → overdue  (due_date < today:  EMI went unpaid)
+     *
+     * Without step 1, only installment #1 ever reaches 'pending';
+     * all subsequent EMIs stay 'upcoming' and never show on any page.
      */
     public function mark_overdue_installments() {
         $this->log("Starting: Mark overdue installments");
         
         try {
-            // Update loan installments
+            $today = date('Y-m-d');
+
+            // STEP 0: correctness guard — future-dated 'pending' → 'upcoming' (data repair)
             $this->db->where('status', 'pending')
-                ->where('due_date <', date('Y-m-d'))
-                ->update('loan_installments', [
-                    'status' => 'overdue',
-                    'updated_at' => date('Y-m-d H:i:s')
-                ]);
-            
+                     ->where('due_date >', $today)
+                     ->update('loan_installments', [
+                         'status'     => 'upcoming',
+                         'updated_at' => date('Y-m-d H:i:s')
+                     ]);
+
+            // STEP 1: activate upcoming installments whose due date is today or past
+            // This is the critical missing step. Installment #2+ are created with
+            // status='upcoming'. They must become 'pending' when their due date arrives.
+            $this->db->where('status', 'upcoming')
+                     ->where('due_date <=', $today)
+                     ->update('loan_installments', [
+                         'status'     => 'pending',
+                         'updated_at' => date('Y-m-d H:i:s')
+                     ]);
+            $activated = $this->db->affected_rows();
+
+            // ── STEP 2: mark pending installments as overdue when due_date is past ──
+            $this->db->where('status', 'pending')
+                     ->where('due_date <', $today)
+                     ->update('loan_installments', [
+                         'status'     => 'overdue',
+                         'updated_at' => date('Y-m-d H:i:s')
+                     ]);
             $loan_updated = $this->db->affected_rows();
-            
-            // Update savings schedules
+
+            // ── Update savings schedules (same two-step transition) ──
+            $this->db->where('status', 'upcoming')
+                     ->where('due_date <=', $today)
+                     ->update('savings_schedule', [
+                         'status'     => 'pending',
+                         'updated_at' => date('Y-m-d H:i:s')
+                     ]);
+
             $this->db->where('status', 'pending')
-                ->where('due_date <', date('Y-m-d'))
-                ->update('savings_schedule', [
-                    'status' => 'overdue',
-                    'updated_at' => date('Y-m-d H:i:s')
-                ]);
-            
+                     ->where('due_date <', $today)
+                     ->update('savings_schedule', [
+                         'status'     => 'overdue',
+                         'updated_at' => date('Y-m-d H:i:s')
+                     ]);
             $savings_updated = $this->db->affected_rows();
-            
+
+            $this->log("Activated:    {$activated} upcoming loan installments → pending");
             $this->log("Marked overdue: {$loan_updated} loan installments, {$savings_updated} savings schedules");
             
         } catch (Exception $e) {

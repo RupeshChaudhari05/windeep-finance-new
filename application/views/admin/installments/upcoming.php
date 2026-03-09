@@ -12,8 +12,15 @@
                             <option value="7" <?= $days == 7 ? 'selected' : '' ?>>Next 7 Days</option>
                             <option value="15" <?= $days == 15 ? 'selected' : '' ?>>Next 15 Days</option>
                             <option value="30" <?= $days == 30 ? 'selected' : '' ?>>Next 30 Days</option>
+                            <option value="60" <?= $days == 60 ? 'selected' : '' ?>>Next 60 Days</option>
                         </select>
                     </form>
+                    <button type="button" class="btn btn-sm btn-warning ml-1" onclick="syncStatuses()" title="Sync installment statuses from DB (fixes upcoming/pending/overdue transitions)">
+                        <i class="fas fa-sync-alt"></i> Sync Statuses
+                    </button>
+                    <button type="button" class="btn btn-sm btn-danger ml-1" onclick="rescheduleToFixedDay()" title="Update all installment due dates to use the Fixed Due Day from Settings">
+                        <i class="fas fa-calendar-alt"></i> Reschedule Dates
+                    </button>
                 </div>
             </div>
             
@@ -121,6 +128,42 @@ function sendReminder(installmentId, phone) {
                 toastr.error(response.message);
             }
         }
+    });
+}
+
+function syncStatuses() {
+    if (!confirm('This will update all installment statuses (upcoming → pending/overdue) based on due dates. Continue?')) return;
+    $.ajax({
+        url: '<?= site_url('admin/installments/sync_statuses') ?>',
+        method: 'POST',
+        data: { <?= $this->security->get_csrf_token_name() ?>: '<?= $this->security->get_csrf_hash() ?>' },
+        success: function(response) {
+            if (response.success) {
+                toastr.success(response.message);
+                setTimeout(function() { location.reload(); }, 1500);
+            } else {
+                toastr.error(response.message || 'Sync failed');
+            }
+        },
+        error: function() { toastr.error('Sync request failed'); }
+    });
+}
+
+function rescheduleToFixedDay() {
+    if (!confirm('This will update ALL unpaid installment due dates to the Fixed Due Day configured in Settings.\n\nInstallments that are already on the correct day will be skipped.\n\nContinue?')) return;
+    $.ajax({
+        url: '<?= site_url('admin/installments/reschedule_to_fixed_day') ?>',
+        method: 'POST',
+        data: { <?= $this->security->get_csrf_token_name() ?>: '<?= $this->security->get_csrf_hash() ?>' },
+        success: function(response) {
+            if (response.success) {
+                toastr.success(response.message);
+                setTimeout(function() { location.reload(); }, 2000);
+            } else {
+                toastr.error(response.message || 'Reschedule failed');
+            }
+        },
+        error: function() { toastr.error('Reschedule request failed'); }
     });
 }
 </script>

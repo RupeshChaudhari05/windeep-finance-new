@@ -99,16 +99,16 @@ $(document).ready(function() {
     
     // Show flash messages as toastr notifications
     <?php if ($this->session->flashdata('success')): ?>
-        toastr.success('<?= addslashes($this->session->flashdata('success')) ?>');
+        toastr.success(<?= json_encode($this->session->flashdata('success'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>);
     <?php endif; ?>
     <?php if ($this->session->flashdata('error')): ?>
-        toastr.error('<?= addslashes($this->session->flashdata('error')) ?>');
+        toastr.error(<?= json_encode($this->session->flashdata('error'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>);
     <?php endif; ?>
     <?php if ($this->session->flashdata('warning')): ?>
-        toastr.warning('<?= addslashes($this->session->flashdata('warning')) ?>');
+        toastr.warning(<?= json_encode($this->session->flashdata('warning'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>);
     <?php endif; ?>
     <?php if ($this->session->flashdata('info')): ?>
-        toastr.info('<?= addslashes($this->session->flashdata('info')) ?>');
+        toastr.info(<?= json_encode($this->session->flashdata('info'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>);
     <?php endif; ?>
 
     // Auto-hide alerts after 5 seconds

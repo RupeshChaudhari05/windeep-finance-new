@@ -102,7 +102,7 @@
                                 <div class="col-md-6">
                                     <div class="form-group">
                                         <label>Organization Name <span class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" name="org_name" value="<?= $settings['org_name'] ?? '' ?>" required>
+                                        <input type="text" class="form-control" name="org_name" value="<?= htmlspecialchars($settings['org_name'] ?? '', ENT_QUOTES, 'UTF-8') ?>" required>
                                     </div>
                                 </div>
                                 <div class="col-md-6">

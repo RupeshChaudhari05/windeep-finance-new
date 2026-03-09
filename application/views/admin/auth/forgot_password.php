@@ -34,14 +34,14 @@
             <?php if ($this->session->flashdata('error')): ?>
                 <div class="alert alert-danger alert-dismissible">
                     <button type="button" class="close" data-dismiss="alert">&times;</button>
-                    <?= $this->session->flashdata('error') ?>
+                    <?= html_escape($this->session->flashdata('error')) ?>
                 </div>
             <?php endif; ?>
             
             <?php if ($this->session->flashdata('success')): ?>
                 <div class="alert alert-success alert-dismissible">
                     <button type="button" class="close" data-dismiss="alert">&times;</button>
-                    <?= $this->session->flashdata('success') ?>
+                    <?= html_escape($this->session->flashdata('success')) ?>
                 </div>
             <?php endif; ?>
             

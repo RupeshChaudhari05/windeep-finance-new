@@ -663,6 +663,10 @@ class Loans extends Admin_Controller {
             $application->approved_tenure_months,
             $data['product']->interest_type
         );
+
+        // Pass fixed_due_day so the view JS can auto-snap first_emi_date
+        $this->load->model('Setting_model');
+        $data['fixed_due_day'] = (int) $this->Setting_model->get_setting('fixed_due_day', 0);
         
         $this->load_view('admin/loans/disburse', $data);
     }

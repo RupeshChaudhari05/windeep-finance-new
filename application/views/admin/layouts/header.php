@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title><?= isset($page_title) ? $page_title . ' | ' : '' ?>Windeep Finance</title>
+    <title><?= isset($page_title) ? html_escape($page_title) . ' | ' : '' ?>Windeep Finance</title>
 
     <!-- Google Font: Source Sans Pro -->
     <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:300,400,400i,700&display=fallback">
@@ -287,7 +287,7 @@
             <li class="nav-item dropdown">
                 <a class="nav-link" data-toggle="dropdown" href="#">
                     <i class="far fa-user-circle mr-1"></i>
-                    <span class="d-none d-md-inline"><?= isset($admin) ? $admin->full_name : 'Admin' ?></span>
+                    <span class="d-none d-md-inline"><?= html_escape(isset($admin) ? $admin->full_name : 'Admin') ?></span>
                 </a>
                 <div class="dropdown-menu dropdown-menu-right">
                     <a href="<?= base_url('admin/profile') ?>" class="dropdown-item">

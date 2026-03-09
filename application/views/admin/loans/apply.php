@@ -20,10 +20,10 @@
                         <select class="form-control select2" id="member_id" name="member_id" required data-placeholder="Search by name or code...">
                             <option value="">Select Member</option>
                             <?php foreach ($members as $m): ?>
-                                <option value="<?= $m->id ?>" <?= ($selected_member ?? '') == $m->id ? 'selected' : '' ?>
-                                        data-kyc="<?= $m->kyc_verified ?>" data-savings="<?= $m->savings_balance ?? 0 ?>"
-                                        data-loans="<?= $m->active_loans ?? 0 ?>">
-                                    <?= $m->member_code ?> - <?= $m->first_name ?> <?= $m->last_name ?> (<?= $m->phone ?>)
+                                <option value="<?= html_escape($m->id) ?>" <?= ($selected_member ?? '') == $m->id ? 'selected' : '' ?>
+                                        data-kyc="<?= html_escape($m->kyc_verified) ?>" data-savings="<?= html_escape($m->savings_balance ?? 0) ?>"
+                                        data-loans="<?= html_escape($m->active_loans ?? 0) ?>">
+                                    <?= html_escape($m->member_code) ?> - <?= html_escape($m->first_name) ?> <?= html_escape($m->last_name) ?> (<?= html_escape($m->phone) ?>)
                                 </option>
                             <?php endforeach; ?>
                         </select>

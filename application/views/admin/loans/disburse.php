@@ -201,13 +201,54 @@
 
 <script>
 $(document).ready(function() {
-    // Auto-calculate first EMI date when disbursement date changes
+    var fixedDueDay = <?= (int)($fixed_due_day ?? 0) ?>; // globally configured due day (0 = disabled)
+
+    /**
+     * Compute the next occurrence of fixedDueDay on or after disbDate + 1 month.
+     * If fixedDueDay is 0, simply return disbDate + 1 month (original behaviour).
+     */
+    function calcFirstEmiDate(disbDateStr) {
+        var d = new Date(disbDateStr);
+        if (isNaN(d.getTime())) return '';
+
+        // Move forward one month from disbursement date
+        d.setMonth(d.getMonth() + 1);
+
+        if (fixedDueDay >= 1 && fixedDueDay <= 28) {
+            // Snap to the configured due day in that month (or the last day of the month)
+            var year  = d.getFullYear();
+            var month = d.getMonth(); // 0-indexed
+            var lastDay = new Date(year, month + 1, 0).getDate();
+            var day = Math.min(fixedDueDay, lastDay);
+            var candidate = new Date(year, month, day);
+
+            // If candidate is on or before the disbursement date, push to next month
+            var disbOrig = new Date(disbDateStr);
+            if (candidate <= disbOrig) {
+                month += 1;
+                if (month > 11) { month = 0; year += 1; }
+                lastDay = new Date(year, month + 1, 0).getDate();
+                day = Math.min(fixedDueDay, lastDay);
+                candidate = new Date(year, month, day);
+            }
+            return candidate.toISOString().split('T')[0];
+        }
+
+        return d.toISOString().split('T')[0];
+    }
+
+    // Auto-calculate first EMI date on disbursement date change
     $('#disbursement_date').change(function() {
-        var disbDate = new Date($(this).val());
-        disbDate.setMonth(disbDate.getMonth() + 1);
-        $('#first_emi_date').val(disbDate.toISOString().split('T')[0]);
+        var result = calcFirstEmiDate($(this).val());
+        if (result) $('#first_emi_date').val(result);
     });
-    
+
+    // Set initial value on page load
+    (function() {
+        var result = calcFirstEmiDate($('#disbursement_date').val());
+        if (result) $('#first_emi_date').val(result);
+    })();
+
     // Confirmation before disbursement
     $('#disburseForm').submit(function(e) {
         if (!confirm('Are you sure you want to disburse this loan? This action cannot be undone.')) {
