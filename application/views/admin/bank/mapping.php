@@ -184,6 +184,8 @@
                                             data-reference="<?= htmlspecialchars($txn->bank_reference ?? '') ?>"
                                             data-debit="<?= $txn->debit_amount ?>"
                                             data-credit="<?= $txn->credit_amount ?>"
+                                            data-already-mapped="<?= floatval($txn->mapped_amount ?? 0) ?>"
+                                            data-unmapped="<?= floatval($txn->unmapped_amount ?? max($txn->credit_amount, $txn->debit_amount)) ?>"
                                             data-category="<?= htmlspecialchars($txn->transaction_category ?? $txn->transaction_type ?? '') ?>">
                                             <td class="text-center"><small><?= $txn->id ?></small></td>
                                             <td><small><?= format_date($txn->transaction_date) ?></small></td>

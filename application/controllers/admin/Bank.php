@@ -760,11 +760,15 @@ class Bank extends Admin_Controller {
                             if (!empty($insert['related_id'])) {
                                 $this->load->model('Savings_model');
                                 $payment_data = [
-                                    'savings_account_id' => $insert['related_id'],
-                                    'amount' => $amount,
-                                    'transaction_type' => 'deposit',
-                                    'reference_number' => $transaction_id,
-                                    'created_by' => $admin_id
+                                    'savings_account_id'  => $insert['related_id'],
+                                    'amount'              => $amount,
+                                    'transaction_type'    => 'deposit',
+                                    'payment_mode'        => 'bank_transfer',
+                                    // Use the bank statement/passbook date, NOT today (mapping date)
+                                    'transaction_date'    => $txn->transaction_date ?? date('Y-m-d'),
+                                    'bank_transaction_id' => $transaction_id,
+                                    'narration'           => $m_remarks ?: ('Bank deposit – ' . ($txn->description ?? $transaction_id)),
+                                    'created_by'          => $admin_id
                                 ];
                                 $this->Savings_model->record_payment($payment_data);
                             }
@@ -900,17 +904,21 @@ class Bank extends Admin_Controller {
                 break;
                 
             case 'savings':
-                // Create savings deposit record
-                if (isset($data['related_id']) && $data['related_type'] == 'savings') {
+                // Create savings deposit record — use passbook date, NOT mapping date
+                if (isset($data['related_id'])) {
                     $this->load->model('Savings_model');
-                    $amount = $txn->credit_amount ?: abs($txn->debit_amount);
-                    $this->Savings_model->record_deposit(
-                        $data['related_id'],
-                        $amount,
-                        'bank_transfer',
-                        $transaction_id,
-                        $admin_id
-                    );
+                    $amount = isset($txn->amount) ? $txn->amount : 0;
+                    $this->Savings_model->record_payment([
+                        'savings_account_id'  => $data['related_id'],
+                        'amount'              => $amount,
+                        'transaction_type'    => 'deposit',
+                        'payment_mode'        => 'bank_transfer',
+                        // Use the bank statement/passbook date, NOT today (mapping date)
+                        'transaction_date'    => $txn->transaction_date ?? date('Y-m-d'),
+                        'bank_transaction_id' => $transaction_id,
+                        'narration'           => $data['narration'] ?? ('Bank deposit – ' . ($txn->description ?? $transaction_id)),
+                        'created_by'          => $admin_id
+                    ]);
                 }
                 break;
                 

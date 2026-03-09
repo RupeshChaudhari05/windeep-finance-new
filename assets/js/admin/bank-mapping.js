@@ -67,7 +67,7 @@
 
       console.log('Transaction data:', currentTransaction);
 
-      // Determine amount
+      // Determine full amount
       let amount = 0;
       if (parseFloat(currentTransaction.credit) > 0) {
         amount = parseFloat(currentTransaction.credit);
@@ -75,12 +75,31 @@
         amount = parseFloat(currentTransaction.debit);
       }
 
+      // For partially-mapped transactions use the remaining unmapped amount;
+      // the server validates against this figure so the UI must match.
+      const alreadyMapped = parseFloat($row.data('already-mapped') || 0);
+      const unmappedAmount = parseFloat($row.data('unmapped') || amount);
+      const effectiveAmount = (alreadyMapped > 0) ? unmappedAmount : amount;
+
       // Reset modal
       allocations = [];
-      transactionAmount = amount;
+      transactionAmount = effectiveAmount;
       $('#match_transaction_id').val(currentTransaction.id);
-      $('#match_transaction_amount').val(amount);
-      $('#match_amount').text('₹' + amount.toLocaleString('en-IN', { minimumFractionDigits: 2 }));
+      $('#match_transaction_amount').val(effectiveAmount);
+
+      // Show total amount; if partial, also show already-mapped note
+      if (alreadyMapped > 0) {
+        $('#match_amount').html(
+          '₹' + amount.toLocaleString('en-IN', { minimumFractionDigits: 2 }) +
+          ' <small class="text-warning ml-1">(₹' +
+          alreadyMapped.toLocaleString('en-IN', { minimumFractionDigits: 2 }) +
+          ' already mapped &mdash; ₹' +
+          effectiveAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 }) +
+          ' remaining)</small>'
+        );
+      } else {
+        $('#match_amount').text('₹' + amount.toLocaleString('en-IN', { minimumFractionDigits: 2 }));
+      }
       $('#match_date').text(currentTransaction.date);
       $('#match_description').text(currentTransaction.description);
       $('#paid_for_container').html('<div class="text-center text-muted py-3" id="no_members_msg"><i class="fas fa-info-circle"></i> Click "Add Member" to allocate this transaction</div>');
