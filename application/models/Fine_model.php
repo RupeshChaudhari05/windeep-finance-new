@@ -214,7 +214,7 @@ class Fine_model extends MY_Model {
     /**
      * Record Fine Payment
      */
-    public function record_payment($fine_id, $amount, $payment_mode, $reference = null, $received_by = null) {
+    public function record_payment($fine_id, $amount, $payment_mode, $reference = null, $received_by = null, $payment_date = null) {
         $this->db->trans_begin();
         
         // FINE-2 FIX: Lock the fine row to prevent concurrent payment corruption
@@ -250,7 +250,7 @@ class Fine_model extends MY_Model {
                      'status' => $status,
                      'payment_mode' => $payment_mode,
                      'payment_reference' => $reference,
-                     'payment_date' => date('Y-m-d'),
+                     'payment_date' => $payment_date ?: date('Y-m-d'),
                      'received_by' => $received_by,
                      'updated_at' => date('Y-m-d H:i:s')
                  ]);

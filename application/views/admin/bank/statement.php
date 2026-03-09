@@ -240,8 +240,17 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <?php $row_num = 0; foreach ($transactions as $txn): $row_num++; ?>
-                    <tr data-mapping-status="<?= $txn->mapping_status ?>" data-txn-type="<?= $txn->transaction_type ?>" data-txn-id="<?= $txn->id ?>">
+                    <?php $row_num = 0; foreach ($transactions as $txn): $row_num++; 
+                        $already_mapped = floatval($txn->mapped_amount ?? 0);
+                        $unmapped_amt = floatval($txn->unmapped_amount ?? ($txn->amount - $already_mapped));
+                    ?>
+                    <tr data-mapping-status="<?= $txn->mapping_status ?>" 
+                        data-txn-type="<?= $txn->transaction_type ?>" 
+                        data-txn-id="<?= $txn->id ?>"
+                        data-already-mapped="<?= $already_mapped ?>"
+                        data-unmapped="<?= $unmapped_amt ?>"
+                        data-credit="<?= $txn->transaction_type == 'credit' ? $txn->amount : 0 ?>"
+                        data-debit="<?= $txn->transaction_type == 'debit' ? $txn->amount : 0 ?>">
                         <td class="text-muted"><?= $row_num ?></td>
                         <td><?= format_date($txn->transaction_date) ?></td>
                         <td>
@@ -384,6 +393,26 @@
                 </div>
 
                 <!-- Paying Member Section -->
+                
+                <!-- Existing Mappings Section (for partial transactions) -->
+                <div class="card mb-3" id="existing_mappings_section" style="display: none;">
+                    <div class="card-header bg-info text-white py-2 d-flex justify-content-between align-items-center" 
+                         data-toggle="collapse" data-target="#existing_mappings_collapse" style="cursor: pointer;">
+                        <strong><i class="fas fa-history mr-1"></i> Previously Mapped Allocations</strong>
+                        <i class="fas fa-chevron-down"></i>
+                    </div>
+                    <div class="collapse show" id="existing_mappings_collapse">
+                        <div class="card-body p-0">
+                            <table class="table table-sm table-bordered mb-0">
+                                <thead class="thead-light">
+                                    <tr><th>Member</th><th>Type</th><th>Account</th><th class="text-right">Amount</th><th>Mapped On</th></tr>
+                                </thead>
+                                <tbody id="existing_mappings_body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="card mb-3">
                     <div class="card-header bg-light py-2">
                         <strong><i class="fas fa-user mr-1"></i> Paying Member</strong>
@@ -760,13 +789,29 @@ $(document).ready(function() {
         var $row = $(this).closest('tr');
         var date = $row.find('td:eq(1)').text();
         var desc = $row.find('td:eq(2)').text();
+        var mappingStatus = $row.data('mapping-status') || 'unmapped';
+
+        // For partial transactions, compute remaining unmapped amount
+        var alreadyMapped = parseFloat($row.data('already-mapped') || 0);
+        var unmappedAmt = parseFloat($row.data('unmapped') || amount);
+        var effectiveAmount = (alreadyMapped > 0) ? unmappedAmt : amount;
 
         // Reset modal
         allocations = [];
-        transactionAmount = amount;
+        transactionAmount = effectiveAmount;
         $('#match_transaction_id').val(id);
-        $('#match_transaction_amount').val(amount);
-        $('#match_amount').text(CS + amount.toLocaleString('en-IN', {minimumFractionDigits: 2}));
+        $('#match_transaction_amount').val(effectiveAmount);
+
+        // Show amount with partial info if applicable
+        if (alreadyMapped > 0) {
+            $('#match_amount').html(
+                '<span class="text-dark">' + CS + amount.toLocaleString('en-IN', {minimumFractionDigits: 2}) + '</span>' +
+                '<br><small class="text-success"><i class="fas fa-check-circle"></i> ' + CS + alreadyMapped.toLocaleString('en-IN', {minimumFractionDigits: 2}) + ' mapped</small>' +
+                '<br><small class="text-primary font-weight-bold"><i class="fas fa-arrow-right"></i> ' + CS + effectiveAmount.toLocaleString('en-IN', {minimumFractionDigits: 2}) + ' remaining</small>'
+            );
+        } else {
+            $('#match_amount').text(CS + amount.toLocaleString('en-IN', {minimumFractionDigits: 2}));
+        }
         $('#match_date').text(date);
         $('#match_description').text(desc);
         $('#paid_for_container').html('<div class="text-center text-muted py-3" id="no_members_msg"><i class="fas fa-info-circle"></i> Click "Add Member" to allocate this transaction</div>');
@@ -775,6 +820,13 @@ $(document).ready(function() {
         $('#manual_match_type').val('');
         $('#manual_amount').val('');
         $('#paying_member').val(null).trigger('change');
+
+        // Load existing mappings for partial
+        if (alreadyMapped > 0 && config.get_mapping_details_url) {
+            loadExistingMappings(id);
+        } else if ($('#existing_mappings_section').length) {
+            $('#existing_mappings_section').hide();
+        }
         
         updateAllocationStatus();
         initMemberSelect2('#paying_member');
@@ -863,11 +915,21 @@ $(document).ready(function() {
             if (loan.installments && loan.installments.length > 0) {
                 html += '<div class="mt-1">';
                 loan.installments.forEach(function(inst) {
+                    var pending = parseFloat(inst.pending_amount) || 0;
+                    var emiAmt = parseFloat(inst.emi_amount) || 0;
+                    var totalPaid = parseFloat(inst.total_paid) || 0;
+                    var isPartial = (totalPaid > 0 && pending > 0);
                     html += '<div class="d-flex justify-content-between align-items-center py-1 installment-row" data-inst-id="' + inst.id + '">';
-                    html += '<small>EMI #' + inst.installment_number + ' - Due: ' + inst.due_date + '</small>';
+                    html += '<small>EMI #' + inst.installment_number + ' - Due: ' + inst.due_date;
+                    if (isPartial) {
+                        html += ' <span class="badge badge-warning badge-sm ml-1">Partial ₹' + totalPaid.toLocaleString('en-IN') + ' paid</span>';
+                    }
+                    html += '</small>';
+                    html += '<div class="d-flex align-items-center">';
+                    html += '<small class="text-muted mr-1">₹' + pending.toLocaleString('en-IN') + ' due</small>';
                     html += '<div class="input-group input-group-sm" style="width: 120px;">';
-                    html += '<input type="number" class="form-control allocation-input" data-type="emi" data-member="' + memberId + '" data-related="loan_' + inst.id + '" data-label="EMI #' + inst.installment_number + ' (' + loan.loan_number + ')" placeholder="' + CS + '" step="0.01" min="0" max="' + inst.pending_amount + '">';
-                    html += '</div></div>';
+                    html += '<input type="number" class="form-control allocation-input" data-type="emi" data-member="' + memberId + '" data-related="loan_' + inst.id + '" data-label="EMI #' + inst.installment_number + ' (' + loan.loan_number + ')" placeholder="' + CS + '" step="0.01" min="0" max="' + pending + '">';
+                    html += '</div></div></div>';
                 });
                 html += '</div>';
             }
@@ -883,10 +945,17 @@ $(document).ready(function() {
         }
         var html = '';
         savings.forEach(function(acc) {
+            var typeName = acc.scheme_name || acc.account_type_name || '';
             html += '<div class="border rounded p-2 mb-1">';
-            html += '<div class="d-flex justify-content-between"><strong>' + acc.account_number + '</strong><span class="badge badge-success">' + CS + parseFloat(acc.current_balance).toLocaleString('en-IN') + '</span></div>';
+            html += '<div class="d-flex justify-content-between align-items-center">';
+            html += '<div><strong>' + acc.account_number + '</strong>';
+            if (typeName) html += ' <small class="text-muted">(' + typeName + ')</small>';
+            html += '</div>';
+            html += '<span class="badge badge-success">Bal: ' + CS + parseFloat(acc.current_balance).toLocaleString('en-IN') + '</span>';
+            html += '</div>';
             html += '<div class="input-group input-group-sm mt-1">';
             html += '<input type="number" class="form-control allocation-input" data-type="savings" data-member="' + memberId + '" data-related="savings_' + acc.id + '" data-label="Savings ' + acc.account_number + '" placeholder="Deposit amount" step="0.01" min="0">';
+            html += '<div class="input-group-append"><button type="button" class="btn btn-outline-success btn-fill-remaining" title="Fill remaining amount"><i class="fas fa-fill-drip"></i></button></div>';
             html += '</div></div>';
         });
         $container.html(html);
@@ -929,10 +998,64 @@ $(document).ready(function() {
         $container.html(html);
     }
 
-    // Handle allocation input changes
+    // Load and display existing mappings for partial transactions
+    function loadExistingMappings(txnId) {
+        var $section = $('#existing_mappings_section');
+        if (!$section.length) return;
+        $section.show();
+        var $body = $('#existing_mappings_body');
+        $body.html('<tr><td colspan="5" class="text-center"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr>');
+        
+        $.get(config.get_mapping_details_url, { transaction_id: txnId }, function(resp) {
+            if (resp.success && resp.data && resp.data.mappings && resp.data.mappings.length > 0) {
+                var html = '';
+                var mapTotal = 0;
+                resp.data.mappings.forEach(function(m) {
+                    if (parseInt(m.is_reversed)) return;
+                    var amt = parseFloat(m.amount) || 0;
+                    mapTotal += amt;
+                    html += '<tr>';
+                    html += '<td><small>' + (m.member_code ? m.member_code + ' - ' : '') + (m.member_name || m.full_name || '-') + '</small></td>';
+                    html += '<td><span class="badge badge-' + getTypeBadgeClass(m.mapping_type) + ' badge-sm">' + (m.mapping_type || '').replace(/_/g, ' ').toUpperCase() + '</span></td>';
+                    html += '<td><small>' + (m.account_info || m.narration || '-') + '</small></td>';
+                    html += '<td class="text-right"><strong>' + CS + amt.toLocaleString('en-IN', {minimumFractionDigits: 2}) + '</strong></td>';
+                    html += '<td><small>' + (m.mapped_at || m.created_at || '-') + '</small></td>';
+                    html += '</tr>';
+                });
+                if (html) {
+                    html += '<tr class="bg-light"><td colspan="3" class="text-right"><strong>Previously Mapped:</strong></td>';
+                    html += '<td class="text-right text-success"><strong>' + CS + mapTotal.toLocaleString('en-IN', {minimumFractionDigits: 2}) + '</strong></td><td></td></tr>';
+                    $body.html(html);
+                } else {
+                    $section.hide();
+                }
+            } else {
+                $section.hide();
+            }
+        }, 'json').fail(function() { $section.hide(); });
+    }
+
+    // Fill remaining button for savings
+    $(document).on('click', '.btn-fill-remaining', function() {
+        var $input = $(this).closest('.input-group').find('.allocation-input');
+        var remaining = parseFloat((transactionAmount - getTotalAllocated()).toFixed(2));
+        var currentVal = parseFloat($input.val()) || 0;
+        var fillAmount = parseFloat((remaining + currentVal).toFixed(2));
+        if (fillAmount > 0) {
+            $input.val(fillAmount).trigger('input');
+        }
+    });
+
+    // Handle allocation input changes - with float safety
     $(document).on('input', '.allocation-input', function() {
         var $input = $(this);
-        var amount = parseFloat($input.val()) || 0;
+        var rawVal = parseFloat($input.val()) || 0;
+        var amount = parseFloat(rawVal.toFixed(2));
+        var maxVal = parseFloat($input.attr('max'));
+        if (!isNaN(maxVal) && amount > maxVal) {
+            amount = maxVal;
+            $input.val(amount);
+        }
         var type = $input.data('type');
         var memberId = $input.data('member');
         var related = $input.data('related');
@@ -1036,36 +1159,41 @@ $(document).ready(function() {
     }
 
     function updateAllocationStatus() {
-        var total = getTotalAllocated();
-        var remaining = transactionAmount - total;
+        var total = parseFloat(getTotalAllocated().toFixed(2));
+        var remaining = parseFloat((transactionAmount - total).toFixed(2));
         var percent = transactionAmount > 0 ? (total / transactionAmount) * 100 : 0;
 
         $('#total_allocated').text(CS + total.toLocaleString('en-IN', {minimumFractionDigits: 2}));
-        $('#remaining_amount').text(CS + remaining.toLocaleString('en-IN', {minimumFractionDigits: 2}));
+        var $remaining = $('#remaining_amount');
+        $remaining.text(CS + Math.abs(remaining).toLocaleString('en-IN', {minimumFractionDigits: 2}));
+        if (remaining > 0.01) {
+            $remaining.removeClass('text-success text-danger').addClass('text-danger');
+        } else {
+            $remaining.removeClass('text-success text-danger').addClass('text-success');
+        }
         $('#footer_total').text(CS + total.toLocaleString('en-IN', {minimumFractionDigits: 2}));
         $('#allocation_progress').css('width', Math.min(percent, 100) + '%');
 
-        var $status = $('#allocation_status');
         var $error = $('#validation_error');
         var $btn = $('#confirmMatch');
         var $helper = $('#allocation_helper');
 
-        if (total > transactionAmount) {
+        if (total > (transactionAmount + 0.01)) {
             $error.show();
-            $('#validation_msg').text('Total allocated exceeds transaction amount');
-            $helper.html('<i class="fas fa-exclamation-triangle"></i> Over-allocated! Please reduce amounts.');
+            $('#validation_msg').text('Total allocated exceeds transaction amount by ' + CS + Math.abs(remaining).toLocaleString('en-IN', {minimumFractionDigits: 2}));
+            $helper.html('<i class="fas fa-exclamation-triangle text-danger"></i> Over-allocated! Please reduce amounts.');
             $btn.prop('disabled', true);
         } else if (allocations.length === 0) {
             $error.hide();
             $helper.html('<i class="fas fa-info-circle"></i> Add allocations to map this transaction');
             $btn.prop('disabled', true);
-        } else if (remaining > 0) {
+        } else if (remaining > 0.01) {
             $error.hide();
-            $helper.html('<i class="fas fa-check-circle"></i> Partial mapping: ' + CS + remaining.toLocaleString('en-IN', {minimumFractionDigits: 2}) + ' will remain unmapped');
+            $helper.html('<i class="fas fa-check-circle text-warning"></i> Partial mapping: ' + CS + remaining.toLocaleString('en-IN', {minimumFractionDigits: 2}) + ' will remain unmapped');
             $btn.prop('disabled', false);
         } else {
             $error.hide();
-            $helper.html('<i class="fas fa-check-circle"></i> Fully allocated! Ready to save.');
+            $helper.html('<i class="fas fa-check-circle text-success"></i> Fully allocated! Ready to save.');
             $btn.prop('disabled', false);
         }
     }
@@ -1081,8 +1209,8 @@ $(document).ready(function() {
             return;
         }
 
-        var total = getTotalAllocated();
-        if (total > transactionAmount) {
+        var total = parseFloat(getTotalAllocated().toFixed(2));
+        if (total > (transactionAmount + 0.01)) {
             toastr.error('Total allocated exceeds transaction amount');
             return;
         }
@@ -1098,7 +1226,7 @@ $(document).ready(function() {
                 paid_for_member_id: a.member_id,
                 transaction_type: a.type,
                 related_account: a.related,
-                amount: a.amount,
+                amount: parseFloat(a.amount.toFixed(2)),
                 remarks: notes
             };
         });

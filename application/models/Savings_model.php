@@ -208,9 +208,13 @@ class Savings_model extends MY_Model {
             
             if ($data['transaction_type'] === 'deposit') {
                 // SAV-6 FIX: Cap deposits at 10x monthly amount as sanity check
-                $max_deposit = $account->monthly_amount * 10;
-                if ($max_deposit > 0 && $data['amount'] > $max_deposit) {
-                    throw new Exception('Deposit amount (' . number_format($data['amount'], 2) . ') exceeds 10x the monthly amount (' . number_format($max_deposit, 2) . '). Please verify.');
+                // Skip this cap for bank_transfer (admin-mapped bank statement entries are already verified)
+                $payment_mode = $data['payment_mode'] ?? 'cash';
+                if ($payment_mode !== 'bank_transfer') {
+                    $max_deposit = $account->monthly_amount * 10;
+                    if ($max_deposit > 0 && $data['amount'] > $max_deposit) {
+                        throw new Exception('Deposit amount (' . number_format($data['amount'], 2) . ') exceeds 10x the monthly amount (' . number_format($max_deposit, 2) . '). Please verify.');
+                    }
                 }
                 $new_balance += $data['amount'];
             } elseif ($data['transaction_type'] === 'withdrawal') {

@@ -751,6 +751,8 @@ class Bank extends Admin_Controller {
                                     'payment_mode' => 'bank_transfer',
                                     'bank_transaction_id' => $transaction_id,
                                     'payment_type' => 'regular',
+                                    // Use the bank statement/passbook date, NOT today
+                                    'payment_date' => $txn->transaction_date ?? date('Y-m-d'),
                                     'created_by' => $admin_id
                                 ];
                                 $this->Loan_model->record_payment($payment_data);
@@ -777,12 +779,13 @@ class Bank extends Admin_Controller {
                             // Apply to earliest pending fine for the member as of now
                             $this->load->model('Fine_model');
                             $fine = $this->db->where('member_id', $paid_for)
-                                             ->where('status', 'pending')
+                                             ->where_in('status', ['pending', 'partial'])
                                              ->order_by('fine_date', 'ASC')
                                              ->get('fines')
                                              ->row();
                             if ($fine) {
-                                $this->Fine_model->record_payment($fine->id, $amount, 'bank_transfer', $transaction_id, $admin_id);
+                                // Pass passbook date so the fine payment is recorded on the actual date
+                                $this->Fine_model->record_payment($fine->id, $amount, 'bank_transfer', $transaction_id, $admin_id, $txn->transaction_date ?? date('Y-m-d'));
                             }
                             break;
                         default:
@@ -893,13 +896,16 @@ class Bank extends Admin_Controller {
                     $this->load->model('Loan_model');
                     // Process EMI payment with tracking
                     $amount = $txn->credit_amount ?: abs($txn->debit_amount);
-                    $this->Loan_model->record_payment(
-                        $data['related_id'],
-                        $amount,
-                        'bank_transfer',
-                        $transaction_id,
-                        $admin_id
-                    );
+                    $this->Loan_model->record_payment([
+                        'loan_id' => $data['related_id'],
+                        'total_amount' => $amount,
+                        'payment_mode' => 'bank_transfer',
+                        'bank_transaction_id' => $transaction_id,
+                        'payment_type' => 'regular',
+                        // Use the bank statement/passbook date
+                        'payment_date' => $txn->transaction_date ?? date('Y-m-d'),
+                        'created_by' => $admin_id
+                    ]);
                 }
                 break;
                 
@@ -927,13 +933,14 @@ class Bank extends Admin_Controller {
                 $this->load->model('Fine_model');
                 // Find pending fine for member
                 $fine = $this->db->where('member_id', $data['paid_for_member_id'])
-                                 ->where('status', 'pending')
+                                 ->where_in('status', ['pending', 'partial'])
                                  ->order_by('fine_date', 'ASC')
                                  ->get('fines')
                                  ->row();
                 if ($fine) {
                     $amount = $txn->credit_amount ?: abs($txn->debit_amount);
-                    $this->Fine_model->record_payment($fine->id, $amount, 'bank_transfer', $transaction_id, $admin_id);
+                    // Use passbook date for the fine payment
+                    $this->Fine_model->record_payment($fine->id, $amount, 'bank_transfer', $transaction_id, $admin_id, $txn->transaction_date ?? date('Y-m-d'));
                 }
                 break;
         }
@@ -1210,6 +1217,7 @@ class Bank extends Admin_Controller {
         foreach ($member_loans as $loan) {
             // Get pending installments for this loan
             $installments = $this->db->select('id, installment_number, due_date, emi_amount, principal_amount, interest_amount, 
+                                               COALESCE(total_paid, 0) as total_paid,
                                                (emi_amount - COALESCE(total_paid, 0)) as pending_amount, status')
                                      ->where('loan_id', $loan->id)
                                      ->where('status !=', 'paid')
@@ -1225,7 +1233,8 @@ class Bank extends Admin_Controller {
                     'installment_number' => $inst->installment_number,
                     'due_date' => format_date($inst->due_date),
                     'emi_amount' => $inst->emi_amount,
-                    'pending_amount' => $inst->pending_amount
+                    'total_paid' => $inst->total_paid,
+                    'pending_amount' => max(0, $inst->pending_amount)
                 ];
             }
             

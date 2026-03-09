@@ -45,13 +45,9 @@
     // Delegate click handler for map buttons
     $(document).on('click', '.map-btn, .edit-map-btn', function (e) {
       e.preventDefault();
-      console.log('Map button clicked!');
 
       const txnId = $(this).data('txn-id');
-      console.log('Transaction ID:', txnId);
-
       const $row = $(this).closest('tr');
-      console.log('Row found:', $row.length);
 
       // Get data from row attributes
       currentTransaction = {
@@ -62,10 +58,9 @@
         description: $row.data('description'),
         reference: $row.data('reference'),
         debit: $row.data('debit'),
-        credit: $row.data('credit')
+        credit: $row.data('credit'),
+        status: $row.data('status')
       };
-
-      console.log('Transaction data:', currentTransaction);
 
       // Determine full amount
       let amount = 0;
@@ -75,27 +70,25 @@
         amount = parseFloat(currentTransaction.debit);
       }
 
-      // For partially-mapped transactions use the remaining unmapped amount;
-      // the server validates against this figure so the UI must match.
+      // For partially-mapped transactions use the remaining unmapped amount
       const alreadyMapped = parseFloat($row.data('already-mapped') || 0);
       const unmappedAmount = parseFloat($row.data('unmapped') || amount);
       const effectiveAmount = (alreadyMapped > 0) ? unmappedAmount : amount;
 
-      // Reset modal
+      // Reset modal state
       allocations = [];
       transactionAmount = effectiveAmount;
       $('#match_transaction_id').val(currentTransaction.id);
       $('#match_transaction_amount').val(effectiveAmount);
 
-      // Show total amount; if partial, also show already-mapped note
+      // Header: show total vs remaining for partial
       if (alreadyMapped > 0) {
         $('#match_amount').html(
-          '₹' + amount.toLocaleString('en-IN', { minimumFractionDigits: 2 }) +
-          ' <small class="text-warning ml-1">(₹' +
-          alreadyMapped.toLocaleString('en-IN', { minimumFractionDigits: 2 }) +
-          ' already mapped &mdash; ₹' +
-          effectiveAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 }) +
-          ' remaining)</small>'
+          '<span class="text-dark">₹' + amount.toLocaleString('en-IN', { minimumFractionDigits: 2 }) + '</span>' +
+          '<br><small class="text-success"><i class="fas fa-check-circle"></i> ₹' +
+          alreadyMapped.toLocaleString('en-IN', { minimumFractionDigits: 2 }) + ' mapped</small>' +
+          '<br><small class="text-primary font-weight-bold"><i class="fas fa-arrow-right"></i> ₹' +
+          effectiveAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 }) + ' remaining</small>'
         );
       } else {
         $('#match_amount').text('₹' + amount.toLocaleString('en-IN', { minimumFractionDigits: 2 }));
@@ -109,11 +102,54 @@
       $('#manual_amount').val('');
       $('#paying_member').val(null).trigger('change');
 
+      // Load existing mappings for partial transactions
+      if (alreadyMapped > 0 && config.get_mapping_details_url) {
+        loadExistingMappings(txnId);
+      } else {
+        $('#existing_mappings_section').hide();
+      }
+
       updateAllocationStatus();
       initMemberSelect2('#paying_member');
-      console.log('Opening modal...');
       $('#matchModal').modal('show');
     });
+
+    // Fetch and display existing mappings for partial transactions
+    function loadExistingMappings(txnId) {
+      var $section = $('#existing_mappings_section');
+      var $tbody = $('#existing_mappings_body');
+      $tbody.html('<tr><td colspan="5" class="text-center py-2"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr>');
+      $section.show();
+
+      $.get(config.get_mapping_details_url, { transaction_id: txnId }, function (resp) {
+        if (resp.success && resp.data && resp.data.mappings && resp.data.mappings.length > 0) {
+          var html = '';
+          var total = 0;
+          resp.data.mappings.forEach(function (m) {
+            if (parseInt(m.is_reversed)) return;
+            var amt = parseFloat(m.amount) || 0;
+            total += amt;
+            html += '<tr>';
+            html += '<td><small>' + (m.member_code ? m.member_code + ' - ' : '') + (m.member_name || '-') + '</small></td>';
+            html += '<td><span class="badge badge-' + getTypeBadgeClass(m.mapping_type) + ' badge-sm">' + (m.mapping_type || '').replace(/_/g, ' ').toUpperCase() + '</span></td>';
+            html += '<td><small>' + (m.account_info || m.narration || '-') + '</small></td>';
+            html += '<td class="text-right"><strong>₹' + amt.toLocaleString('en-IN', { minimumFractionDigits: 2 }) + '</strong></td>';
+            html += '<td><small class="text-muted">' + (m.mapped_at || '-') + '</small></td>';
+            html += '</tr>';
+          });
+          if (html === '') {
+            $section.hide();
+          } else {
+            $tbody.html(html);
+            $('#existing_mapped_total').text('(₹' + total.toLocaleString('en-IN', { minimumFractionDigits: 2 }) + ' total)');
+          }
+        } else {
+          $section.hide();
+        }
+      }, 'json').fail(function () {
+        $section.hide();
+      });
+    }
 
     // Add Paid For Member
     $('#add_paid_for_member').click(function () {
@@ -198,15 +234,21 @@
       var html = '';
       loans.forEach(function (loan) {
         html += '<div class="border rounded p-2 mb-1 loan-item" data-loan-id="' + loan.id + '">';
-        html += '<div class="d-flex justify-content-between"><strong>' + loan.loan_number + '</strong><span class="badge badge-info">₹' + parseFloat(loan.pending_amount).toLocaleString('en-IN') + '</span></div>';
+        html += '<div class="d-flex justify-content-between"><strong>' + loan.loan_number + '</strong><span class="badge badge-info">Pending: ₹' + parseFloat(loan.pending_amount).toLocaleString('en-IN') + '</span></div>';
         if (loan.installments && loan.installments.length > 0) {
           html += '<div class="mt-1">';
           loan.installments.forEach(function (inst) {
+            var pending = parseFloat(inst.pending_amount) || 0;
+            var emiAmt = parseFloat(inst.emi_amount) || 0;
+            var isPartial = (emiAmt > 0 && pending < emiAmt && pending > 0);
+            var partialBadge = isPartial ? ' <span class="badge badge-warning badge-sm">Partial ₹' + pending.toLocaleString('en-IN') + ' due</span>' : '';
             html += '<div class="d-flex justify-content-between align-items-center py-1 installment-row" data-inst-id="' + inst.id + '">';
-            html += '<small>EMI #' + inst.installment_number + ' - Due: ' + inst.due_date + '</small>';
-            html += '<div class="input-group input-group-sm" style="width: 120px;">';
-            html += '<input type="number" class="form-control allocation-input" data-type="emi" data-member="' + memberId + '" data-related="loan_' + inst.id + '" data-label="EMI #' + inst.installment_number + ' (' + loan.loan_number + ')" placeholder="₹" step="0.01" min="0" max="' + inst.pending_amount + '">';
-            html += '</div></div>';
+            html += '<small>EMI #' + inst.installment_number + ' - Due: ' + inst.due_date + partialBadge + '</small>';
+            html += '<div class="d-flex align-items-center">';
+            html += '<small class="text-muted mr-1">₹' + pending.toLocaleString('en-IN') + '</small>';
+            html += '<div class="input-group input-group-sm" style="width: 110px;">';
+            html += '<input type="number" class="form-control allocation-input" data-type="emi" data-member="' + memberId + '" data-related="loan_' + inst.id + '" data-label="EMI #' + inst.installment_number + ' (' + loan.loan_number + ')" placeholder="₹" step="0.01" min="0" max="' + pending + '">';
+            html += '</div></div></div>';
           });
           html += '</div>';
         }
@@ -222,13 +264,27 @@
       }
       var html = '';
       savings.forEach(function (acc) {
+        var accType = (acc.account_type || 'savings').replace(/_/g, ' ');
         html += '<div class="border rounded p-2 mb-1">';
-        html += '<div class="d-flex justify-content-between"><strong>' + acc.account_number + '</strong><span class="badge badge-success">₹' + parseFloat(acc.current_balance).toLocaleString('en-IN') + '</span></div>';
+        html += '<div class="d-flex justify-content-between align-items-center">';
+        html += '<div><strong>' + acc.account_number + '</strong><br><small class="text-muted">' + accType.charAt(0).toUpperCase() + accType.slice(1) + '</small></div>';
+        html += '<span class="badge badge-success">Bal: ₹' + parseFloat(acc.current_balance).toLocaleString('en-IN') + '</span>';
+        html += '</div>';
         html += '<div class="input-group input-group-sm mt-1">';
-        html += '<input type="number" class="form-control allocation-input" data-type="savings" data-member="' + memberId + '" data-related="savings_' + acc.id + '" data-label="Savings ' + acc.account_number + '" placeholder="Deposit amount" step="0.01" min="0">';
+        html += '<input type="number" class="form-control allocation-input" data-type="savings" data-member="' + memberId + '" data-related="savings_' + acc.id + '" data-label="Savings ' + acc.account_number + '" placeholder="Deposit amount (any)" step="0.01" min="0">';
+        html += '<div class="input-group-append"><button type="button" class="btn btn-outline-success btn-fill-remaining" title="Fill remaining amount"><i class="fas fa-fill"></i></button></div>';
         html += '</div></div>';
       });
       $container.html(html);
+
+      // "Fill remaining" button puts remaining unmapped amount into the input
+      $container.find('.btn-fill-remaining').click(function () {
+        var $input = $(this).closest('.input-group').find('.allocation-input');
+        var rem = transactionAmount - getTotalAllocated() + (parseFloat($input.val()) || 0);
+        if (rem > 0) {
+          $input.val(rem.toFixed(2)).trigger('input');
+        }
+      });
     }
 
     function renderFines($container, fines, memberId) {
@@ -250,11 +306,18 @@
     // Handle allocation input changes
     $(document).on('input', '.allocation-input', function () {
       var $input = $(this);
-      var amount = parseFloat($input.val()) || 0;
+      var amount = parseFloat(parseFloat($input.val()).toFixed(2)) || 0; // round to 2dp
       var type = $input.data('type');
       var memberId = $input.data('member');
       var related = $input.data('related');
       var label = $input.data('label');
+      var max = parseFloat($input.attr('max'));
+
+      // Enforce max if set (e.g., installment pending amount)
+      if (!isNaN(max) && max > 0 && amount > max) {
+        amount = max;
+        $input.val(max);
+      }
 
       // Remove existing allocation for this input
       allocations = allocations.filter(a => !(a.member_id == memberId && a.related == related));
@@ -367,21 +430,29 @@
       $('#footer_total').text('₹' + total.toLocaleString('en-IN', { minimumFractionDigits: 2 }));
       $('#allocation_progress').css('width', Math.min(percent, 100) + '%');
 
-      var $status = $('#allocation_status');
+      // Color the remaining amount
+      if (remaining <= 0) {
+        $('#remaining_amount').removeClass('text-danger text-warning').addClass('text-success');
+        $('#allocation_progress').removeClass('bg-warning bg-danger').addClass('bg-success');
+      } else if (total > 0) {
+        $('#remaining_amount').removeClass('text-success text-warning').addClass('text-danger');
+        $('#allocation_progress').removeClass('bg-danger bg-success').addClass('bg-warning');
+      } else {
+        $('#remaining_amount').removeClass('text-success text-warning').addClass('text-danger');
+        $('#allocation_progress').removeClass('bg-warning bg-success').addClass('bg-success');
+      }
+
       var $error = $('#validation_error');
       var $btn = $('#confirmMatch');
 
-      if (total > transactionAmount) {
-        $status.removeClass('alert-info alert-success').addClass('alert-danger');
+      if (total > (transactionAmount + 0.01)) {
         $error.show();
-        $('#validation_msg').text('Total allocated (₹' + total.toLocaleString('en-IN') + ') exceeds transaction amount (₹' + transactionAmount.toLocaleString('en-IN') + ')');
+        $('#validation_msg').text('Total allocated (₹' + total.toLocaleString('en-IN') + ') exceeds available amount (₹' + transactionAmount.toLocaleString('en-IN') + ')');
         $btn.prop('disabled', true);
       } else if (allocations.length === 0) {
-        $status.removeClass('alert-danger alert-success').addClass('alert-info');
         $error.hide();
         $btn.prop('disabled', true);
       } else {
-        $status.removeClass('alert-danger alert-info').addClass('alert-success');
         $error.hide();
         $btn.prop('disabled', false);
       }
@@ -399,8 +470,8 @@
       }
 
       var total = getTotalAllocated();
-      if (total > transactionAmount) {
-        toastr.error('Total allocated exceeds transaction amount');
+      if (total > (transactionAmount + 0.01)) {
+        toastr.error('Total allocated exceeds available amount');
         return;
       }
 
@@ -411,7 +482,7 @@
           paid_for_member_id: a.member_id,
           transaction_type: a.type,
           related_account: a.related,
-          amount: a.amount,
+          amount: parseFloat(a.amount.toFixed(2)), // avoid float drift
           remarks: notes
         };
       });

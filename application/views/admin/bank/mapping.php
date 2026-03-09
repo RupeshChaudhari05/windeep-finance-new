@@ -249,10 +249,15 @@
                                                 <span class="badge badge-<?= $badge_class ?> badge-sm"><?= ucfirst($txn->mapping_status) ?></span>
                                             </td>
                                             <td>
-                                                <?php if ($txn->mapping_status == 'unmapped'): ?>
-                                    <button class="btn btn-sm btn-primary btn-xs map-btn" data-txn-id="<?= $txn->id ?>" title="Map Transaction">
+                                                <?php if ($txn->mapping_status == 'unmapped' || $txn->mapping_status == 'partial'): ?>
+                                                    <button class="btn btn-sm btn-primary btn-xs map-btn" data-txn-id="<?= $txn->id ?>" title="<?= $txn->mapping_status == 'partial' ? 'Continue Mapping' : 'Map Transaction' ?>">
                                                         <i class="fas fa-link"></i>
                                                     </button>
+                                                    <?php if ($txn->mapping_status == 'partial'): ?>
+                                                    <button class="btn btn-sm btn-info btn-xs view-mapping-btn" data-txn-id="<?= $txn->id ?>" title="View Existing Mappings">
+                                                        <i class="fas fa-eye"></i>
+                                                    </button>
+                                                    <?php endif; ?>
                                                     <?php if ($txn->debit_amount > 0): ?>
                                                     <button class="btn btn-xs btn-disbursement" data-txn-id="<?= $txn->id ?>" data-amount="<?= $txn->debit_amount ?>" title="Map Disbursement" style="background-color: #6f42c1; color: white;">
                                                         <i class="fas fa-hand-holding-usd"></i>
@@ -303,32 +308,67 @@
                 <input type="hidden" id="match_transaction_id">
                 <input type="hidden" id="match_transaction_amount">
 
-                <!-- Transaction Info -->
-                <div class="row mb-3">
-                    <div class="col-md-6">
-                        <div class="alert alert-info mb-0">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <div>
-                                    <strong>Transaction Amount:</strong>
-                                    <span id="match_amount" class="h4 ml-2 mb-0"><?= get_currency_symbol() ?>0.00</span>
-                                </div>
-                                <div>
-                                    <strong>Date:</strong> <span id="match_date"></span>
+                <!-- Transaction Info Header -->
+                <div class="card border-0 shadow-sm mb-3">
+                    <div class="card-body py-2 px-3" style="background: linear-gradient(135deg, #f8f9fa, #e9ecef); border-radius: 6px;">
+                        <div class="row align-items-center">
+                            <div class="col-md-4">
+                                <div class="d-flex align-items-center">
+                                    <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center mr-2" style="width:36px;height:36px;font-size:14px;"><i class="fas fa-receipt"></i></div>
+                                    <div>
+                                        <small class="text-muted d-block">Bank Transaction</small>
+                                        <strong id="match_amount" class="h5 mb-0"><?= get_currency_symbol() ?>0.00</strong>
+                                    </div>
                                 </div>
                             </div>
-                            <small class="d-block mt-1" id="match_description"></small>
+                            <div class="col-md-2 text-center">
+                                <small class="text-muted d-block">Passbook Date</small>
+                                <strong id="match_date" class="text-dark"></strong>
+                            </div>
+                            <div class="col-md-3">
+                                <small class="text-muted d-block">Description</small>
+                                <small id="match_description" class="text-truncate d-block" style="max-width:220px;"></small>
+                            </div>
+                            <div class="col-md-3 text-right">
+                                <div class="d-flex justify-content-end align-items-center">
+                                    <div class="mr-3 text-center">
+                                        <small class="text-muted d-block">Allocated</small>
+                                        <strong id="total_allocated" class="text-success"><?= get_currency_symbol() ?>0.00</strong>
+                                    </div>
+                                    <div class="text-center">
+                                        <small class="text-muted d-block">Remaining</small>
+                                        <strong id="remaining_amount" class="text-danger"><?= get_currency_symbol() ?>0.00</strong>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="progress mt-2" style="height: 5px; border-radius: 3px;">
+                            <div class="progress-bar bg-success" id="allocation_progress" style="width: 0%; transition: width 0.3s;"></div>
                         </div>
                     </div>
-                    <div class="col-md-6">
-                        <div class="alert mb-0" id="allocation_status">
-                            <div class="d-flex justify-content-between">
-                                <span><strong>Allocated:</strong> <span id="total_allocated"><?= get_currency_symbol() ?>0.00</span></span>
-                                <span><strong>Remaining:</strong> <span id="remaining_amount"><?= get_currency_symbol() ?>0.00</span></span>
-                            </div>
-                            <div class="progress mt-2" style="height: 8px;">
-                                <div class="progress-bar bg-success" id="allocation_progress" style="width: 0%"></div>
-                            </div>
-                        </div>
+                </div>
+                <div id="allocation_status" class="d-none"></div>
+
+                <!-- Existing Mappings Section (shown for partial transactions) -->
+                <div id="existing_mappings_section" class="card border-info mb-3" style="display:none;">
+                    <div class="card-header bg-info text-white py-2">
+                        <i class="fas fa-history mr-1"></i> <strong>Previously Mapped</strong>
+                        <small class="ml-2" id="existing_mapped_total"></small>
+                    </div>
+                    <div class="card-body p-0">
+                        <table class="table table-sm table-bordered mb-0">
+                            <thead class="thead-light">
+                                <tr>
+                                    <th>Member</th>
+                                    <th>Type</th>
+                                    <th>Account</th>
+                                    <th class="text-right">Amount</th>
+                                    <th>Mapped On</th>
+                                </tr>
+                            </thead>
+                            <tbody id="existing_mappings_body">
+                            </tbody>
+                        </table>
                     </div>
                 </div>
 
