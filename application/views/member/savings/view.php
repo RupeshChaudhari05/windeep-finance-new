@@ -154,7 +154,7 @@
                                     <td class="text-right font-weight-bold <?= $t->transaction_type == 'deposit' || $t->transaction_type == 'interest' ? 'text-success' : 'text-danger' ?>">
                                         <?= ($t->transaction_type == 'deposit' || $t->transaction_type == 'interest') ? '+' : '-' ?><?= format_amount($t->amount) ?>
                                     </td>
-                                    <td class="text-right"><?= format_amount($t->balance_after ?? 0) ?></td>
+                                    <td class="text-right"><?= format_amount($t->balance_after_computed ?? $t->balance_after ?? 0) ?></td>
                                     <td>
                                         <?php
                                         $mode = $t->payment_mode ?? 'cash';

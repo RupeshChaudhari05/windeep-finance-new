@@ -22,13 +22,16 @@ class Savings extends Member_Controller {
                                     ->get()
                                     ->result();
         
-        // Get recent transactions for all accounts
+        // Get recent transactions for all accounts (exclude reversed — they are ghost entries)
         foreach ($data['accounts'] as $account) {
-            $account->recent_transactions = $this->db->where('savings_account_id', $account->id)
-                                                    ->order_by('transaction_date', 'DESC')
-                                                    ->limit(5)
-                                                    ->get('savings_transactions')
-                                                    ->result();
+            $account->recent_transactions = $this->db
+                ->where('savings_account_id', $account->id)
+                ->where('is_reversed', 0)
+                ->order_by('transaction_date', 'DESC')
+                ->order_by('id', 'DESC')
+                ->limit(5)
+                ->get('savings_transactions')
+                ->result();
         }
         
         $this->load_member_view('member/savings/index', $data);
@@ -61,26 +64,57 @@ class Savings extends Member_Controller {
         $data['date_from'] = $date_from;
         $data['date_to'] = $date_to;
         
-        // All transactions date-wise
-        $this->db->where('savings_account_id', $account_id);
-        $this->db->where('transaction_date >=', $date_from);
-        $this->db->where('transaction_date <=', $date_to);
-        $this->db->order_by('transaction_date', 'DESC');
-        $this->db->order_by('created_at', 'DESC');
-        $data['transactions'] = $this->db->get('savings_transactions')->result();
-        
-        // Summary stats
-        $data['total_deposits'] = $this->db->select_sum('amount')
-                                          ->where('savings_account_id', $account_id)
-                                          ->where('transaction_type', 'deposit')
-                                          ->get('savings_transactions')
-                                          ->row()->amount ?? 0;
-        
-        $data['total_withdrawals'] = $this->db->select_sum('amount')
-                                             ->where('savings_account_id', $account_id)
-                                             ->where('transaction_type', 'withdrawal')
-                                             ->get('savings_transactions')
-                                             ->row()->amount ?? 0;
+        // ── Industry-standard passbook: recompute running balance dynamically ──
+        // Reason: savings_transactions.balance_after becomes STALE when a
+        // mid-history transaction is reversed (bank model correctly updates
+        // savings_accounts.current_balance, but old rows keep their snapshot).
+        // Fix: load ALL non-reversed transactions newest-first, walk backwards
+        // from the always-accurate current_balance to rebuild correct balance_after.
+
+        $all_txns = $this->db
+            ->where('savings_account_id', $account_id)
+            ->where('is_reversed', 0)
+            ->order_by('transaction_date', 'DESC')
+            ->order_by('id', 'DESC')
+            ->get('savings_transactions')
+            ->result();
+
+        // Start from the true current balance and walk backwards through history
+        $running_balance = (float) ($account->current_balance ?? 0);
+        foreach ($all_txns as $txn) {
+            // The running_balance at this point IS the balance AFTER this transaction
+            $txn->balance_after_computed = $running_balance;
+            // Undo the effect of this transaction to get the balance BEFORE it
+            if (in_array($txn->transaction_type, ['deposit', 'interest'])) {
+                $running_balance -= (float) $txn->amount;
+            } else {
+                // withdrawal, loan_adjustment, etc. reduce balance
+                $running_balance += (float) $txn->amount;
+            }
+        }
+
+        // Filter to requested date range and pass to view
+        $from_ts = strtotime($date_from);
+        $to_ts   = strtotime($date_to . ' 23:59:59');
+        $data['transactions'] = array_values(array_filter($all_txns, function ($txn) use ($from_ts, $to_ts) {
+            $ts = strtotime($txn->transaction_date);
+            return $ts >= $from_ts && $ts <= $to_ts;
+        }));
+
+        // ── Summary stats: always exclude reversed transactions ──
+        $data['total_deposits'] = (float) ($this->db->select_sum('amount')
+            ->where('savings_account_id', $account_id)
+            ->where('transaction_type', 'deposit')
+            ->where('is_reversed', 0)
+            ->get('savings_transactions')
+            ->row()->amount ?? 0);
+
+        $data['total_withdrawals'] = (float) ($this->db->select_sum('amount')
+            ->where('savings_account_id', $account_id)
+            ->where('transaction_type', 'withdrawal')
+            ->where('is_reversed', 0)
+            ->get('savings_transactions')
+            ->row()->amount ?? 0);
         
         // Payment schedule
         $data['schedule'] = $this->db->where('savings_account_id', $account_id)
