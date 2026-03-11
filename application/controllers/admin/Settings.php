@@ -1541,7 +1541,7 @@ class Settings extends Admin_Controller {
             foreach ($parts as $part) {
                 $part = trim($part);
                 // Only handle ADD [COLUMN] clauses
-                if (preg_match('/^ADD\s+(?:COLUMN\s+)?`?(\w+)`?\s+(.+)/i', $part, $cm)) {
+                if (preg_match('/^ADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?`?(\w+)`?\s+(.+)/i', $part, $cm)) {
                     $col = $cm[1];
                     $def = rtrim(trim($cm[2]), ',');
                     // Skip index/key additions
