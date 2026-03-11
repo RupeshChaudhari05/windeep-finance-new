@@ -12,8 +12,8 @@ class Savings extends Member_Controller {
      * My Savings Accounts
      */
     public function index() {
-        $data['title'] = 'My Savings';
-        $data['page_title'] = 'Savings & Contributions';
+        $data['title'] = 'My Security ';
+        $data['page_title'] = 'Security & Contributions';
         
         $data['accounts'] = $this->db->select('sa.*, ss.scheme_name, ss.interest_rate')
                                     ->from('savings_accounts sa')
@@ -50,12 +50,12 @@ class Savings extends Member_Controller {
                             ->row();
         
         if (!$account) {
-            $this->session->set_flashdata('error', 'Savings account not found.');
+            $this->session->set_flashdata('error', 'Security account not found.');
             redirect('member/savings');
         }
         
-        $data['title'] = 'Savings Details';
-        $data['page_title'] = 'Savings Account - ' . $account->account_number;
+        $data['title'] = 'Security Details';
+        $data['page_title'] = 'Security Account - ' . $account->account_number;
         $data['account'] = $account;
         
         // Date filters
