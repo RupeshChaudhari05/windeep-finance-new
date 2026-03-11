@@ -13,7 +13,6 @@
                     <div class="card card-outline card-success h-100">
                         <div class="card-body">
                             <h5 class="card-title"><?= $a->account_number ?></h5>
-                            <p class="text-muted mb-2"><i class="fas fa-tag mr-1"></i> <?= $a->scheme_name ?></p>
                             <div class="d-flex justify-content-between mb-2">
                                 <span>Current Balance:</span>
                                 <strong class="text-success"><?= format_amount($a->current_balance ?? 0) ?></strong>

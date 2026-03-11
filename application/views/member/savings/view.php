@@ -11,10 +11,6 @@
                         <th>Account No:</th>
                         <td><strong><?= $account->account_number ?></strong></td>
                     </tr>
-                    <tr>
-                        <th>Scheme:</th>
-                        <td><span class="badge badge-info"><?= $account->scheme_name ?></span></td>
-                    </tr>
                     <?php if (!empty($account->interest_rate)): ?>
                     <tr>
                         <th>Interest Rate:</th>
