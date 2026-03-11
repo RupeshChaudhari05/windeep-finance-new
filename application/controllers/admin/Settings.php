@@ -1341,118 +1341,265 @@ class Settings extends Admin_Controller {
     }
 
     /**
-     * Database Health Check
-     * Verifies all required tables exist. Creates missing ones using embedded SQL.
-     * Works on shared hosting — only needs normal MySQL CREATE TABLE privilege.
+     * Database Health Check (Tables + Columns)
+     *
+     * Reads install_complete.sql + all migration SQL files to build a required schema map.
+     * Compares against live database. Reports:
+     *   - Missing tables  (can auto-create from SQL files)
+     *   - Missing columns (can auto-add via ALTER TABLE)
+     *
+     * GET  ?check=1         → run check only, return JSON report
+     * POST fix=tables       → create missing tables
+     * POST fix=columns      → add missing columns
+     * POST fix=all          → do both
      */
     public function db_health_check()
     {
-        if (!$this->input->is_ajax_request() && $this->input->method() !== 'post') {
-            redirect('admin/settings#maintenance');
-        }
-
         $this->output->set_content_type('application/json');
 
-        // Full list of required tables
-        $required_tables = [
-            'active_sessions', 'activity_logs', 'admin_details', 'admin_sessions',
-            'admin_users', 'api_tokens', 'audit_logs', 'bank_accounts',
-            'bank_balance_history', 'bank_statement_imports', 'bank_transactions',
-            'bonus_transactions', 'chart_of_accounts', 'chat_box', 'ci_sessions',
-            'expenditure', 'expense_transactions', 'failed_login_attempts',
-            'financial_years', 'fine_rules', 'fines', 'general_ledger',
-            'loan_applications', 'loan_foreclosure_requests', 'loan_guarantors',
-            'loan_installments', 'loan_payments', 'loan_products',
-            'loan_transaction_details', 'loan_transactions', 'loans',
-            'member_code_sequence', 'member_details', 'member_ledger',
-            'member_other_transactions', 'members', 'non_member_funds', 'non_members',
-            'notifications', 'other_member_details', 'password_history',
-            'requests_status', 'rule_code_sequence', 'savings_accounts',
-            'savings_schedule', 'savings_schemes', 'savings_transactions',
-            'schema_migrations', 'security_logs', 'send_form', 'shares',
-            'system_settings', 'transaction_mappings', 'two_factor_auth',
-            'verification_tokens', 'view_requests',
-            // Migration tables
-            'internal_transactions', 'disbursement_tracking',
-            // Email & messaging tables
-            'email_queue',
-        ];
-
-        // Get existing tables from the database
-        $existing = [];
-        $tables = $this->db->list_tables();
-        foreach ($tables as $t) {
-            $existing[] = $t;
+        // Load full SQL from install_complete.sql + all migration files
+        $sql_content = '';
+        $base_sql = FCPATH . 'database/install_complete.sql';
+        if (file_exists($base_sql)) {
+            $sql_content = file_get_contents($base_sql);
         }
+        $mig_dir = APPPATH . 'migrations/';
+        if (is_dir($mig_dir)) {
+            $mig_files = glob($mig_dir . '*.sql');
+            sort($mig_files); // apply in order
+            foreach ($mig_files as $mf) {
+                $sql_content .= "\n" . file_get_contents($mf);
+            }
+        }
+
+        // ── 1. TABLE CHECK ──────────────────────────────────────────────────
+        $existing_tables = $this->db->list_tables();
+
+        // Derive required tables from the SQL file (every CREATE TABLE statement)
+        $required_tables = [];
+        if (preg_match_all('/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?`?(\w+)`?\s*\(/i', $sql_content, $tm)) {
+            $required_tables = array_unique($tm[1]);
+            sort($required_tables);
+        }
+
+        $present = [];
+        $missing_tables = [];
+        foreach ($required_tables as $t) {
+            if (in_array($t, $existing_tables)) {
+                $present[] = $t;
+            } else {
+                $missing_tables[] = $t;
+            }
+        }
+
+        $extra_tables = array_values(array_diff($existing_tables, $required_tables));
+
+        // ── 2. COLUMN CHECK (only on tables that exist) ──────────────────────
+        $required_schema = $this->_extract_required_schema($sql_content);
+
+        $column_issues = [];   // [table => [col => definition]]
+        foreach ($present as $table) {
+            if (empty($required_schema[$table])) continue;
+            $actual_cols = [];
+            try {
+                $res = $this->db->query("SHOW COLUMNS FROM `{$table}`");
+                foreach ($res->result() as $row) {
+                    $actual_cols[] = strtolower($row->Field);
+                }
+            } catch (Exception $e) {
+                continue;
+            }
+            $missing_cols = [];
+            foreach ($required_schema[$table] as $col => $def) {
+                if (!in_array(strtolower($col), $actual_cols)) {
+                    $missing_cols[$col] = $def;
+                }
+            }
+            if (!empty($missing_cols)) {
+                $column_issues[$table] = $missing_cols;
+            }
+        }
+
+        // ── 3. AUTO-FIX ──────────────────────────────────────────────────────
+        $fix = $this->input->get_post('fix') ?? '';
+        $tables_created  = [];
+        $tables_failed   = [];
+        $cols_fixed      = [];
+        $cols_failed     = [];
+
+        if (in_array($fix, ['tables', 'all'])) {
+            foreach ($missing_tables as $table) {
+                if ($this->_create_missing_table($table, $sql_content)) {
+                    $tables_created[] = $table;
+                    // Add to present so column check can run on it next time
+                } else {
+                    $tables_failed[] = $table;
+                }
+            }
+            $missing_tables = array_values(array_diff($missing_tables, $tables_created));
+        }
+
+        if (in_array($fix, ['columns', 'all'])) {
+            foreach ($column_issues as $table => $cols) {
+                foreach ($cols as $col => $def) {
+                    if ($this->_try_add_column($table, $col, $def)) {
+                        $cols_fixed[] = "{$table}.{$col}";
+                        unset($column_issues[$table][$col]);
+                    } else {
+                        $cols_failed[] = "{$table}.{$col}";
+                    }
+                }
+                if (empty($column_issues[$table])) {
+                    unset($column_issues[$table]);
+                }
+            }
+        }
+
+        $total_missing_cols = array_sum(array_map('count', $column_issues));
 
         $report = [
-            'total_required' => count($required_tables),
-            'total_existing' => 0,
-            'missing' => [],
-            'present' => [],
-            'created' => [],
-            'failed' => [],
-            'extra_tables' => []
+            'database_name'      => $this->db->database,
+            'checked_at'         => date('Y-m-d H:i:s'),
+            'sql_sources'        => ($base_sql && file_exists($base_sql) ? 1 : 0) + count($mig_files ?? []),
+            // Tables
+            'tables_required'    => count($required_tables),
+            'tables_present'     => $present,
+            'tables_missing'     => $missing_tables,
+            'tables_extra'       => $extra_tables,
+            'tables_created'     => $tables_created,
+            'tables_failed'      => $tables_failed,
+            // Columns
+            'column_issues'      => $column_issues,
+            'column_issues_count'=> $total_missing_cols,
+            'cols_fixed'         => $cols_fixed,
+            'cols_failed'        => $cols_failed,
+            // Overall
+            'healthy'            => empty($missing_tables) && $total_missing_cols === 0,
         ];
 
-        foreach ($required_tables as $table) {
-            if (in_array($table, $existing)) {
-                $report['present'][] = $table;
-                $report['total_existing']++;
-            } else {
-                $report['missing'][] = $table;
-            }
-        }
-
-        // Find extra tables (exist in DB but not in required list)
-        foreach ($existing as $table) {
-            if (!in_array($table, $required_tables)) {
-                $report['extra_tables'][] = $table;
-            }
-        }
-
-        // If auto_fix requested, try to create missing tables
-        $auto_fix = $this->input->get_post('fix') === '1';
-        if ($auto_fix && !empty($report['missing'])) {
-            $report['created'] = [];
-            $report['failed'] = [];
-
-            // Try to read SQL from install_complete.sql
-            $sql_file = FCPATH . 'database/install_complete.sql';
-            $sql_content = '';
-            if (file_exists($sql_file)) {
-                $sql_content = file_get_contents($sql_file);
-            }
-
-            // Also read migration files
-            $migration_dir = APPPATH . 'migrations/';
-            if (is_dir($migration_dir)) {
-                $mig_files = glob($migration_dir . '*.sql');
-                foreach ($mig_files as $mf) {
-                    $sql_content .= "\n" . file_get_contents($mf);
-                }
-            }
-
-            foreach ($report['missing'] as $table) {
-                $created = $this->_create_missing_table($table, $sql_content);
-                if ($created) {
-                    $report['created'][] = $table;
-                } else {
-                    $report['failed'][] = $table;
-                }
-            }
-
-            // Recalculate after fix
-            $report['total_existing'] = count($report['present']) + count($report['created']);
-            // Remove created tables from missing
-            $report['missing'] = array_values(array_diff($report['missing'], $report['created']));
-        }
-
-        $report['healthy'] = empty($report['missing']);
-        $report['database_name'] = $this->db->database;
-        $report['checked_at'] = date('Y-m-d H:i:s');
-
         echo json_encode(['success' => true, 'report' => $report]);
+    }
+
+    /**
+     * Parse install_complete.sql + migration files to build:
+     * [ table_name => [ column_name => 'full column definition' ] ]
+     *
+     * Handles:
+     *   CREATE TABLE `name` ( `col` TYPE ..., ... ) ...;
+     *   ALTER TABLE `name` ADD COLUMN `col` TYPE ...;
+     *   ALTER TABLE `name` ADD `col` TYPE ...;       (no COLUMN keyword)
+     */
+    private function _extract_required_schema($sql_content)
+    {
+        $schema = [];
+
+        // ── A. Parse CREATE TABLE blocks ─────────────────────────────────────
+        // Line-by-line state machine — handles multi-line ENUM and nested parens
+        $lines   = explode("\n", $sql_content);
+        $in_ct   = false;
+        $ct_name = '';
+        $depth   = 0;
+        $block   = [];
+
+        foreach ($lines as $line) {
+            $trimmed = rtrim($line);
+
+            if (!$in_ct) {
+                if (preg_match('/^\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?`?(\w+)`?\s*\(/i', $trimmed, $m)) {
+                    $in_ct   = true;
+                    $ct_name = $m[1];
+                    $depth   = substr_count($trimmed, '(') - substr_count($trimmed, ')');
+                    $block   = [$trimmed];
+                }
+            } else {
+                $block[] = $trimmed;
+                $depth  += substr_count($trimmed, '(') - substr_count($trimmed, ')');
+                if ($depth <= 0) {
+                    // Block complete — parse it
+                    $this->_parse_create_table_block($ct_name, $block, $schema);
+                    $in_ct = false; $ct_name = ''; $depth = 0; $block = [];
+                }
+            }
+        }
+
+        // ── B. Parse ALTER TABLE … ADD [COLUMN] statements ───────────────────
+        // We handle multi-column ALTER (comma-separated ADD COLUMN clauses)
+        // Normalise: collapse whitespace, remove comments
+        $sql_flat = preg_replace('/--[^\n]*/', '', $sql_content);  // strip line comments
+        $sql_flat = preg_replace('/\s+/', ' ', $sql_flat);         // collapse whitespace
+
+        // Match each full ALTER TABLE block ending with ;
+        preg_match_all('/ALTER\s+TABLE\s+`?(\w+)`?\s+((?:ADD|MODIFY|DROP|CHANGE|RENAME)[^;]+);/i', $sql_flat, $alter_blocks, PREG_SET_ORDER);
+
+        foreach ($alter_blocks as $ab) {
+            $table    = $ab[1];
+            $clauses  = $ab[2];
+
+            // Split on commas that precede ADD/MODIFY/DROP/CHANGE (top-level only)
+            // Simple split is enough for well-formed migration files
+            $parts = preg_split('/,\s*(?=(?:ADD|MODIFY|DROP|CHANGE|RENAME)\s)/i', $clauses);
+            foreach ($parts as $part) {
+                $part = trim($part);
+                // Only handle ADD [COLUMN] clauses
+                if (preg_match('/^ADD\s+(?:COLUMN\s+)?`?(\w+)`?\s+(.+)/i', $part, $cm)) {
+                    $col = $cm[1];
+                    $def = rtrim(trim($cm[2]), ',');
+                    // Skip index/key additions
+                    if (preg_match('/^\s*(PRIMARY|UNIQUE|INDEX|KEY|CONSTRAINT)/i', $col)) continue;
+                    if (!isset($schema[$table])) $schema[$table] = [];
+                    $schema[$table][$col] = "`{$col}` {$def}";
+                }
+            }
+        }
+
+        return $schema;
+    }
+
+    /**
+     * Parse a captured CREATE TABLE block (as array of lines) and fill $schema.
+     */
+    private function _parse_create_table_block($table, array $block, array &$schema)
+    {
+        if (!isset($schema[$table])) $schema[$table] = [];
+
+        // Join lines, then split on commas at the "top" depth (depth=1 inside outer parens)
+        // We do this line by line since each line is one clause in well-formatted SQL
+        foreach ($block as $line) {
+            $t = trim($line);
+            if ($t === '' || $t === '(' || $t === ')') continue;
+
+            // Skip non-column lines
+            if (preg_match('/^\s*(?:PRIMARY\s+KEY|UNIQUE\s+KEY|KEY|INDEX|CONSTRAINT|ENGINE|DEFAULT\s+CHARSET|COLLATE|AUTO_INCREMENT)\b/i', $t)) continue;
+            if (preg_match('/^\s*\)\s*/i', $t)) continue;
+
+            // Must start with a backtick-quoted column name
+            if (!preg_match('/^\s*`(\w+)`\s+(.+)/s', $t, $m)) continue;
+
+            $col = $m[1];
+            $def = rtrim(trim($m[2]), ','); // strip trailing comma
+            $schema[$table][$col] = "`{$col}` {$def}";
+        }
+    }
+
+    /**
+     * Run ALTER TABLE `table` ADD COLUMN `col` definition.
+     * Returns true on success.
+     */
+    private function _try_add_column($table, $col, $definition)
+    {
+        try {
+            // Strip trailing AFTER clause — safer to just append at end
+            $def = preg_replace('/\s+AFTER\s+`?\w+`?\s*$/i', '', trim($definition));
+            // Strip trailing comma
+            $def = rtrim($def, ', ');
+            $sql = "ALTER TABLE `{$table}` ADD COLUMN {$def}";
+            $this->db->query($sql);
+            log_message('info', "db_health: added column {$table}.{$col}");
+            return true;
+        } catch (Exception $e) {
+            log_message('error', "db_health: failed to add {$table}.{$col}: " . $e->getMessage());
+            return false;
+        }
     }
 
     /**
@@ -1462,25 +1609,21 @@ class Settings extends Admin_Controller {
     {
         if (empty($sql_content)) return false;
 
-        // Extract CREATE TABLE statement for this table
-        // Match: CREATE TABLE [IF NOT EXISTS] `table_name` ( ... ) ENGINE=...;
         $pattern = '/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?`?' . preg_quote($table, '/') . '`?\s*\(.*?\)\s*(?:ENGINE\s*=\s*\w+)?(?:\s*(?:DEFAULT\s+)?CHARSET\s*=\s*\w+)?(?:\s*COLLATE\s*=\s*[\w_]+)?(?:\s*AUTO_INCREMENT\s*=\s*\d+)?(?:\s*COMMENT\s*=\s*\'[^\']*\')?[^;]*;/is';
 
         if (preg_match($pattern, $sql_content, $matches)) {
             try {
                 $create_sql = $matches[0];
-                // Add IF NOT EXISTS for safety
                 if (stripos($create_sql, 'IF NOT EXISTS') === false) {
                     $create_sql = preg_replace('/CREATE\s+TABLE\s+/i', 'CREATE TABLE IF NOT EXISTS ', $create_sql);
                 }
                 $this->db->query($create_sql);
                 return true;
             } catch (Exception $e) {
-                log_message('error', "Failed to create table {$table}: " . $e->getMessage());
+                log_message('error', "db_health: failed to create table {$table}: " . $e->getMessage());
                 return false;
             }
         }
-
         return false;
     }
 

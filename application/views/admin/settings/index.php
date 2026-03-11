@@ -837,25 +837,51 @@
                     </div>
 
                     <!-- DB Health Check Section -->
-                    <div class="col-md-6">
+                    <div class="col-md-12">
                         <div class="card card-danger card-outline">
                             <div class="card-header">
                                 <h3 class="card-title"><i class="fas fa-heartbeat mr-1"></i> Database Health Check</h3>
+                                <div class="card-tools">
+                                    <span class="badge badge-secondary" id="dbSchemaSource" title="SQL files used to derive required schema"></span>
+                                </div>
                             </div>
                             <div class="card-body">
-                                <p class="text-muted mb-2">Verify all required database tables exist. Auto-fix creates missing tables.</p>
-                                <div class="btn-group mb-2">
+                                <p class="text-muted mb-3">
+                                    Scans <code>database/install_complete.sql</code> + all <code>migrations/*.sql</code> files to derive the required schema.
+                                    Reports missing tables <em>and</em> missing columns in existing tables. Auto-fix applies the changes directly.
+                                </p>
+
+                                <div class="btn-group mb-3" role="group">
                                     <button class="btn btn-outline-info" id="btnDbCheck">
                                         <i class="fas fa-stethoscope mr-1"></i> Check Only
                                     </button>
-                                    <button class="btn btn-outline-danger" id="btnDbFix" onclick="return confirm('This will create missing tables. Continue?')">
-                                        <i class="fas fa-wrench mr-1"></i> Check & Auto-Fix
+                                    <button class="btn btn-outline-warning" id="btnDbFixCols"
+                                            onclick="return confirm('This will add missing columns via ALTER TABLE. Existing data is untouched. Continue?')">
+                                        <i class="fas fa-columns mr-1"></i> Fix Missing Columns
+                                    </button>
+                                    <button class="btn btn-outline-success" id="btnDbFixTables"
+                                            onclick="return confirm('This will CREATE missing database tables. Continue?')">
+                                        <i class="fas fa-table mr-1"></i> Create Missing Tables
+                                    </button>
+                                    <button class="btn btn-outline-danger" id="btnDbFixAll"
+                                            onclick="return confirm('This will create missing tables AND add missing columns. Continue?')">
+                                        <i class="fas fa-wrench mr-1"></i> Fix Everything
                                     </button>
                                 </div>
+
                                 <div id="dbHealthResult" style="display:none;">
-                                    <hr>
-                                    <div id="dbHealthSummary"></div>
-                                    <div id="dbHealthDetails" class="mt-2" style="max-height:300px; overflow-y:auto;"></div>
+                                    <!-- Summary boxes -->
+                                    <div class="row" id="dbHealthSummaryBoxes"></div>
+                                    <!-- Fix results -->
+                                    <div id="dbHealthFixResults"></div>
+                                    <!-- Detailed tables -->
+                                    <div class="row mt-3">
+                                        <div class="col-md-6" id="dbTableSection"></div>
+                                        <div class="col-md-6" id="dbColumnSection"></div>
+                                    </div>
+                                    <!-- Extra tables info -->
+                                    <div id="dbExtraSection" class="mt-2"></div>
+                                    <small class="text-muted" id="dbHealthMeta"></small>
                                 </div>
                             </div>
                         </div>
@@ -1060,69 +1086,140 @@ $(document).ready(function() {
     });
 
     // ===== MAINTENANCE TAB: DB Health Check =====
-    $('#btnDbCheck').on('click', function() { runDbHealthCheck(false); });
-    $('#btnDbFix').on('click', function() { runDbHealthCheck(true); });
+    $('#btnDbCheck').on('click',    function() { runDbHealthCheck(''); });
+    $('#btnDbFixCols').on('click',  function() { runDbHealthCheck('columns'); });
+    $('#btnDbFixTables').on('click',function() { runDbHealthCheck('tables'); });
+    $('#btnDbFixAll').on('click',   function() { runDbHealthCheck('all'); });
 
-    function runDbHealthCheck(autoFix) {
-        var $result = $('#dbHealthResult');
-        var $summary = $('#dbHealthSummary');
-        var $details = $('#dbHealthDetails');
+    function runDbHealthCheck(fix) {
+        var $result  = $('#dbHealthResult');
+        var $boxes   = $('#dbHealthSummaryBoxes');
+        var $fixRes  = $('#dbHealthFixResults');
+        var $tblSec  = $('#dbTableSection');
+        var $colSec  = $('#dbColumnSection');
+        var $extra   = $('#dbExtraSection');
+        var $meta    = $('#dbHealthMeta');
+        var $source  = $('#dbSchemaSource');
 
         $result.show();
-        $summary.html('<div class="text-center"><i class="fas fa-spinner fa-spin"></i> Checking database...</div>');
-        $details.html('');
+        $boxes.html('<div class="col-12 text-center py-3"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Scanning database schema...</div>');
+        $fixRes.html(''); $tblSec.html(''); $colSec.html(''); $extra.html(''); $meta.html('');
 
         $.ajax({
-            url: '<?= site_url("admin/settings/db_health_check") ?>' + (autoFix ? '?fix=1' : ''),
+            url: '<?= site_url("admin/settings/db_health_check") ?>',
             type: 'POST',
-            data: { '<?= $this->security->get_csrf_token_name() ?>': '<?= $this->security->get_csrf_hash() ?>' },
+            data: {
+                '<?= $this->security->get_csrf_token_name() ?>': '<?= $this->security->get_csrf_hash() ?>',
+                fix: fix
+            },
             dataType: 'json',
             success: function(resp) {
                 if (!resp.success) {
-                    $summary.html('<div class="alert alert-danger">Health check failed.</div>');
+                    $boxes.html('<div class="col-12"><div class="alert alert-danger">Health check failed.</div></div>');
                     return;
                 }
                 var r = resp.report;
-                var statusClass = r.healthy ? 'success' : 'danger';
-                var statusIcon = r.healthy ? 'check-circle' : 'exclamation-triangle';
-                var statusText = r.healthy ? 'All tables present' : r.missing.length + ' table(s) missing';
 
-                var html = '<div class="alert alert-' + statusClass + '">';
-                html += '<i class="fas fa-' + statusIcon + ' mr-1"></i> <strong>' + statusText + '</strong>';
-                html += ' &mdash; ' + r.total_existing + ' / ' + r.total_required + ' tables found';
-                html += '<br><small>Database: ' + r.database_name + ' | Checked: ' + r.checked_at + '</small>';
-                html += '</div>';
+                // ── Source badge ──
+                $source.text(r.sql_sources + ' SQL source(s)').removeClass().addClass(
+                    r.sql_sources > 0 ? 'badge badge-success' : 'badge badge-danger'
+                );
 
-                if (r.created && r.created.length > 0) {
-                    html += '<div class="alert alert-success"><i class="fas fa-plus-circle mr-1"></i> Created: ' + r.created.join(', ') + '</div>';
+                // ── Summary boxes ──
+                var tablesMissing = r.tables_missing.length;
+                var colIssues    = r.column_issues_count;
+                var boxes = '';
+
+                boxes += '<div class="col-lg-3 col-6"><div class="small-box bg-' + (tablesMissing === 0 ? 'success' : 'danger') + '">';
+                boxes += '<div class="inner"><h3>' + r.tables_present.length + ' / ' + r.tables_required + '</h3><p>Tables Present</p></div>';
+                boxes += '<div class="icon"><i class="fas fa-table"></i></div></div></div>';
+
+                boxes += '<div class="col-lg-3 col-6"><div class="small-box bg-' + (tablesMissing === 0 ? 'secondary' : 'warning') + '">';
+                boxes += '<div class="inner"><h3>' + tablesMissing + '</h3><p>Tables Missing</p></div>';
+                boxes += '<div class="icon"><i class="fas fa-times-circle"></i></div></div></div>';
+
+                boxes += '<div class="col-lg-3 col-6"><div class="small-box bg-' + (colIssues === 0 ? 'success' : 'danger') + '">';
+                boxes += '<div class="inner"><h3>' + colIssues + '</h3><p>Columns Missing</p></div>';
+                boxes += '<div class="icon"><i class="fas fa-columns"></i></div></div></div>';
+
+                boxes += '<div class="col-lg-3 col-6"><div class="small-box bg-' + (r.healthy ? 'success' : 'danger') + '">';
+                boxes += '<div class="inner"><h3>' + (r.healthy ? '✔ OK' : '⚠ Issues') + '</h3><p>Overall Health</p></div>';
+                boxes += '<div class="icon"><i class="fas fa-' + (r.healthy ? 'check-circle' : 'exclamation-triangle') + '"></i></div></div></div>';
+                $boxes.html(boxes);
+
+                // ── Fix results ──
+                var fixHtml = '';
+                if (r.tables_created && r.tables_created.length) {
+                    fixHtml += '<div class="alert alert-success py-2"><i class="fas fa-plus-circle mr-1"></i><strong>Tables Created:</strong> ' + r.tables_created.join(', ') + '</div>';
                 }
-                if (r.failed && r.failed.length > 0) {
-                    html += '<div class="alert alert-warning"><i class="fas fa-exclamation-circle mr-1"></i> Failed to create: ' + r.failed.join(', ') + '</div>';
+                if (r.tables_failed && r.tables_failed.length) {
+                    fixHtml += '<div class="alert alert-danger py-2"><i class="fas fa-times mr-1"></i><strong>Table Creation Failed:</strong> ' + r.tables_failed.join(', ') + '</div>';
                 }
+                if (r.cols_fixed && r.cols_fixed.length) {
+                    fixHtml += '<div class="alert alert-success py-2"><i class="fas fa-wrench mr-1"></i><strong>Columns Added:</strong> ' + r.cols_fixed.join(', ') + '</div>';
+                }
+                if (r.cols_failed && r.cols_failed.length) {
+                    fixHtml += '<div class="alert alert-danger py-2"><i class="fas fa-times mr-1"></i><strong>Column Addition Failed:</strong> ' + r.cols_failed.join(', ') + '</div>';
+                }
+                $fixRes.html(fixHtml);
 
-                $summary.html(html);
+                // ── Tables section ──
+                var tblHtml = '<div class="card card-' + (tablesMissing > 0 ? 'danger' : 'success') + ' card-outline">';
+                tblHtml += '<div class="card-header py-2"><h6 class="card-title mb-0"><i class="fas fa-table mr-1"></i> Tables</h6></div>';
+                tblHtml += '<div class="card-body p-0"><div style="max-height:350px;overflow-y:auto;">';
+                tblHtml += '<table class="table table-sm table-hover mb-0"><tbody>';
 
-                // Details table
-                var tbl = '<table class="table table-sm table-bordered table-striped mb-0"><thead><tr><th>Table</th><th>Status</th></tr></thead><tbody>';
-                // Show missing first
-                $.each(r.missing, function(i, t) {
-                    tbl += '<tr class="table-danger"><td>' + t + '</td><td><i class="fas fa-times text-danger"></i> Missing</td></tr>';
+                // Missing first
+                $.each(r.tables_missing, function(i, t) {
+                    tblHtml += '<tr class="table-danger"><td><i class="fas fa-times text-danger mr-1"></i>' + t + '</td>';
+                    tblHtml += '<td><span class="badge badge-danger">MISSING</span></td></tr>';
                 });
-                // Then created
-                if (r.created) {
-                    $.each(r.created, function(i, t) {
-                        tbl += '<tr class="table-success"><td>' + t + '</td><td><i class="fas fa-plus-circle text-success"></i> Created</td></tr>';
+                // Created
+                $.each(r.tables_created || [], function(i, t) {
+                    tblHtml += '<tr class="table-success"><td><i class="fas fa-plus-circle text-success mr-1"></i>' + t + '</td>';
+                    tblHtml += '<td><span class="badge badge-success">CREATED</span></td></tr>';
+                });
+                // Present
+                $.each(r.tables_present, function(i, t) {
+                    var hasColIssue = r.column_issues && r.column_issues[t] && Object.keys(r.column_issues[t]).length > 0;
+                    var badge = hasColIssue ? '<span class="badge badge-warning">COLS ⚠</span>' : '<span class="badge badge-success">OK</span>';
+                    tblHtml += '<tr><td><i class="fas fa-check text-' + (hasColIssue ? 'warning' : 'success') + ' mr-1"></i>' + t + '</td><td>' + badge + '</td></tr>';
+                });
+                tblHtml += '</tbody></table></div></div></div>';
+                $tblSec.html(tblHtml);
+
+                // ── Columns section ──
+                if (colIssues === 0) {
+                    $colSec.html('<div class="alert alert-success"><i class="fas fa-check-circle mr-1"></i> All required columns are present in every table.</div>');
+                } else {
+                    var colHtml = '<div class="card card-warning card-outline">';
+                    colHtml += '<div class="card-header py-2"><h6 class="card-title mb-0"><i class="fas fa-columns mr-1"></i> Missing Columns (' + colIssues + ')</h6></div>';
+                    colHtml += '<div class="card-body p-0"><div style="max-height:350px;overflow-y:auto;">';
+                    colHtml += '<table class="table table-sm table-hover mb-0"><thead class="thead-light"><tr><th>Table</th><th>Column</th><th>Required Definition</th></tr></thead><tbody>';
+
+                    $.each(r.column_issues, function(tbl, cols) {
+                        $.each(cols, function(col, def) {
+                            colHtml += '<tr class="table-warning">';
+                            colHtml += '<td><code>' + tbl + '</code></td>';
+                            colHtml += '<td><code class="text-danger">' + col + '</code></td>';
+                            colHtml += '<td><small class="text-muted font-italic">' + $('<div>').text(def).html() + '</small></td>';
+                            colHtml += '</tr>';
+                        });
                     });
+
+                    colHtml += '</tbody></table></div></div></div>';
+                    $colSec.html(colHtml);
                 }
-                // Then present
-                $.each(r.present, function(i, t) {
-                    tbl += '<tr><td>' + t + '</td><td><i class="fas fa-check text-success"></i> OK</td></tr>';
-                });
-                tbl += '</tbody></table>';
-                $details.html(tbl);
+
+                // ── Extra tables ──
+                if (r.tables_extra && r.tables_extra.length) {
+                    $extra.html('<div class="callout callout-info py-1 mb-0"><small><i class="fas fa-info-circle mr-1"></i><strong>Extra tables</strong> (in DB but not in schema — safe to ignore): ' + r.tables_extra.join(', ') + '</small></div>');
+                }
+
+                $meta.html('Database: <strong>' + r.database_name + '</strong> &nbsp;|&nbsp; Checked: ' + r.checked_at);
             },
             error: function(xhr) {
-                $summary.html('<div class="alert alert-danger"><i class="fas fa-exclamation-triangle mr-1"></i> Request failed: ' + xhr.statusText + '</div>');
+                $boxes.html('<div class="col-12"><div class="alert alert-danger"><i class="fas fa-exclamation-triangle mr-1"></i>Request failed: ' + xhr.statusText + '</div></div>');
             }
         });
     }
