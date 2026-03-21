@@ -433,6 +433,14 @@
                         </a>
                     </li> -->
 
+                    <!-- Bulk Data Import -->
+                    <li class="nav-item">
+                        <a href="<?= base_url('admin/import') ?>" class="nav-link <?= ($this->uri->segment(2) == 'import') ? 'active' : '' ?>">
+                            <i class="nav-icon fas fa-file-import"></i>
+                            <p>Bulk Import</p>
+                        </a>
+                    </li>
+
                     <li class="nav-header">ADMINISTRATION</li>
 
                     <!-- Admin Adjustments (Super Admin Only) -->

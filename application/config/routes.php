@@ -158,6 +158,12 @@ $route['admin/bank/get_member_details'] = 'admin/bank/get_member_details';
 $route['admin/bank/calculate_fine_due'] = 'admin/bank/calculate_fine_due';
 $route['admin/bank/statement'] = 'admin/bank/statement';
 
+// Bulk Data Import routes
+$route['admin/import'] = 'admin/import/index';
+$route['admin/import/download_template/(:any)'] = 'admin/import/download_template/$1';
+$route['admin/import/preview'] = 'admin/import/preview';
+$route['admin/import/execute'] = 'admin/import/execute';
+
 // Reports routes
 $route['admin/reports'] = 'admin/reports/index';
 $route['admin/reports/collection'] = 'admin/reports/collection';

@@ -90,7 +90,8 @@ class Member_model extends MY_Model {
 
         if (empty($data['member_code'])) {
             // MEM-4 FIX: Use a temporary placeholder; will be replaced post-insert
-            $data['member_code'] = 'MEMB_TEMP_' . uniqid();
+            // Use short prefix to fit VARCHAR(20): 'TMP_' (4) + substr(uniqid(),0,16) = max 20
+            $data['member_code'] = 'TMP_' . substr(uniqid(), 0, 16);
         }
         
         if (!empty($data['password'])) {
@@ -149,14 +150,29 @@ class Member_model extends MY_Model {
             unset($data['_needs_default_password']);
             // Temporary password — will be updated after member_code is finalized
             $data['password'] = password_hash('temp', PASSWORD_DEFAULT);
-            $data['must_change_password'] = 1;
+            if ($this->db->field_exists('must_change_password', $this->table)) {
+                $data['must_change_password'] = 1;
+            }
+        }
+
+        // IMPORT-FIX: Strip any keys that don't exist as columns in the table
+        $table_fields = $this->db->list_fields($this->table);
+        foreach (array_keys($data) as $key) {
+            if (!in_array($key, $table_fields)) {
+                log_message('debug', 'Member_model: Removing non-existent column "' . $key . '" before insert');
+                unset($data[$key]);
+            }
         }
 
         $this->db->insert($this->table, $data);
         $insert_id = $this->db->insert_id();
 
+        // Capture DB error immediately (before rollback clears it)
+        $db_error = $this->db->error();
+        $this->_last_db_error = (!empty($db_error['message']) && $db_error['code'] != 0) ? $db_error['message'] : null;
+
         // MEM-4 FIX: Generate race-safe member code from the actual auto-increment ID
-        if ($insert_id && strpos($data['member_code'], 'MEMB_TEMP_') === 0) {
+        if ($insert_id && (strpos($data['member_code'], 'TMP_') === 0 || strpos($data['member_code'], 'MEMB_TEMP_') === 0)) {
             $member_code = $this->generate_member_code($insert_id);
             $update = ['member_code' => $member_code];
             if ($needs_default_password) {
