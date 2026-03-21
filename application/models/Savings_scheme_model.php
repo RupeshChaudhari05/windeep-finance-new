@@ -45,6 +45,12 @@ class Savings_scheme_model extends MY_Model {
         if ($this->db->field_exists('due_day', $this->table)) {
             $payload['due_day'] = isset($data['due_day']) ? (int) $data['due_day'] : 1;
         }
+        if ($this->db->field_exists('is_default', $this->table) && isset($data['is_default'])) {
+            $payload['is_default'] = $data['is_default'] ? 1 : 0;
+        }
+        if ($this->db->field_exists('is_active', $this->table) && isset($data['is_active'])) {
+            $payload['is_active'] = $data['is_active'] ? 1 : 0;
+        }
 
         // always update timestamp if column exists, else ignore
         if ($this->db->field_exists('updated_at', $this->table)) {

@@ -27,7 +27,7 @@
                     </li>
                     <li class="list-group-item">
                         <b><i class="fas fa-calendar mr-1"></i> Join Date</b>
-                        <span class="float-right"><?= format_date($member->created_at) ?></span>
+                        <span class="float-right"><?= format_date($member->join_date) ?></span>
                     </li>
                     <li class="list-group-item">
                         <b><i class="fas fa-user-check mr-1"></i> Status</b>

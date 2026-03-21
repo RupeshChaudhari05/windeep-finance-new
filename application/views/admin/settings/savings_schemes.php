@@ -19,8 +19,9 @@
                     <th>Frequency</th>
                     <th>Lock-in Period</th>
                     <th>Members</th>
+                    <th>Default</th>
                     <th>Status</th>
-                    <th width="100">Actions</th>
+                    <th width="120">Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -28,9 +29,12 @@
                 <tr>
                     <td><?= $i++ ?></td>
                     <td>
-                        <strong><?= $scheme->scheme_name ?></strong>
+                        <strong><?= html_escape($scheme->scheme_name) ?></strong>
+                        <?php if (!empty($scheme->is_default)): ?>
+                        <span class="badge badge-warning ml-1"><i class="fas fa-star"></i> Default</span>
+                        <?php endif; ?>
                         <?php if (isset($scheme->description)): ?>
-                        <br><small class="text-muted"><?= substr($scheme->description, 0, 50) ?></small>
+                        <br><small class="text-muted"><?= html_escape(substr($scheme->description, 0, 50)) ?></small>
                         <?php endif; ?>
                     </td>
                     <td>
@@ -46,6 +50,15 @@
                         <span class="badge badge-primary"><?= $scheme->member_count ?? 0 ?></span>
                     </td>
                     <td>
+                        <?php if (!empty($scheme->is_default)): ?>
+                        <span class="badge badge-warning"><i class="fas fa-star"></i> Yes</span>
+                        <?php else: ?>
+                        <button class="btn btn-xs btn-outline-warning btn-set-default" data-id="<?= $scheme->id ?>" title="Set as default for new member enrollment">
+                            <i class="far fa-star"></i> Set Default
+                        </button>
+                        <?php endif; ?>
+                    </td>
+                    <td>
                         <?php if ($scheme->is_active): ?>
                         <span class="badge badge-success"><i class="fas fa-check"></i> Active</span>
                         <?php else: ?>
@@ -58,7 +71,7 @@
                                 <i class="fas fa-edit"></i>
                             </button>
                             <button class="btn btn-<?= $scheme->is_active ? 'secondary' : 'success' ?> btn-toggle" 
-                                    data-id="<?= $scheme->id ?>" data-status="<?= $scheme->is_active ?>">
+                                    data-id="<?= $scheme->id ?>" data-status="<?= $scheme->is_active ?>" title="<?= $scheme->is_active ? 'Deactivate' : 'Activate' ?>">
                                 <i class="fas fa-<?= $scheme->is_active ? 'ban' : 'check' ?>"></i>
                             </button>
                         </div>
@@ -184,24 +197,18 @@
                             </div>
                         </div>
                     </div>
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="form-group">
-                                <label>Penalty Rate (%)</label>
-                                <input type="number" name="penalty_rate" id="penalty_rate" class="form-control" step="0.01" value="0">
-                                <small class="text-muted">For early withdrawal</small>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="form-group">
-                                <label>Maturity Bonus (%)</label>
-                                <input type="number" name="maturity_bonus" id="maturity_bonus" class="form-control" step="0.01" value="0">
-                            </div>
-                        </div>
-                    </div>
                     <div class="form-group">
                         <label>Description</label>
                         <textarea name="description" id="description" class="form-control" rows="3"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <div class="custom-control custom-checkbox">
+                            <input type="checkbox" class="custom-control-input" name="is_default" id="is_default" value="1">
+                            <label class="custom-control-label" for="is_default">
+                                <strong>Set as Default Scheme</strong>
+                                <small class="text-muted d-block">New members enrolled via bulk import or registration will be automatically added to this scheme.</small>
+                            </label>
+                        </div>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -233,6 +240,7 @@ $(document).ready(function() {
         $('#penalty_rate').val(scheme.penalty_rate);
         $('#maturity_bonus').val(scheme.maturity_bonus);
         $('#description').val(scheme.description);
+        $('#is_default').prop('checked', scheme.is_default == 1);
         $('#addSchemeModal').modal('show');
     });
     
@@ -241,6 +249,21 @@ $(document).ready(function() {
         $('#schemeForm')[0].reset();
         $('#scheme_id').val('');
         $('#modalTitle').text('Add');
+        $('#is_default').prop('checked', false);
+    });
+
+    // Set as default (quick button without opening modal)
+    $(document).on('click', '.btn-set-default', function() {
+        var id = $(this).data('id');
+        if (!confirm('Set this scheme as the default for new member auto-enrollment?')) return;
+        $.post('<?= site_url('admin/settings/set_default_scheme') ?>', {id: id}, function(response) {
+            if (response.success) {
+                toastr.success('Default scheme updated');
+                location.reload();
+            } else {
+                toastr.error(response.message || 'Failed to update');
+            }
+        }, 'json');
     });
     
     // Toggle status

@@ -33,16 +33,49 @@ class Savings_model extends MY_Model {
     /**
      * Auto-enroll a new member in the default savings scheme
      */
-    public function enroll_in_default_scheme($member_id, $created_by = null) {
-        // Find the default scheme
+    /**
+     * Ensure a default scheme exists; if not, create "Regular Scheme" (₹2000/mo, 0% interest).
+     * Returns the default scheme object, or false on failure.
+     */
+    public function get_or_create_default_scheme($created_by = null) {
         $scheme = $this->db->where('is_default', 1)
                            ->where('is_active', 1)
                            ->get('savings_schemes')
                            ->row();
+        if ($scheme) return $scheme;
 
-        if (!$scheme) {
-            return false; // No default scheme configured
-        }
+        // No default scheme — create one automatically
+        $this->load->model('Savings_scheme_model');
+        $scheme_id = $this->Savings_scheme_model->save_scheme([
+            'scheme_name'       => 'Regular Scheme',
+            'description'       => 'Default savings scheme — auto-created',
+            'monthly_amount'    => 2000.00,
+            'min_deposit'       => 2000.00,
+            'interest_rate'     => 0.00,
+            'deposit_frequency' => 'monthly',
+            'lock_in_period'    => 0,
+            'penalty_rate'      => 0.00,
+            'maturity_bonus'    => 0.00,
+            'due_day'           => 1,
+            'is_default'        => 1,
+            'is_active'         => 1,
+            'created_by'        => $created_by,
+        ]);
+
+        if (!$scheme_id) return false;
+
+        // Mark it as default (save_scheme doesn't set is_default/is_active — do it directly)
+        $this->db->where('id', $scheme_id)->update('savings_schemes', [
+            'is_default' => 1,
+            'is_active'  => 1,
+        ]);
+
+        return $this->db->where('id', $scheme_id)->get('savings_schemes')->row();
+    }
+
+    public function enroll_in_default_scheme($member_id, $created_by = null, $start_date = null) {
+        $scheme = $this->get_or_create_default_scheme($created_by);
+        if (!$scheme) return false;
 
         // Check if member already has an account in this scheme
         $existing = $this->db->where('member_id', $member_id)
@@ -55,10 +88,12 @@ class Savings_model extends MY_Model {
             return $existing->id; // Already enrolled
         }
 
-        $start_date = date('Y-m-d');
+        if (empty($start_date)) {
+            $start_date = date('Y-m-d');
+        }
         $maturity_date = null;
         if (!empty($scheme->duration_months)) {
-            $maturity_date = date('Y-m-d', strtotime("+{$scheme->duration_months} months"));
+            $maturity_date = date('Y-m-d', strtotime($start_date . " +{$scheme->duration_months} months"));
         }
 
         return $this->create_account([
@@ -81,7 +116,8 @@ class Savings_model extends MY_Model {
         try {
             // SAV-5 FIX: Insert with a temporary account number, then update with real insert_id
             if (empty($data['account_number'])) {
-                $data['account_number'] = 'SAV-TEMP-' . uniqid();
+                // Must fit VARCHAR(20): 'T'+13-char uniqid = 14 chars
+                $data['account_number'] = 'T' . uniqid();
             }
             
             $data['created_at'] = date('Y-m-d H:i:s');

@@ -592,12 +592,22 @@ function showResults(res) {
     html += '<div class="col-md-3"><div class="card bg-danger text-white"><div class="card-body"><h2>' + res.errors + '</h2><p>Errors</p></div></div></div>';
     html += '</div>';
     
+    if (res.skip_details && res.skip_details.length > 0) {
+        html += '<div class="alert alert-warning mt-3 text-left">';
+        html += '<h6><i class="fas fa-info-circle mr-1"></i> Skipped Rows — Reason:</h6>';
+        html += '<ul class="mb-0">';
+        res.skip_details.forEach(function(msg) {
+            html += '<li>' + $('<div>').text(msg).html() + '</li>';
+        });
+        html += '</ul></div>';
+    }
+
     if (res.error_details && res.error_details.length > 0) {
         html += '<div class="alert alert-danger mt-3 text-left">';
         html += '<h6><i class="fas fa-exclamation-triangle mr-1"></i> Error Details:</h6>';
         html += '<ul class="mb-0 error-list">';
         res.error_details.forEach(function(err) {
-            html += '<li>' + err + '</li>';
+            html += '<li>' + $('<div>').text(err).html() + '</li>';
         });
         html += '</ul></div>';
     }

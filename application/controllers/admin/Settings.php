@@ -444,8 +444,14 @@ class Settings extends Admin_Controller {
             'penalty_rate' => $this->input->post('penalty_rate') ?: 0,
             'maturity_bonus' => $this->input->post('maturity_bonus') ?: 0,
             'due_day' => $this->input->post('due_day') ? (int) $this->input->post('due_day') : 1,
+            'is_default' => $this->input->post('is_default') ? 1 : 0,
             'created_by' => $admin_id
         ];
+
+        // Only one scheme can be the default — clear others if this one is being set
+        if (!empty($scheme_data['is_default'])) {
+            $this->db->set('is_default', 0)->update('savings_schemes');
+        }
 
         if ($id) $scheme_data['id'] = $id;
 
@@ -489,6 +495,39 @@ class Settings extends Admin_Controller {
         } else {
             echo json_encode(['success' => false, 'message' => 'Failed to update']);
         }
+    }
+
+    /**
+     * Set a savings scheme as the default (AJAX)
+     */
+    public function set_default_scheme() {
+        if ($this->input->method() !== 'post') {
+            echo json_encode(['success' => false, 'message' => 'Invalid request']);
+            return;
+        }
+
+        $id = (int) $this->input->post('id');
+        if (!$id) {
+            echo json_encode(['success' => false, 'message' => 'No scheme ID']);
+            return;
+        }
+
+        $scheme = $this->db->where('id', $id)->get('savings_schemes')->row();
+        if (!$scheme) {
+            echo json_encode(['success' => false, 'message' => 'Scheme not found']);
+            return;
+        }
+        if (!$scheme->is_active) {
+            echo json_encode(['success' => false, 'message' => 'Cannot set an inactive scheme as default. Activate it first.']);
+            return;
+        }
+
+        // Clear default from all schemes, then set this one
+        $this->db->set('is_default', 0)->update('savings_schemes');
+        $this->db->where('id', $id)->set('is_default', 1)->update('savings_schemes');
+
+        $this->log_audit('update', 'savings_schemes', 'savings_schemes', $id, null, ['is_default' => 1]);
+        echo json_encode(['success' => true]);
     }
     
     /**
@@ -1355,10 +1394,15 @@ class Settings extends Admin_Controller {
      */
     public function db_health_check()
     {
+        // Buffer all output so any stray PHP notices/warnings don't break JSON
+        ob_start();
         $this->output->set_content_type('application/json');
+
+        try {
 
         // Load full SQL from install_complete.sql + all migration files
         $sql_content = '';
+        $mig_files   = [];
         $base_sql = FCPATH . 'database/install_complete.sql';
         if (file_exists($base_sql)) {
             $sql_content = file_get_contents($base_sql);
@@ -1366,6 +1410,7 @@ class Settings extends Admin_Controller {
         $mig_dir = APPPATH . 'migrations/';
         if (is_dir($mig_dir)) {
             $mig_files = glob($mig_dir . '*.sql');
+            if ($mig_files === false) $mig_files = [];
             sort($mig_files); // apply in order
             foreach ($mig_files as $mf) {
                 $sql_content .= "\n" . file_get_contents($mf);
@@ -1440,19 +1485,27 @@ class Settings extends Admin_Controller {
         }
 
         if (in_array($fix, ['columns', 'all'])) {
+            // Disable db_debug so CI doesn't die/echo HTML on ALTER errors
+            $prev_debug = $this->db->db_debug;
+            $this->db->db_debug = FALSE;
             foreach ($column_issues as $table => $cols) {
                 foreach ($cols as $col => $def) {
-                    if ($this->_try_add_column($table, $col, $def)) {
+                    $result = $this->_try_add_column($table, $col, $def);
+                    if ($result === true) {
                         $cols_fixed[] = "{$table}.{$col}";
                         unset($column_issues[$table][$col]);
                     } else {
-                        $cols_failed[] = "{$table}.{$col}";
+                        $dbErr  = $this->db->error();
+                        $errMsg = !empty($dbErr['message']) ? $dbErr['message'] : ($result !== false ? $result : 'unknown error');
+                        $cols_failed[]         = "{$table}.{$col}";
+                        $cols_failed_details[] = "{$table}.{$col}: {$errMsg}";
                     }
                 }
                 if (empty($column_issues[$table])) {
                     unset($column_issues[$table]);
                 }
             }
+            $this->db->db_debug = $prev_debug;
         }
 
         $total_missing_cols = array_sum(array_map('count', $column_issues));
@@ -1460,7 +1513,7 @@ class Settings extends Admin_Controller {
         $report = [
             'database_name'      => $this->db->database,
             'checked_at'         => date('Y-m-d H:i:s'),
-            'sql_sources'        => ($base_sql && file_exists($base_sql) ? 1 : 0) + count($mig_files ?? []),
+            'sql_sources'        => ($base_sql && file_exists($base_sql) ? 1 : 0) + count($mig_files),
             // Tables
             'tables_required'    => count($required_tables),
             'tables_present'     => $present,
@@ -1473,11 +1526,23 @@ class Settings extends Admin_Controller {
             'column_issues_count'=> $total_missing_cols,
             'cols_fixed'         => $cols_fixed,
             'cols_failed'        => $cols_failed,
+            'cols_failed_details'=> $cols_failed_details ?? [],
             // Overall
             'healthy'            => empty($missing_tables) && $total_missing_cols === 0,
         ];
 
+        ob_end_clean(); // discard any stray output
         echo json_encode(['success' => true, 'report' => $report]);
+
+        } catch (Exception $e) {
+            ob_end_clean();
+            log_message('error', 'db_health_check exception: ' . $e->getMessage());
+            echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+        } catch (Error $e) {
+            ob_end_clean();
+            log_message('error', 'db_health_check error: ' . $e->getMessage());
+            echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+        }
     }
 
     /**
@@ -1557,48 +1622,92 @@ class Settings extends Admin_Controller {
 
     /**
      * Parse a captured CREATE TABLE block (as array of lines) and fill $schema.
+     * Handles multi-line type definitions (e.g. ENUM spanning several lines) by
+     * tracking parenthesis depth and accumulating lines until depth returns to 0.
      */
     private function _parse_create_table_block($table, array $block, array &$schema)
     {
         if (!isset($schema[$table])) $schema[$table] = [];
 
-        // Join lines, then split on commas at the "top" depth (depth=1 inside outer parens)
-        // We do this line by line since each line is one clause in well-formatted SQL
+        $pending_col = null;
+        $pending_def = '';
+        $depth       = 0;
+
         foreach ($block as $line) {
             $t = trim($line);
-            if ($t === '' || $t === '(' || $t === ')') continue;
+            if ($t === '' || $t === '(') continue;
 
-            // Skip non-column lines
+            // --- Continuing a multi-line column definition (e.g. ENUM spread over lines) ---
+            if ($pending_col !== null) {
+                $pending_def .= ' ' . $t;
+                $depth += substr_count($t, '(') - substr_count($t, ')');
+                if ($depth <= 0) {
+                    // Definition is now complete
+                    $def = rtrim(trim($pending_def), ',');
+                    $schema[$table][$pending_col] = "`{$pending_col}` {$def}";
+                    $pending_col = null;
+                    $pending_def = '';
+                    $depth       = 0;
+                }
+                continue;
+            }
+
+            // Skip table-level clauses (not column definitions)
             if (preg_match('/^\s*(?:PRIMARY\s+KEY|UNIQUE\s+KEY|KEY|INDEX|CONSTRAINT|ENGINE|DEFAULT\s+CHARSET|COLLATE|AUTO_INCREMENT)\b/i', $t)) continue;
             if (preg_match('/^\s*\)\s*/i', $t)) continue;
 
             // Must start with a backtick-quoted column name
             if (!preg_match('/^\s*`(\w+)`\s+(.+)/s', $t, $m)) continue;
 
-            $col = $m[1];
-            $def = rtrim(trim($m[2]), ','); // strip trailing comma
-            $schema[$table][$col] = "`{$col}` {$def}";
+            $col     = $m[1];
+            $def_raw = $m[2];
+
+            // Check whether the type definition opens a paren that isn't closed on this line
+            $d = substr_count($def_raw, '(') - substr_count($def_raw, ')');
+            if ($d > 0) {
+                // Multi-line definition — accumulate subsequent lines
+                $pending_col = $col;
+                $pending_def = $def_raw;
+                $depth       = $d;
+            } else {
+                $def = rtrim(trim($def_raw), ',');
+                $schema[$table][$col] = "`{$col}` {$def}";
+            }
         }
     }
 
     /**
      * Run ALTER TABLE `table` ADD COLUMN `col` definition.
-     * Returns true on success.
+     * Returns true on success, or error string on failure.
      */
     private function _try_add_column($table, $col, $definition)
     {
+        // Disable debug output so CI doesn't echo HTML on error
+        $prev_debug = $this->db->db_debug;
+        $this->db->db_debug = FALSE;
         try {
+            // Remove IF NOT EXISTS — not supported in MySQL ALTER TABLE (only MariaDB)
+            $def = preg_replace('/\bIF\s+NOT\s+EXISTS\s+/i', '', trim($definition));
             // Strip trailing AFTER clause — safer to just append at end
-            $def = preg_replace('/\s+AFTER\s+`?\w+`?\s*$/i', '', trim($definition));
-            // Strip trailing comma
-            $def = rtrim($def, ', ');
+            $def = preg_replace('/\s+AFTER\s+`?\w+`?\s*$/i', '', $def);
+            // Strip trailing comma only — do NOT strip quotes or spaces (breaks ENUM defaults)
+            $def = rtrim($def, ',');
+            $def = trim($def);
             $sql = "ALTER TABLE `{$table}` ADD COLUMN {$def}";
-            $this->db->query($sql);
+            $result = $this->db->query($sql);
+            $this->db->db_debug = $prev_debug;
+            if ($result === false) {
+                $dbErr = $this->db->error();
+                $errMsg = !empty($dbErr['message']) ? $dbErr['message'] : 'query returned false';
+                log_message('error', "db_health: failed to add {$table}.{$col}: {$errMsg}");
+                return $errMsg;
+            }
             log_message('info', "db_health: added column {$table}.{$col}");
             return true;
         } catch (Exception $e) {
+            $this->db->db_debug = $prev_debug;
             log_message('error', "db_health: failed to add {$table}.{$col}: " . $e->getMessage());
-            return false;
+            return $e->getMessage();
         }
     }
 

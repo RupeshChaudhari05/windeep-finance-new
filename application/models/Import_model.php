@@ -56,6 +56,7 @@ class Import_model extends MY_Model {
         $skipped = 0;
         $error_count = 0;
         $error_details = [];
+        $skip_details  = [];
 
         foreach ($rows as $idx => $row) {
             $row_num = $idx + 2;
@@ -79,6 +80,8 @@ class Import_model extends MY_Model {
                     $inserted++;
                 } elseif ($result['status'] === 'skipped') {
                     $skipped++;
+                    $reason = !empty($result['message']) ? $result['message'] : 'Duplicate or already exists';
+                    $skip_details[] = "Row {$row_num}: " . $reason;
                 } else {
                     $error_count++;
                     $error_details[] = "Row {$row_num}: " . $result['message'];
@@ -90,10 +93,11 @@ class Import_model extends MY_Model {
         }
 
         return [
-            'inserted' => $inserted,
-            'skipped' => $skipped,
-            'errors' => $error_count,
-            'error_details' => $error_details
+            'inserted'     => $inserted,
+            'skipped'      => $skipped,
+            'errors'       => $error_count,
+            'error_details'=> $error_details,
+            'skip_details' => $skip_details,
         ];
     }
 
@@ -135,19 +139,21 @@ class Import_model extends MY_Model {
     private function _validate_loan_row($row, $row_num) {
         $errors = [];
 
-        if (empty($row['member_code'] ?? '')) {
-            $errors[] = "Row {$row_num}: member_code is required";
+        $has_code = !empty($row['member_code'] ?? '');
+        $has_id   = !empty($row['member_id'] ?? '') && is_numeric($row['member_id'] ?? '');
+        if (!$has_code && !$has_id) {
+            $errors[] = "Row {$row_num}: member_code (or member_id) is required";
         } else {
-            $member = $this->db->where('member_code', trim($row['member_code']))
-                               ->where('deleted_at IS NULL', null, false)
-                               ->get('members')->row();
+            $q = $this->db->where('deleted_at IS NULL', null, false);
+            $q = $has_code ? $q->where('member_code', trim($row['member_code']))
+                           : $q->where('id', (int) $row['member_id']);
+            $member = $q->get('members')->row();
             if (!$member) {
-                $errors[] = "Row {$row_num}: member_code '{$row['member_code']}' not found";
+                $ref = $has_code ? "member_code '{$row['member_code']}'" : "member_id '{$row['member_id']}'";
+                $errors[] = "Row {$row_num}: {$ref} not found";
             }
         }
-        if (empty($row['loan_product_id'] ?? '')) {
-            $errors[] = "Row {$row_num}: loan_product_id is required";
-        }
+        // loan_product_id is optional — auto-resolved from interest_rate + interest_type at import time
         if (empty($row['principal_amount'] ?? '') || !is_numeric($row['principal_amount']) || $row['principal_amount'] <= 0) {
             $errors[] = "Row {$row_num}: principal_amount must be a positive number";
         }
@@ -170,14 +176,18 @@ class Import_model extends MY_Model {
     private function _validate_savings_tx_row($row, $row_num) {
         $errors = [];
 
-        if (empty($row['member_code'] ?? '')) {
-            $errors[] = "Row {$row_num}: member_code is required";
+        $has_code = !empty($row['member_code'] ?? '');
+        $has_id   = !empty($row['member_id'] ?? '') && is_numeric($row['member_id'] ?? '');
+        if (!$has_code && !$has_id) {
+            $errors[] = "Row {$row_num}: member_code (or member_id) is required";
         } else {
-            $member = $this->db->where('member_code', trim($row['member_code']))
-                               ->where('deleted_at IS NULL', null, false)
-                               ->get('members')->row();
+            $q = $this->db->where('deleted_at IS NULL', null, false);
+            $q = $has_code ? $q->where('member_code', trim($row['member_code']))
+                           : $q->where('id', (int) $row['member_id']);
+            $member = $q->get('members')->row();
             if (!$member) {
-                $errors[] = "Row {$row_num}: member_code '{$row['member_code']}' not found";
+                $ref = $has_code ? "member_code '{$row['member_code']}'" : "member_id '{$row['member_id']}'";
+                $errors[] = "Row {$row_num}: {$ref} not found";
             }
         }
         if (empty($row['transaction_type'] ?? '') || !in_array(strtolower($row['transaction_type']), ['deposit', 'withdrawal'])) {
@@ -201,30 +211,15 @@ class Import_model extends MY_Model {
     private function _import_member($row, $admin_id) {
         $phone = preg_replace('/[^0-9]/', '', $row['phone'] ?? '');
 
-        // Check duplicate by phone
-        $existing = $this->db->where('phone', $phone)
-                             ->where('deleted_at IS NULL', null, false)
-                             ->get('members')->row();
-        if ($existing) {
-            return ['status' => 'skipped', 'message' => "Phone {$phone} already exists (Member: {$existing->member_code})"];
-        }
-
-        // Check duplicate by email
-        if (!empty($row['email'])) {
-            $existing_email = $this->db->where('email', $row['email'])
-                                       ->where('deleted_at IS NULL', null, false)
-                                       ->get('members')->row();
-            if ($existing_email) {
-                return ['status' => 'skipped', 'message' => "Email {$row['email']} already exists"];
-            }
-        }
+        // Duplicate phone/email are intentionally ALLOWED (DB unique index was dropped
+        // in migration 020_allow_duplicate_member_phones.sql to match manual member creation).
 
         $member_data = [
             'first_name'     => trim($row['first_name'] ?? ''),
             'last_name'      => trim($row['last_name'] ?? ''),
             'phone'          => $phone,
             'email'          => !empty($row['email']) ? trim($row['email']) : null,
-            'date_of_birth'  => !empty($row['date_of_birth']) ? $this->_parse_date($row['date_of_birth']) : null,
+            'date_of_birth'  => !empty($row['date_of_birth']) ? ($this->_parse_date($row['date_of_birth']) ?? null) : null,
             'gender'         => !empty($row['gender']) ? strtolower(trim($row['gender'])) : null,
             'father_name'    => !empty($row['father_name']) ? trim($row['father_name']) : null,
             'occupation'     => !empty($row['occupation']) ? trim($row['occupation']) : null,
@@ -241,7 +236,7 @@ class Import_model extends MY_Model {
             'account_number' => !empty($row['account_number']) ? trim($row['account_number']) : null,
             'ifsc_code'      => !empty($row['ifsc_code']) ? strtoupper(trim($row['ifsc_code'])) : null,
             'account_holder_name' => !empty($row['account_holder_name']) ? trim($row['account_holder_name']) : null,
-            'join_date'      => !empty($row['join_date']) ? $this->_parse_date($row['join_date']) : date('Y-m-d'),
+            'join_date'      => !empty($row['join_date']) ? ($this->_parse_date($row['join_date']) ?? date('Y-m-d')) : date('Y-m-d'),
             'membership_type' => !empty($row['membership_type']) ? strtolower(trim($row['membership_type'])) : 'regular',
             'nominee_name'   => !empty($row['nominee_name']) ? trim($row['nominee_name']) : null,
             'nominee_relation' => !empty($row['nominee_relation']) ? trim($row['nominee_relation']) : null,
@@ -255,6 +250,11 @@ class Import_model extends MY_Model {
         $member_id = $this->Member_model->create_member($member_data);
 
         if ($member_id) {
+            // Auto-enroll in default savings scheme using the member's own join_date
+            $join_date = $member_data['join_date'];
+            $this->load->model('Savings_model');
+            $this->Savings_model->enroll_in_default_scheme($member_id, $admin_id, $join_date);
+
             return ['status' => 'inserted', 'message' => 'OK', 'id' => $member_id];
         } else {
             // Capture DB error for debugging (check model's stored error first, then CI db)
@@ -275,25 +275,39 @@ class Import_model extends MY_Model {
      * Import a single loan row
      */
     private function _import_loan($row, $admin_id) {
-        // Look up member
-        $member = $this->db->where('member_code', trim($row['member_code']))
-                           ->where('deleted_at IS NULL', null, false)
-                           ->get('members')->row();
+        // Look up member by member_code or member_id fallback
+        $member = null;
+        if (!empty($row['member_code'] ?? '')) {
+            $member = $this->db->where('member_code', trim($row['member_code']))
+                               ->where('deleted_at IS NULL', null, false)
+                               ->get('members')->row();
+        } elseif (!empty($row['member_id'] ?? '') && is_numeric($row['member_id'])) {
+            $member = $this->db->where('id', (int) $row['member_id'])
+                               ->where('deleted_at IS NULL', null, false)
+                               ->get('members')->row();
+        }
         if (!$member) {
-            return ['status' => 'error', 'message' => "Member {$row['member_code']} not found"];
+            $ref = !empty($row['member_code'] ?? '') ? $row['member_code'] : ($row['member_id'] ?? '?');
+            return ['status' => 'error', 'message' => "Member '{$ref}' not found"];
         }
 
-        // Look up loan product
-        $product = $this->db->where('id', (int) $row['loan_product_id'])->get('loan_products')->row();
+        // Resolve loan product by interest_rate + interest_type (or explicit loan_product_id)
+        $product = $this->_resolve_loan_product(
+            (float) ($row['interest_rate'] ?? 0),
+            strtolower(trim($row['interest_type'] ?? 'reducing')),
+            (float) ($row['principal_amount'] ?? 0),
+            !empty($row['loan_product_id']) ? (int) $row['loan_product_id'] : null,
+            $admin_id
+        );
         if (!$product) {
-            return ['status' => 'error', 'message' => "Loan product ID {$row['loan_product_id']} not found"];
+            return ['status' => 'error', 'message' => 'Could not resolve or create a loan product for this row'];
         }
 
         $principal = (float) $row['principal_amount'];
         $rate = (float) $row['interest_rate'];
         $tenure = (int) $row['tenure_months'];
         $interest_type = strtolower(trim($row['interest_type']));
-        $disbursement_date = $this->_parse_date($row['disbursement_date']);
+        $disbursement_date = $this->_parse_date($row['disbursement_date']) ?? date('Y-m-d');
         $processing_fee = !empty($row['processing_fee']) ? (float) $row['processing_fee'] : 0;
 
         // Calculate EMI and totals
@@ -319,7 +333,7 @@ class Import_model extends MY_Model {
 
         // First EMI date
         if (!empty($row['first_emi_date'])) {
-            $first_emi_date = $this->_parse_date($row['first_emi_date']);
+            $first_emi_date = $this->_parse_date($row['first_emi_date']) ?? date('Y-m-d', strtotime($disbursement_date . ' +1 month'));
         } else {
             $first_emi_date = date('Y-m-d', strtotime($disbursement_date . ' +1 month'));
         }
@@ -342,7 +356,7 @@ class Import_model extends MY_Model {
             $app_data = $filter_cols('loan_applications', [
                 'application_number'       => 'APP-IMP-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -5)),
                 'member_id'                => $member->id,
-                'loan_product_id'          => (int) $row['loan_product_id'],
+                'loan_product_id'          => $product->id,
                 'requested_amount'         => $principal,
                 'requested_tenure_months'  => $tenure,
                 'requested_interest_rate'  => $rate,
@@ -371,7 +385,7 @@ class Import_model extends MY_Model {
                 'loan_number'            => 'LN-IMP-' . substr(uniqid(), -8),
                 'loan_application_id'    => $app_id,
                 'member_id'              => $member->id,
-                'loan_product_id'        => (int) $row['loan_product_id'],
+                'loan_product_id'        => $product->id,
                 'principal_amount'       => $principal,
                 'interest_rate'          => $rate,
                 'interest_type'          => $interest_type,
@@ -433,12 +447,20 @@ class Import_model extends MY_Model {
      * Import a single savings transaction row
      */
     private function _import_savings_transaction($row, $admin_id) {
-        // Look up member
-        $member = $this->db->where('member_code', trim($row['member_code']))
-                           ->where('deleted_at IS NULL', null, false)
-                           ->get('members')->row();
+        // Look up member by member_code or member_id fallback
+        $member = null;
+        if (!empty($row['member_code'] ?? '')) {
+            $member = $this->db->where('member_code', trim($row['member_code']))
+                               ->where('deleted_at IS NULL', null, false)
+                               ->get('members')->row();
+        } elseif (!empty($row['member_id'] ?? '') && is_numeric($row['member_id'])) {
+            $member = $this->db->where('id', (int) $row['member_id'])
+                               ->where('deleted_at IS NULL', null, false)
+                               ->get('members')->row();
+        }
         if (!$member) {
-            return ['status' => 'error', 'message' => "Member {$row['member_code']} not found"];
+            $ref = !empty($row['member_code'] ?? '') ? $row['member_code'] : ($row['member_id'] ?? '?');
+            return ['status' => 'error', 'message' => "Member '{$ref}' not found"];
         }
 
         // Find the savings account
@@ -450,8 +472,14 @@ class Import_model extends MY_Model {
         }
 
         if (!$account) {
-            // Try to find by member_id + scheme_id
+            // Try to find by member_id + scheme_id; if no scheme_id given, use default scheme
             $scheme_id = !empty($row['scheme_id']) ? (int) $row['scheme_id'] : null;
+            if (!$scheme_id) {
+                // Look up the default scheme id
+                $default_scheme = $this->db->where('is_default', 1)->where('is_active', 1)
+                                           ->get('savings_schemes')->row();
+                if ($default_scheme) $scheme_id = $default_scheme->id;
+            }
             if ($scheme_id) {
                 $account = $this->db->where('member_id', $member->id)
                                     ->where('scheme_id', $scheme_id)
@@ -469,12 +497,26 @@ class Import_model extends MY_Model {
         }
 
         if (!$account) {
-            return ['status' => 'error', 'message' => "No active savings account found for member {$row['member_code']}"];
+            // No account at all — auto-enroll in default scheme so the transaction has somewhere to go
+            $this->load->model('Savings_model');
+            $account_id = $this->Savings_model->enroll_in_default_scheme(
+                $member->id,
+                $admin_id,
+                $member->join_date ?? date('Y-m-d')
+            );
+            if ($account_id) {
+                $account = $this->db->where('id', $account_id)->get('savings_accounts')->row();
+            }
+        }
+
+        if (!$account) {
+            $ref = !empty($row['member_code'] ?? '') ? $row['member_code'] : ($member->member_code ?? $member->id);
+            return ['status' => 'error', 'message' => "No active savings account found for member {$ref} and could not create one"];
         }
 
         $amount = (float) $row['amount'];
         $tx_type = strtolower(trim($row['transaction_type']));
-        $tx_date = $this->_parse_date($row['transaction_date']);
+        $tx_date = $this->_parse_date($row['transaction_date']) ?? date('Y-m-d');
         $payment_mode = !empty($row['payment_mode']) ? strtolower(trim($row['payment_mode'])) : 'cash';
 
         // Validate payment_mode
@@ -559,56 +601,146 @@ class Import_model extends MY_Model {
     /**
      * Validate date format
      */
+    /**
+     * Resolve a loan product for import.
+     * Priority: explicit loan_product_id → match by rate+type → create new product.
+     */
+    private function _resolve_loan_product($rate, $interest_type, $principal, $explicit_id = null, $created_by = null) {
+        // 1. Explicit product ID given — verify it exists
+        if ($explicit_id) {
+            $product = $this->db->where('id', $explicit_id)->where('is_active', 1)->get('loan_products')->row();
+            if ($product) return $product;
+        }
+
+        // 2. Match by interest_rate + interest_type (exact rate match)
+        $product = $this->db
+            ->where('interest_rate', $rate)
+            ->where('interest_type', $interest_type)
+            ->where('is_active', 1)
+            ->where('min_amount <=', $principal)
+            ->where('max_amount >=', $principal)
+            ->order_by('id', 'ASC')
+            ->get('loan_products')->row();
+        if ($product) return $product;
+
+        // 3. Match by interest_rate + interest_type regardless of amount limits
+        $product = $this->db
+            ->where('interest_rate', $rate)
+            ->where('interest_type', $interest_type)
+            ->where('is_active', 1)
+            ->order_by('id', 'ASC')
+            ->get('loan_products')->row();
+        if ($product) return $product;
+
+        // 4. No match — auto-create a product for this rate/type combination
+        $type_label = ucfirst($interest_type);
+        $product_name = "{$rate}% {$type_label} Rate Loan";
+        $product_code = 'IMP-' . strtoupper(substr($interest_type, 0, 3)) . '-' . str_replace('.', '', number_format($rate, 2, '', ''));
+
+        // Ensure product_code is unique
+        $existing_code = $this->db->where('product_code', $product_code)->get('loan_products')->row();
+        if ($existing_code) {
+            // Already exists (created by a previous row in same batch) — return it
+            return $existing_code;
+        }
+
+        $this->db->insert('loan_products', [
+            'product_code'        => $product_code,
+            'product_name'        => $product_name,
+            'description'         => "Auto-created during bulk import ({$rate}% {$interest_type})",
+            'min_amount'          => 1000.00,
+            'max_amount'          => 99999999.00,
+            'min_tenure_months'   => 1,
+            'max_tenure_months'   => 360,
+            'interest_rate'       => $rate,
+            'min_interest_rate'   => $rate,
+            'max_interest_rate'   => $rate,
+            'default_interest_rate' => $rate,
+            'interest_type'       => $interest_type,
+            'processing_fee_type' => 'fixed',
+            'processing_fee_value'=> 0.00,
+            'late_fee_type'       => 'fixed',
+            'late_fee_value'      => 0.00,
+            'grace_period_days'   => 5,
+            'prepayment_allowed'  => 1,
+            'min_guarantors'      => 0,
+            'max_guarantors'      => 3,
+            'is_active'           => 1,
+            'created_by'          => $created_by,
+            'created_at'          => date('Y-m-d H:i:s'),
+        ]);
+        $new_id = $this->db->insert_id();
+        if (!$new_id) return null;
+
+        return $this->db->where('id', $new_id)->get('loan_products')->row();
+    }
+
+    /**
+     * Validate that a value is a recognisable date.
+     * At this stage, date columns from Excel have already been converted to
+     * Y-m-d strings by _extract_cell_date in the Import controller.
+     * We still accept a few string formats for CSV imports.
+     */
     private function _is_valid_date($date) {
-        if (empty($date)) return false;
-        // Try common formats
-        $d = DateTime::createFromFormat('Y-m-d', $date);
-        if ($d && $d->format('Y-m-d') === $date) return true;
+        if ($date === null || $date === '' || $date === '0') return false;
 
+        // Already Y-m-d
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            $d = DateTime::createFromFormat('Y-m-d', $date);
+            return ($d && $d->format('Y-m-d') === $date);
+        }
+        // DD/MM/YYYY
         $d = DateTime::createFromFormat('d/m/Y', $date);
-        if ($d) return true;
-
+        if ($d && $d->format('d/m/Y') === $date) return true;
+        // DD-MM-YYYY
         $d = DateTime::createFromFormat('d-m-Y', $date);
-        if ($d) return true;
-
-        $d = DateTime::createFromFormat('m/d/Y', $date);
-        if ($d) return true;
+        if ($d && $d->format('d-m-Y') === $date) return true;
+        // DD.MM.YYYY
+        $d = DateTime::createFromFormat('d.m.Y', $date);
+        if ($d && $d->format('d.m.Y') === $date) return true;
+        // Excel serial number (leftover from CSV; .xlsx already converted)
+        if (is_numeric($date) && (float) $date > 365) {
+            $unix = ((float) $date - 25569) * 86400;
+            $year = (int) date('Y', $unix);
+            return ($year >= 1900 && $year <= 2100);
+        }
 
         return false;
     }
 
     /**
-     * Parse date to Y-m-d format
+     * Parse a date value to Y-m-d.
+     * For .xlsx imports, dates are already Y-m-d from _extract_cell_date.
+     * For CSV imports we still need to handle various string formats.
+     * Returns Y-m-d string, or null if the value is empty/unparseable.
      */
     private function _parse_date($date) {
-        if (empty($date)) return date('Y-m-d');
+        if ($date === null || $date === '' || $date === '0') return null;
 
-        // Already in correct format?
-        $d = DateTime::createFromFormat('Y-m-d', $date);
-        if ($d && $d->format('Y-m-d') === $date) return $date;
-
-        // Try DD/MM/YYYY
+        // Already correct
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            $d = DateTime::createFromFormat('Y-m-d', $date);
+            if ($d && $d->format('Y-m-d') === $date) return $date;
+        }
+        // DD/MM/YYYY
         $d = DateTime::createFromFormat('d/m/Y', $date);
-        if ($d) return $d->format('Y-m-d');
-
-        // Try DD-MM-YYYY
+        if ($d && $d->format('d/m/Y') === $date) return $d->format('Y-m-d');
+        // DD-MM-YYYY
         $d = DateTime::createFromFormat('d-m-Y', $date);
-        if ($d) return $d->format('Y-m-d');
-
-        // Try MM/DD/YYYY
-        $d = DateTime::createFromFormat('m/d/Y', $date);
-        if ($d) return $d->format('Y-m-d');
-
-        // Try Excel numeric date
-        if (is_numeric($date)) {
-            $unix = ($date - 25569) * 86400;
-            return date('Y-m-d', $unix);
+        if ($d && $d->format('d-m-Y') === $date) return $d->format('Y-m-d');
+        // DD.MM.YYYY
+        $d = DateTime::createFromFormat('d.m.Y', $date);
+        if ($d && $d->format('d.m.Y') === $date) return $d->format('Y-m-d');
+        // Excel serial number
+        if (is_numeric($date) && (float) $date > 365) {
+            $unix = ((float) $date - 25569) * 86400;
+            $year = (int) date('Y', $unix);
+            if ($year >= 1900 && $year <= 2100) {
+                return date('Y-m-d', $unix);
+            }
         }
 
-        // Fallback: try strtotime
-        $ts = strtotime($date);
-        if ($ts) return date('Y-m-d', $ts);
-
-        return date('Y-m-d');
+        // Do NOT fallback to date('Y-m-d') — return null so caller can decide
+        return null;
     }
 }

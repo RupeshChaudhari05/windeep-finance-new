@@ -1115,7 +1115,8 @@ $(document).ready(function() {
             dataType: 'json',
             success: function(resp) {
                 if (!resp.success) {
-                    $boxes.html('<div class="col-12"><div class="alert alert-danger">Health check failed.</div></div>');
+                    var errMsg = resp.error ? resp.error : 'Health check failed.';
+                    $boxes.html('<div class="col-12"><div class="alert alert-danger"><i class="fas fa-exclamation-triangle mr-1"></i>' + $('<div>').text(errMsg).html() + '</div></div>');
                     return;
                 }
                 var r = resp.report;
@@ -1159,7 +1160,8 @@ $(document).ready(function() {
                     fixHtml += '<div class="alert alert-success py-2"><i class="fas fa-wrench mr-1"></i><strong>Columns Added:</strong> ' + r.cols_fixed.join(', ') + '</div>';
                 }
                 if (r.cols_failed && r.cols_failed.length) {
-                    fixHtml += '<div class="alert alert-danger py-2"><i class="fas fa-times mr-1"></i><strong>Column Addition Failed:</strong> ' + r.cols_failed.join(', ') + '</div>';
+                    var details = (r.cols_failed_details && r.cols_failed_details.length) ? '<ul class="mb-0 mt-1">' + r.cols_failed_details.map(function(d){ return '<li><small>' + $('<div>').text(d).html() + '</small></li>'; }).join('') + '</ul>' : '';
+                    fixHtml += '<div class="alert alert-danger py-2"><i class="fas fa-times mr-1"></i><strong>Column Addition Failed:</strong> ' + r.cols_failed.join(', ') + details + '</div>';
                 }
                 $fixRes.html(fixHtml);
 

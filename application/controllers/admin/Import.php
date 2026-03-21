@@ -77,14 +77,14 @@ class Import extends Admin_Controller {
 
             case 'loans':
                 $headers = [
-                    'member_code* (e.g. MEMB000001)', 'loan_product_id*', 'principal_amount*',
-                    'interest_rate*', 'interest_type* (flat/reducing)', 'tenure_months*',
+                    'member_code* (e.g. MEMB000001)', 'principal_amount*',
+                    'interest_rate* (annual %)', 'interest_type* (flat/reducing)', 'tenure_months*',
                     'disbursement_date* (YYYY-MM-DD)', 'first_emi_date (YYYY-MM-DD)',
                     'disbursement_mode (cash/bank_transfer/cheque)', 'disbursement_reference',
                     'processing_fee', 'status (active/closed)', 'remarks'
                 ];
                 $sample = [
-                    'MEMB000001', '1', '100000',
+                    'MEMB000001', '100000',
                     '12', 'reducing', '12',
                     '2024-06-01', '2024-07-01',
                     'bank_transfer', 'REF-001',
@@ -260,12 +260,13 @@ class Import extends Admin_Controller {
             $this->_log_import($type, $result);
 
             echo json_encode([
-                'success' => true,
-                'message' => "Import completed! {$result['inserted']} records imported, {$result['skipped']} skipped, {$result['errors']} errors.",
-                'inserted' => $result['inserted'],
-                'skipped' => $result['skipped'],
-                'errors' => $result['errors'],
-                'error_details' => $result['error_details']
+                'success'      => true,
+                'message'      => "Import completed! {$result['inserted']} records imported, {$result['skipped']} skipped, {$result['errors']} errors.",
+                'inserted'     => $result['inserted'],
+                'skipped'      => $result['skipped'],
+                'errors'       => $result['errors'],
+                'error_details'=> $result['error_details'],
+                'skip_details' => $result['skip_details'] ?? [],
             ]);
 
         } catch (Exception $e) {
@@ -291,29 +292,83 @@ class Import extends Admin_Controller {
 
         $spreadsheet = $reader->load($filepath);
         $sheet = $spreadsheet->getActiveSheet();
-        $data = $sheet->toArray(null, true, true, false);
 
-        if (count($data) < 2) {
+        $highestRow = $sheet->getHighestRow();
+        $highestCol = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($sheet->getHighestColumn());
+
+        if ($highestRow < 2) {
             return []; // Only header, no data
         }
 
-        // First row = headers
-        $headers = array_map(function($h) {
-            // Clean header: remove *, strip (explanations), trim
+        // ── Read header row (row 1) as plain strings ──
+        $raw_headers = [];
+        for ($c = 1; $c <= $highestCol; $c++) {
+            $raw_headers[$c] = (string) $sheet->getCellByColumnAndRow($c, 1)->getValue();
+        }
+
+        // Clean headers: remove *, strip (explanations), trim, lowercase, spaces→underscores
+        $headers = [];
+        foreach ($raw_headers as $c => $h) {
             $h = preg_replace('/\*/', '', $h);
             $h = preg_replace('/\s*\(.*?\)\s*/', '', $h);
-            return trim(strtolower(str_replace(' ', '_', $h)));
-        }, $data[0]);
+            $headers[$c] = trim(strtolower(str_replace(' ', '_', $h)));
+        }
 
+        // ── Column alias map: common header variants → expected system field names ──
+        $alias_map = [
+            'joining_date' => 'join_date',
+            'dob'          => 'date_of_birth',
+            'birth_date'   => 'date_of_birth',
+            'sex'          => 'gender',
+            'mobile'       => 'phone',
+            'mobile_number'=> 'phone',
+            'phone_number' => 'phone',
+            'email_address' => 'email',
+            'addr_line1'   => 'address_line1',
+            'addr_line2'   => 'address_line2',
+            'pin_code'     => 'pincode',
+            'zip_code'     => 'pincode',
+            'aadhaar'      => 'aadhaar_number',
+            'pan'          => 'pan_number',
+            'remarks'      => 'notes',
+        ];
+        foreach ($headers as $c => $h) {
+            if (isset($alias_map[$h])) {
+                $headers[$c] = $alias_map[$h];
+            }
+        }
+
+        // ── Known date columns that need special handling ──
+        $date_columns = ['join_date', 'date_of_birth', 'disbursement_date',
+                         'first_emi_date', 'transaction_date'];
+        // Build a set of column indices that contain date data
+        $date_col_indices = [];
+        foreach ($headers as $c => $h) {
+            if (in_array($h, $date_columns)) {
+                $date_col_indices[$c] = true;
+            }
+        }
+
+        // ── Read data rows ──
         $rows = [];
-        for ($i = 1; $i < count($data); $i++) {
+        for ($r = 2; $r <= $highestRow; $r++) {
             $row = [];
             $is_empty = true;
-            foreach ($headers as $col_idx => $header) {
-                if (empty($header)) continue;
-                $val = isset($data[$i][$col_idx]) ? trim($data[$i][$col_idx]) : '';
+            foreach ($headers as $c => $header) {
+                if ($header === '') continue;
+
+                $cell = $sheet->getCellByColumnAndRow($c, $r);
+
+                // For date columns, try to extract a proper Y-m-d string
+                if (isset($date_col_indices[$c])) {
+                    $val = $this->_extract_cell_date($cell);
+                } else {
+                    $val = (string) $cell->getValue();
+                    $val = trim($val);
+                }
+
                 $row[$header] = $val;
-                if ($val !== '') $is_empty = false;
+                if ($val !== '' && $val !== null) $is_empty = false;
             }
             if (!$is_empty) {
                 $rows[] = $row;
@@ -321,6 +376,63 @@ class Import extends Admin_Controller {
         }
 
         return $rows;
+    }
+
+    /**
+     * Extract a date from an Excel cell, returning Y-m-d string or '' if empty.
+     * Handles: Excel serial numbers, ISO strings, DD/MM/YYYY, DD-MM-YYYY, etc.
+     */
+    private function _extract_cell_date($cell) {
+        $raw = $cell->getValue();
+
+        // Empty cell
+        if ($raw === null || $raw === '') return '';
+
+        // PhpSpreadsheet typed date cells: check if it's a date-formatted number
+        if (is_numeric($raw) && $raw > 1) {
+            // Could be an Excel serial number
+            try {
+                $dt = \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject($raw);
+                $year = (int) $dt->format('Y');
+                // Sanity check: must be a reasonable year (1900-2100)
+                if ($year >= 1900 && $year <= 2100) {
+                    return $dt->format('Y-m-d');
+                }
+            } catch (\Exception $e) {
+                // Fall through to string parsing
+            }
+        }
+
+        // String value — try common formats
+        $val = trim((string) $raw);
+        if ($val === '' || $val === '0') return '';
+
+        // ISO YYYY-MM-DD
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $val)) {
+            $d = DateTime::createFromFormat('Y-m-d', $val);
+            if ($d && $d->format('Y-m-d') === $val) return $val;
+        }
+        // DD/MM/YYYY
+        $d = DateTime::createFromFormat('d/m/Y', $val);
+        if ($d && $d->format('d/m/Y') === $val) return $d->format('Y-m-d');
+        // DD-MM-YYYY
+        $d = DateTime::createFromFormat('d-m-Y', $val);
+        if ($d && $d->format('d-m-Y') === $val) return $d->format('Y-m-d');
+        // DD.MM.YYYY
+        $d = DateTime::createFromFormat('d.m.Y', $val);
+        if ($d && $d->format('d.m.Y') === $val) return $d->format('Y-m-d');
+        // YYYY/MM/DD
+        $d = DateTime::createFromFormat('Y/m/d', $val);
+        if ($d && $d->format('Y/m/d') === $val) return $d->format('Y-m-d');
+
+        // Last resort: strtotime
+        $ts = strtotime($val);
+        if ($ts && $ts > 0) {
+            $year = (int) date('Y', $ts);
+            if ($year >= 1900 && $year <= 2100) return date('Y-m-d', $ts);
+        }
+
+        return $val; // Return raw — validation will catch it
     }
 
     /**

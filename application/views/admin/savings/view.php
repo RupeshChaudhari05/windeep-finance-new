@@ -41,7 +41,7 @@
                     </tr>
                     <tr>
                         <th>Opened On:</th>
-                        <td><?= format_date($account->created_at) ?></td>
+                        <td><?= format_date($account->start_date) ?></td>
                     </tr>
                     <tr>
                         <th>Maturity Date:</th>
