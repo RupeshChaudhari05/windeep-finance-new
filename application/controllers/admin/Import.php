@@ -27,6 +27,7 @@ class Import extends Admin_Controller {
         $data['member_count'] = (int) $this->db->where('deleted_at IS NULL', null, false)->count_all_results('members');
         $data['loan_count']   = (int) $this->db->count_all_results('loans');
         $data['savings_tx_count'] = (int) $this->db->count_all_results('savings_transactions');
+        $data['loan_payment_count'] = (int) $this->db->where('is_reversed', 0)->count_all_results('loan_payments');
 
         // Get recent imports
         if ($this->db->table_exists('import_logs')) {
@@ -111,6 +112,34 @@ class Import extends Admin_Controller {
                 $sheet->setTitle('Savings Transactions');
                 break;
 
+            case 'loan_installments':
+                $headers = [
+                    'loan_number* (e.g. LN2024000001)',
+                    'installment_number (e.g. 1 — leave blank for next pending)',
+                    'payment_date* (YYYY-MM-DD)',
+                    'amount_paid*',
+                    'payment_mode (cash/bank_transfer/cheque/upi)',
+                    'reference_number',
+                    'cheque_number',
+                    'bank_name',
+                    'remarks'
+                ];
+                $sample = [
+                    'LN2024000001',
+                    '1',
+                    '2024-07-05',
+                    '9500.00',
+                    'cash',
+                    'REC-EMI-001',
+                    '',
+                    '',
+                    'EMI payment July 2024'
+                ];
+                $sheet->setTitle('Loan Installments');
+                // Note: instructions are on the 'Instructions' sheet — do NOT add text rows
+                // to the data sheet as they get parsed as data rows during import.
+                break;
+
             default:
                 show_404();
                 return;
@@ -143,13 +172,14 @@ class Import extends Admin_Controller {
         $instructions->getStyle('A1')->getFont()->setBold(true)->setSize(14);
         $instructions->setCellValue('A3', '1. Fields marked with * are required');
         $instructions->setCellValue('A4', '2. Dates must be in format YYYY-MM-DD (e.g. 2024-06-15)');
-        $instructions->setCellValue('A5', '3. Phone numbers should be 10 digits (no country code)');
-        $instructions->setCellValue('A6', '4. The first row is headers - do NOT delete it');
-        $instructions->setCellValue('A7', '5. Sample data in row 2 should be replaced with your data');
+        $instructions->setCellValue('A5', '3. The first row is headers - do NOT delete it');
+        $instructions->setCellValue('A6', '4. Sample data in row 2 should be replaced with your data');
+        $instructions->setCellValue('A7', '5. Maximum 500 rows per import');
         $instructions->setCellValue('A8', '6. For loans: member_code must match an existing member');
         $instructions->setCellValue('A9', '7. For savings: provide either account_number OR member_code + scheme_id');
-        $instructions->setCellValue('A10', '8. Maximum 500 rows per import');
-        $instructions->getColumnDimension('A')->setWidth(70);
+        $instructions->setCellValue('A10', '8. For loan installments: loan_number must match an existing active loan');
+        $instructions->setCellValue('A11', '9. For loan installments: leave installment_number blank to auto-target next pending EMI');
+        $instructions->getColumnDimension('A')->setWidth(80);
 
         $spreadsheet->setActiveSheetIndex(0);
 
@@ -174,7 +204,7 @@ class Import extends Admin_Controller {
         }
 
         $type = $this->input->post('import_type');
-        if (!in_array($type, ['members', 'loans', 'savings_transactions'])) {
+        if (!in_array($type, ['members', 'loans', 'savings_transactions', 'loan_installments'])) {
             echo json_encode(['success' => false, 'message' => 'Invalid import type']);
             return;
         }
@@ -340,7 +370,7 @@ class Import extends Admin_Controller {
 
         // ── Known date columns that need special handling ──
         $date_columns = ['join_date', 'date_of_birth', 'disbursement_date',
-                         'first_emi_date', 'transaction_date'];
+                         'first_emi_date', 'transaction_date', 'payment_date'];
         // Build a set of column indices that contain date data
         $date_col_indices = [];
         foreach ($headers as $c => $h) {

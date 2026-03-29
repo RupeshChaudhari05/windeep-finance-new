@@ -38,7 +38,8 @@ class Loans extends Admin_Controller {
             $this->db->where('l.status', $status);
         }
         
-        $this->db->order_by('l.disbursement_date', 'DESC');
+        $this->db->order_by('l.disbursement_date', 'ASC');
+        $this->db->order_by('l.id', 'ASC');
         
         $data['loans'] = $this->db->get()->result();
         $data['status'] = $status;

@@ -1,0 +1,6 @@
+loan_number,installment_number,payment_date,amount_paid,payment_mode,reference_number,cheque_number,bank_name,remarks
+LN2024000001,1,2024-07-05,9500.00,cash,REC-EMI-001,,,EMI payment July 2024
+LN2024000001,2,2024-08-03,9500.00,bank_transfer,NEFT20240803,,State Bank of India,EMI payment August 2024
+LN2024000002,,2024-07-10,15000.00,upi,UPI-TXN-001,,,Auto next pending EMI
+LN2024000003,3,2024-09-01,5000.00,cheque,CHQ-001,123456,HDFC Bank,Partial payment September
+LN2024000004,,2024-07-20,8750.00,cash,,,, Monthly EMI cash

@@ -31,6 +31,9 @@ class Import_model extends MY_Model {
                 case 'savings_transactions':
                     $row_errors = $this->_validate_savings_tx_row($row, $row_num);
                     break;
+                case 'loan_installments':
+                    $row_errors = $this->_validate_loan_installment_row($row, $row_num);
+                    break;
             }
 
             if (empty($row_errors)) {
@@ -71,6 +74,9 @@ class Import_model extends MY_Model {
                         break;
                     case 'savings_transactions':
                         $result = $this->_import_savings_transaction($row, $admin_id);
+                        break;
+                    case 'loan_installments':
+                        $result = $this->_import_loan_installment($row, $admin_id);
                         break;
                     default:
                         $result = ['status' => 'error', 'message' => 'Unknown type'];
@@ -428,6 +434,29 @@ class Import_model extends MY_Model {
             // 3. Generate installment schedule
             $this->_generate_loan_installments($loan_id, $principal, $rate, $interest_type, $tenure, $emi, $first_emi_date);
 
+            // 4. Record processing fee — mirrors what Loans controller does on disbursement
+            if ($processing_fee > 0) {
+                $this->load->model(['Ledger_model', 'Member_transaction_model']);
+
+                // Post to general ledger
+                $this->Ledger_model->post_transaction(
+                    'processing_fee',
+                    $loan_id,
+                    $processing_fee,
+                    $member->id,
+                    'Processing fee for loan: ' . $loan_number,
+                    $admin_id
+                );
+
+                // Record in member other transactions
+                $this->Member_transaction_model->record_processing_fee(
+                    $member->id,
+                    $processing_fee,
+                    $loan_id,
+                    $admin_id
+                );
+            }
+
             if ($this->db->trans_status() === FALSE) {
                 $err = $this->db->error();
                 $this->db->trans_rollback();
@@ -546,6 +575,132 @@ class Import_model extends MY_Model {
             } else {
                 return ['status' => 'error', 'message' => 'Failed to record savings transaction'];
             }
+        } catch (Exception $e) {
+            return ['status' => 'error', 'message' => $e->getMessage()];
+        }
+    }
+
+    // ===== LOAN INSTALLMENT IMPORT =====
+
+    /**
+     * Validate a single loan installment payment row
+     */
+    private function _validate_loan_installment_row($row, $row_num) {
+        $errors = [];
+
+        // loan_number is required
+        if (empty($row['loan_number'] ?? '')) {
+            $errors[] = "Row {$row_num}: loan_number is required (e.g. LN2024000001)";
+        } else {
+            $loan = $this->db->where('loan_number', trim($row['loan_number']))
+                             ->get('loans')->row();
+            if (!$loan) {
+                $errors[] = "Row {$row_num}: loan_number '{$row['loan_number']}' not found";
+            } elseif (!in_array($loan->status, ['active', 'npa'])) {
+                $errors[] = "Row {$row_num}: loan '{$row['loan_number']}' status is '{$loan->status}' — only active/npa loans accept payments";
+            }
+        }
+
+        // installment_number is optional — validate format when provided
+        if (!empty($row['installment_number'] ?? '') && (!is_numeric($row['installment_number']) || (int)$row['installment_number'] < 1)) {
+            $errors[] = "Row {$row_num}: installment_number must be a positive integer (or leave blank for next pending)";
+        }
+
+        // payment_date is required
+        if (empty($row['payment_date'] ?? '') || !$this->_is_valid_date($row['payment_date'])) {
+            $errors[] = "Row {$row_num}: payment_date is required (YYYY-MM-DD)";
+        }
+
+        // amount_paid is required and must be positive
+        if (empty($row['amount_paid'] ?? '') || !is_numeric($row['amount_paid']) || (float)$row['amount_paid'] <= 0) {
+            $errors[] = "Row {$row_num}: amount_paid must be a positive number";
+        }
+
+        // payment_mode must be one of the accepted ENUM values when provided
+        $valid_modes = ['cash', 'bank_transfer', 'cheque', 'upi', 'auto_debit', 'adjustment'];
+        if (!empty($row['payment_mode'] ?? '') && !in_array(strtolower(trim($row['payment_mode'])), $valid_modes)) {
+            $errors[] = "Row {$row_num}: payment_mode must be cash, bank_transfer, cheque, upi, auto_debit, or adjustment";
+        }
+
+        return $errors;
+    }
+
+    /**
+     * Import a single loan installment payment row
+     *
+     * Finds the loan by loan_number, resolves the target installment
+     * (explicit installment_number or next pending/overdue), then calls
+     * Loan_model::record_payment() which handles all ledger updates.
+     */
+    private function _import_loan_installment($row, $admin_id) {
+        $loan_number = trim($row['loan_number'] ?? '');
+
+        // Lock loan row and verify status
+        $loan = $this->db->where('loan_number', $loan_number)->get('loans')->row();
+        if (!$loan) {
+            return ['status' => 'error', 'message' => "Loan '{$loan_number}' not found"];
+        }
+        if (!in_array($loan->status, ['active', 'npa'])) {
+            return ['status' => 'error', 'message' => "Loan '{$loan_number}' is {$loan->status} — cannot accept payments"];
+        }
+
+        // Resolve target installment
+        $installment_id = null;
+        if (!empty($row['installment_number'] ?? '') && is_numeric($row['installment_number'])) {
+            $inst = $this->db
+                ->where('loan_id', $loan->id)
+                ->where('installment_number', (int)$row['installment_number'])
+                ->get('loan_installments')->row();
+            if (!$inst) {
+                return ['status' => 'error', 'message' => "Installment #{$row['installment_number']} not found for loan '{$loan_number}'"];
+            }
+            if (in_array($inst->status, ['paid', 'waived'])) {
+                return ['status' => 'skipped', 'message' => "Installment #{$row['installment_number']} for loan '{$loan_number}' is already {$inst->status}"];
+            }
+            $installment_id = $inst->id;
+        } else {
+            // Auto-select next pending or partial installment ordered by due_date
+            $inst = $this->db
+                ->where('loan_id', $loan->id)
+                ->where_in('status', ['pending', 'partial', 'overdue', 'upcoming'])
+                ->order_by('due_date', 'ASC')
+                ->order_by('installment_number', 'ASC')
+                ->get('loan_installments')->row();
+            if ($inst) {
+                $installment_id = $inst->id;
+            }
+            // If no installment found, proceed without installment_id (loan-level allocation)
+        }
+
+        $amount    = (float) $row['amount_paid'];
+        $pay_date  = $this->_parse_date($row['payment_date']) ?? date('Y-m-d');
+        $pay_mode  = !empty($row['payment_mode']) ? strtolower(trim($row['payment_mode'])) : 'cash';
+        $valid_modes = ['cash', 'bank_transfer', 'cheque', 'upi', 'auto_debit', 'adjustment'];
+        if (!in_array($pay_mode, $valid_modes)) {
+            $pay_mode = 'cash';
+        }
+
+        $payment_data = [
+            'loan_id'          => $loan->id,
+            'installment_id'   => $installment_id,
+            'payment_type'     => 'emi',
+            'total_amount'     => $amount,
+            'payment_date'     => $pay_date,
+            'payment_mode'     => $pay_mode,
+            'reference_number' => !empty($row['reference_number']) ? trim($row['reference_number']) : null,
+            'cheque_number'    => !empty($row['cheque_number'])    ? trim($row['cheque_number'])    : null,
+            'bank_name'        => !empty($row['bank_name'])        ? trim($row['bank_name'])        : null,
+            'narration'        => !empty($row['remarks'])          ? trim($row['remarks'])          : 'Imported via bulk import',
+            'created_by'       => $admin_id,
+        ];
+
+        try {
+            $this->load->model('Loan_model');
+            $payment_id = $this->Loan_model->record_payment($payment_data);
+            if ($payment_id) {
+                return ['status' => 'inserted', 'message' => 'OK', 'id' => $payment_id];
+            }
+            return ['status' => 'error', 'message' => "Failed to record payment for loan '{$loan_number}'"];
         } catch (Exception $e) {
             return ['status' => 'error', 'message' => $e->getMessage()];
         }

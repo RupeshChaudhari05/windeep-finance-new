@@ -79,7 +79,6 @@
             <table class="table table-hover table-striped mb-0">
                 <thead class="thead-light">
                     <tr>
-                        <th width="50">#</th>
                         <th>Loan No</th>
                         <th>Member</th>
                         <th>Product</th>
@@ -94,15 +93,14 @@
                 <tbody>
                     <?php if (empty($loans)): ?>
                     <tr>
-                        <td colspan="10" class="text-center py-4">
+                        <td colspan="9" class="text-center py-4">
                             <i class="fas fa-hand-holding-usd fa-3x text-muted mb-3"></i>
                             <p class="text-muted">No loans found</p>
                         </td>
                     </tr>
                     <?php else: ?>
-                        <?php foreach ($loans as $key => $loan): ?>
+                        <?php foreach ($loans as $loan): ?>
                         <tr class="<?= $loan->overdue_count > 0 ? 'table-warning' : '' ?> <?= $loan->status == 'npa' ? 'table-danger' : '' ?>">
-                            <td><?= (($pagination['current_page'] ?? 1) - 1) * ($pagination['per_page'] ?? 20) + $key + 1 ?></td>
                             <td>
                                 <a href="<?= site_url('admin/loans/view/' . $loan->id) ?>" class="font-weight-bold">
                                     <?= $loan->loan_number ?>

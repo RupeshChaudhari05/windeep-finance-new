@@ -382,7 +382,7 @@ class Member_model extends MY_Model {
         
         // Apply ordering and pagination for records
         $offset = ($page - 1) * $per_page;
-        $this->db->order_by('created_at', 'DESC');
+        $this->db->order_by('id', 'ASC');
         $this->db->limit($per_page, $offset);
         $records = $this->db->get()->result();
         

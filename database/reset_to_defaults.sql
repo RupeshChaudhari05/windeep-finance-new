@@ -112,6 +112,7 @@ TRUNCATE TABLE send_form;
 TRUNCATE TABLE chat_box;
 
 TRUNCATE TABLE view_requests;
+TRUNCATE TABLE import_logs;
 
 -- ---------------------------------------------------------------------------
 -- 8. SECURITY / SESSION DATA

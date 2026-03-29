@@ -107,6 +107,22 @@
                                 </div>
                             </div>
                         </div>
+                        <!-- Loan Installments -->
+                        <div class="col-md-4">
+                            <div class="card import-card" data-type="loan_installments" onclick="selectImportType('loan_installments')">
+                                <div class="card-body text-center">
+                                    <div class="icon-circle bg-danger text-white">
+                                        <i class="fas fa-hand-holding-usd"></i>
+                                    </div>
+                                    <h5 class="card-title">Loan Installments</h5>
+                                    <p class="text-muted mb-1">Import EMI / instalment payments</p>
+                                    <small class="text-muted">Back-dated EMI payment history</small>
+                                    <div class="mt-2">
+                                        <span class="badge badge-info"><?= $loan_payment_count ?> existing</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Info boxes for each type -->
@@ -145,6 +161,23 @@
                             <li>Available schemes:
                                 <?php foreach ($savings_schemes as $ss): ?>
                                     <span class="badge badge-secondary">ID:<?= $ss->id ?> — <?= $ss->scheme_name ?></span>
+                                <?php endforeach; ?>
+                            </li>
+                        </ul>
+                    </div>
+                    <div id="infoLoanInstallments" class="alert alert-danger mt-3" style="display:none;">
+                        <h6><i class="fas fa-info-circle mr-1"></i> Loan Installments (EMI Payments) Import Info</h6>
+                        <ul class="mb-0">
+                            <li><strong>Required fields:</strong> loan_number, payment_date, amount_paid</li>
+                            <li>Loans must already exist and be in <strong>Active</strong> or <strong>NPA</strong> status</li>
+                            <li>If <code>installment_number</code> is blank, the system auto-targets the next pending/overdue EMI</li>
+                            <li>Payment allocation follows RBI order: Interest &rarr; Principal &rarr; Fine</li>
+                            <li>Loan outstanding balance and installment status are updated automatically</li>
+                            <li>payment_mode options: <code>cash</code>, <code>bank_transfer</code>, <code>cheque</code>, <code>upi</code>, <code>auto_debit</code>, <code>adjustment</code></li>
+                            <li>Duplicate detection: same loan + same amount within 60 seconds is blocked</li>
+                            <li>Available active loans:
+                                <?php foreach ($loan_products as $lp): ?>
+                                    <span class="badge badge-secondary">Product ID:<?= $lp->id ?> — <?= $lp->product_name ?></span>
                                 <?php endforeach; ?>
                             </li>
                         </ul>
@@ -372,10 +405,11 @@ function selectImportType(type) {
     $('.import-card[data-type="' + type + '"]').addClass('selected');
     
     // Show relevant info
-    $('#infoMembers, #infoLoans, #infoSavings').hide();
-    if (type === 'members') $('#infoMembers').fadeIn();
-    if (type === 'loans') $('#infoLoans').fadeIn();
+    $('#infoMembers, #infoLoans, #infoSavings, #infoLoanInstallments').hide();
+    if (type === 'members')              $('#infoMembers').fadeIn();
+    if (type === 'loans')                $('#infoLoans').fadeIn();
     if (type === 'savings_transactions') $('#infoSavings').fadeIn();
+    if (type === 'loan_installments')    $('#infoLoanInstallments').fadeIn();
     
     // Set template download link
     $('#downloadTemplateBtn').attr('href', '<?= site_url('admin/import/download_template/') ?>' + type);

@@ -541,11 +541,16 @@ class Loan_model extends MY_Model {
             }
             
             // LOAN-11 FIX: Duplicate payment detection (same loan, same amount, within 60 seconds)
-            $recent_dup = $this->db->where('loan_id', $data['loan_id'])
-                                   ->where('total_amount', $data['total_amount'])
-                                   ->where('is_reversed', 0)
-                                   ->where('created_at >', date('Y-m-d H:i:s', time() - 60))
-                                   ->count_all_results('loan_payments');
+            // When installment_id is provided (e.g. bulk import), scope the check to that specific
+            // installment so that multiple installments with equal EMI amounts are not blocked.
+            $this->db->where('loan_id', $data['loan_id'])
+                     ->where('total_amount', $data['total_amount'])
+                     ->where('is_reversed', 0)
+                     ->where('created_at >', date('Y-m-d H:i:s', time() - 60));
+            if (!empty($data['installment_id'])) {
+                $this->db->where('installment_id', $data['installment_id']);
+            }
+            $recent_dup = $this->db->count_all_results('loan_payments');
             if ($recent_dup > 0) {
                 throw new Exception('Duplicate payment detected. A payment of the same amount was recorded within the last 60 seconds.');
             }
