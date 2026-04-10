@@ -137,6 +137,7 @@
                                             <th class="text-right">Debit</th>
                                             <th class="text-right">Balance</th>
                                             <th>Mode</th>
+                                            <th></th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -180,6 +181,11 @@
                                                 <?= $is_rev ? '<s>'.format_amount((float) $balance).'</s>' : format_amount((float) $balance) ?>
                                             </td>
                                             <td><small><?= ucfirst($txn->payment_mode) ?></small></td>
+                                            <td>
+                                                <?php if (!$is_rev): ?>
+                                                <a href="<?= site_url('admin/payments/receipt/'.$txn->id.'?type=savings') ?>" target="_blank" class="btn btn-xs btn-outline-secondary" title="Print Receipt"><i class="fas fa-print"></i></a>
+                                                <?php endif; ?>
+                                            </td>
                                         </tr>
                                         <?php endforeach; ?>
                                     </tbody>

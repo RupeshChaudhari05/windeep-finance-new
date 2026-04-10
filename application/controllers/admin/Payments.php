@@ -137,7 +137,7 @@ class Payments extends Admin_Controller {
                 break;
             case 'savings':
                 $addressExpr = "CONCAT(IFNULL(m.address_line1,''), ' ', IFNULL(m.address_line2,''), ', ', IFNULL(m.city,'')) as address";
-                $payment = $this->db->select('st.*, sa.account_number, m.member_code, m.first_name, m.last_name, m.phone')
+                $payment = $this->db->select('st.*, sa.account_number, sa.id as savings_account_id, m.member_code, m.first_name, m.last_name, m.phone, m.email')
                                     ->select($addressExpr, false)
                                     ->from('savings_transactions st')
                                     ->join('savings_accounts sa', 'sa.id = st.savings_account_id')
@@ -164,9 +164,15 @@ class Payments extends Admin_Controller {
             redirect('admin/payments/history');
         }
         
-        $data['payment'] = $payment;
-        $data['type'] = $type;
-        $data['title'] = 'Payment Receipt';
+        $this->load->helper('settings');
+        $data['payment']           = $payment;
+        $data['type']              = $type;
+        $data['title']             = 'Payment Receipt';
+        $data['company_name']      = get_setting('company_name', 'Windeep Finance');
+        $data['company_address']   = get_setting('company_address', '');
+        $data['company_phone']     = get_setting('company_phone', '');
+        $data['company_email']     = get_setting('company_email', '');
+        $data['company_short_name']= get_setting('company_short_name', 'WF');
         
         $this->load->view('admin/payments/receipt', $data);
     }

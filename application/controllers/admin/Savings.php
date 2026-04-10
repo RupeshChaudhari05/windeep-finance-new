@@ -340,7 +340,7 @@ class Savings extends Admin_Controller {
                 
                 $this->log_audit('create', 'savings_transactions', 'savings_transactions', $transaction_id, null, $payment_data);
                 $this->session->set_flashdata('success', 'Payment recorded successfully.');
-                redirect('admin/savings/view/' . $payment_data['savings_account_id']);
+                redirect('admin/payments/receipt/' . $transaction_id . '?type=savings');
             } else {
                 throw new Exception('Failed to record payment');
             }
