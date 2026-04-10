@@ -135,6 +135,7 @@
                 <input type="hidden" name="loan_id" value="<?= $loan->id ?>">
                 <input type="hidden" name="payment_type" id="payment_type" value="emi">
                 <input type="hidden" name="total_amount" id="total_amount" value="<?= $loan->emi_amount ?>">
+                <input type="hidden" name="pay_all_overdue" id="pay_all_overdue_flag" value="0">
                 <?php 
                     // Get next pending installment for interest-only calculation
                     $next_pending = null;
@@ -590,16 +591,20 @@ $(document).ready(function() {
         updateBreakdown(amount);
     });
     
-    // Overdue quick pay button
+    // Overdue quick pay button — routes to dedicated bulk-overdue endpoint
     $('.pay-type-card-btn').on('click', function() {
         var amount = parseFloat($(this).data('amount'));
-        var type = $(this).data('type');
         $('.pay-type-card').removeClass('active');
         $('.pay-type-card[data-type="emi"]').addClass('active');
-        selectedType = type;
+        selectedType = 'overdue';
         $('#amount').val(amount);
-        setRegularMode();
-        $('#paymentTypeLabel').removeClass('badge-warning badge-primary badge-danger').addClass('badge-success').text('Overdue Payment');
+        // Point form to the dedicated bulk-overdue endpoint
+        $('#collectionForm').attr('action', '<?= site_url('admin/loans/pay_all_overdue') ?>');
+        $('#pay_all_overdue_flag').val('1');
+        $('#submitBtn').removeClass('btn-warning btn-success').addClass('btn-danger');
+        $('#submitBtnText').text('Pay All <?= count($overdue_emis ?? []) ?> Overdue EMIs');
+        $('#paymentTypeLabel').removeClass('badge-success badge-warning badge-primary').addClass('badge-danger').text('Pay All Overdue');
+        $('#amountHint').html('<i class="fas fa-exclamation-triangle mr-1"></i>Each overdue EMI will be individually marked as paid');
         updateBreakdown(amount);
     });
     
@@ -613,7 +618,8 @@ $(document).ready(function() {
     
     function setRegularMode() {
         $('#collectionForm').attr('action', '<?= site_url('admin/loans/record_payment/' . $loan->id) ?>');
-        $('#submitBtn').removeClass('btn-warning').addClass('btn-success');
+        $('#pay_all_overdue_flag').val('0');
+        $('#submitBtn').removeClass('btn-warning btn-danger').addClass('btn-success');
         $('#submitBtnText').text('Record Payment');
     }
     

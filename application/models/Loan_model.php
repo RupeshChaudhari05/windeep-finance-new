@@ -938,7 +938,7 @@ class Loan_model extends MY_Model {
         $new_total_paid = $new_principal_paid + $new_interest_paid;
         
         $status = 'partial';
-        if ($new_total_paid >= $installment->emi_amount) {
+        if (round($new_total_paid, 2) >= round((float)$installment->emi_amount, 2)) {
             $status = 'paid';
         }
         

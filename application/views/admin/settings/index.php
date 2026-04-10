@@ -143,9 +143,31 @@
                                     <div class="form-group">
                                         <label>Date Format</label>
                                         <select class="form-control" name="date_format">
-                                            <option value="d/m/Y" <?= ($settings['date_format'] ?? '') == 'd/m/Y' ? 'selected' : '' ?>>DD/MM/YYYY</option>
-                                            <option value="m/d/Y" <?= ($settings['date_format'] ?? '') == 'm/d/Y' ? 'selected' : '' ?>>MM/DD/YYYY</option>
-                                            <option value="Y-m-d" <?= ($settings['date_format'] ?? '') == 'Y-m-d' ? 'selected' : '' ?>>YYYY-MM-DD</option>
+                                            <optgroup label="Numeric Formats">
+                                                <option value="d/m/Y" <?= ($settings['date_format'] ?? '') == 'd/m/Y' ? 'selected' : '' ?>>01/06/2025 &mdash; DD/MM/YYYY</option>
+                                                <option value="m/d/Y" <?= ($settings['date_format'] ?? '') == 'm/d/Y' ? 'selected' : '' ?>>06/01/2025 &mdash; MM/DD/YYYY</option>
+                                                <option value="Y-m-d" <?= ($settings['date_format'] ?? '') == 'Y-m-d' ? 'selected' : '' ?>>2025-06-01 &mdash; YYYY-MM-DD (ISO 8601)</option>
+                                                <option value="Y/m/d" <?= ($settings['date_format'] ?? '') == 'Y/m/d' ? 'selected' : '' ?>>2025/06/01 &mdash; YYYY/MM/DD</option>
+                                                <option value="d.m.Y" <?= ($settings['date_format'] ?? '') == 'd.m.Y' ? 'selected' : '' ?>>01.06.2025 &mdash; DD.MM.YYYY (European)</option>
+                                                <option value="d-m-Y" <?= ($settings['date_format'] ?? '') == 'd-m-Y' ? 'selected' : '' ?>>01-06-2025 &mdash; DD-MM-YYYY</option>
+                                                <option value="d/m/y" <?= ($settings['date_format'] ?? '') == 'd/m/y' ? 'selected' : '' ?>>01/06/25 &mdash; DD/MM/YY (Short year)</option>
+                                            </optgroup>
+                                            <optgroup label="Month Name Formats">
+                                                <option value="d-F-Y" <?= ($settings['date_format'] ?? '') == 'd-F-Y' ? 'selected' : '' ?>>01-June-2025 &mdash; DD-Month-YYYY</option>
+                                                <option value="d F Y" <?= ($settings['date_format'] ?? '') == 'd F Y' ? 'selected' : '' ?>>01 June 2025 &mdash; DD Month YYYY</option>
+                                                <option value="d M Y" <?= ($settings['date_format'] ?? '') == 'd M Y' ? 'selected' : '' ?>>01 Jun 2025 &mdash; DD Mon YYYY</option>
+                                                <option value="d M, Y" <?= ($settings['date_format'] ?? '') == 'd M, Y' ? 'selected' : '' ?>>01 Jun, 2025 &mdash; DD Mon, YYYY</option>
+                                                <option value="F d, Y" <?= ($settings['date_format'] ?? '') == 'F d, Y' ? 'selected' : '' ?>>June 01, 2025 &mdash; Month DD, YYYY (US Long)</option>
+                                                <option value="M d, Y" <?= ($settings['date_format'] ?? '') == 'M d, Y' ? 'selected' : '' ?>>Jun 01, 2025 &mdash; Mon DD, YYYY (US Short)</option>
+                                                <option value="j F Y" <?= ($settings['date_format'] ?? '') == 'j F Y' ? 'selected' : '' ?>>1 June 2025 &mdash; D Month YYYY (No leading zero)</option>
+                                                <option value="j M Y" <?= ($settings['date_format'] ?? '') == 'j M Y' ? 'selected' : '' ?>>1 Jun 2025 &mdash; D Mon YYYY (No leading zero)</option>
+                                                <option value="F Y" <?= ($settings['date_format'] ?? '') == 'F Y' ? 'selected' : '' ?>>June 2025 &mdash; Month YYYY (Month only)</option>
+                                            </optgroup>
+                                            <optgroup label="Full Day + Date Formats">
+                                                <option value="D, d M Y" <?= ($settings['date_format'] ?? '') == 'D, d M Y' ? 'selected' : '' ?>>Fri, 01 Jun 2025 &mdash; Day, DD Mon YYYY</option>
+                                                <option value="D, d F Y" <?= ($settings['date_format'] ?? '') == 'D, d F Y' ? 'selected' : '' ?>>Fri, 01 June 2025 &mdash; Day, DD Month YYYY</option>
+                                                <option value="l, d F Y" <?= ($settings['date_format'] ?? '') == 'l, d F Y' ? 'selected' : '' ?>>Friday, 01 June 2025 &mdash; Weekday, DD Month YYYY</option>
+                                            </optgroup>
                                         </select>
                                     </div>
                                 </div>

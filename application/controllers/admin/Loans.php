@@ -736,10 +736,10 @@ class Loans extends Admin_Controller {
         
         try {
             $installment_id = $this->input->post('installment_id');
-            
+            $loan_id        = $this->input->post('loan_id');
+
             // Auto-detect next pending/overdue installment if not provided
             if (empty($installment_id)) {
-                $loan_id = $this->input->post('loan_id');
                 $next_inst = $this->db->where('loan_id', $loan_id)
                                       ->where_in('status', ['overdue', 'pending', 'partial'])
                                       ->order_by('installment_number', 'ASC')
@@ -748,16 +748,31 @@ class Loans extends Admin_Controller {
                                       ->row();
                 $installment_id = $next_inst ? $next_inst->id : null;
             }
-            
+
+            // Guard: reject if the targeted installment is already paid
+            if (!empty($installment_id)) {
+                $check_inst = $this->db->where('id', $installment_id)->get('loan_installments')->row();
+                if ($check_inst && $check_inst->status === 'paid') {
+                    $this->session->set_flashdata('warning',
+                        'EMI #' . $check_inst->installment_number . ' (due ' . date('d M Y', strtotime($check_inst->due_date)) . ') '
+                        . 'is already paid on ' . date('d M Y', strtotime($check_inst->paid_date)) . '. '
+                        . 'No duplicate payment recorded.'
+                    );
+                    redirect('admin/loans/collect/' . $loan_id);
+                    return;
+                }
+            }
+
             $payment_data = [
-                'loan_id' => $this->input->post('loan_id'),
-                'installment_id' => $installment_id ?: null,
-                'total_amount' => $this->input->post('total_amount'),
-                'payment_mode' => $this->input->post('payment_mode'),
-                'payment_type' => $this->input->post('payment_type') ?: 'regular',
+                'loan_id'          => $this->input->post('loan_id'),
+                'installment_id'   => $installment_id ?: null,
+                'total_amount'     => $this->input->post('total_amount'),
+                'payment_mode'     => $this->input->post('payment_mode'),
+                'payment_type'     => $this->input->post('payment_type') ?: 'regular',
+                'payment_date'     => $this->input->post('payment_date') ?: date('Y-m-d'),
                 'reference_number' => $this->input->post('reference_number'),
-                'narration' => $this->input->post('remarks'),
-                'created_by' => $this->session->userdata('admin_id')
+                'narration'        => $this->input->post('remarks'),
+                'created_by'       => $this->session->userdata('admin_id')
             ];
             
             $payment_id = $this->Loan_model->record_payment($payment_data);
@@ -785,7 +800,104 @@ class Loans extends Admin_Controller {
             redirect('admin/loans/collect/' . $this->input->post('loan_id'));
         }
     }
-    
+
+    /**
+     * Pay All Overdue Installments in one go
+     * Processes each overdue installment as a separate payment sequentially.
+     */
+    public function pay_all_overdue() {
+        if ($this->input->method() !== 'post') {
+            redirect('admin/loans/collect');
+        }
+
+        $this->load->library('form_validation');
+        $this->form_validation->set_rules('loan_id',      'Loan',         'required|numeric');
+        $this->form_validation->set_rules('payment_mode', 'Payment Mode', 'required');
+
+        $loan_id = (int) $this->input->post('loan_id');
+
+        if ($this->form_validation->run() === FALSE) {
+            $this->session->set_flashdata('error', validation_errors());
+            redirect('admin/loans/collect/' . $loan_id);
+            return;
+        }
+
+        $payment_date = $this->input->post('payment_date') ?: date('Y-m-d');
+        $payment_mode = $this->input->post('payment_mode');
+        $reference    = $this->input->post('reference_number');
+        $remarks      = $this->input->post('remarks');
+        $admin_id     = $this->session->userdata('admin_id');
+
+        // All pending installments whose due date is in the past
+        $overdue_insts = $this->db
+            ->where('loan_id', $loan_id)
+            ->where('status', 'pending')
+            ->where('due_date <', date('Y-m-d'))
+            ->order_by('installment_number', 'ASC')
+            ->get('loan_installments')
+            ->result();
+
+        if (empty($overdue_insts)) {
+            $this->session->set_flashdata('error', 'No overdue installments found for this loan.');
+            redirect('admin/loans/collect/' . $loan_id);
+            return;
+        }
+
+        $success_count = 0;
+        $errors        = [];
+        $loan_obj      = null;
+
+        foreach ($overdue_insts as $inst) {
+            try {
+                $payment_data = [
+                    'loan_id'          => $loan_id,
+                    'installment_id'   => $inst->id,
+                    'total_amount'     => $inst->emi_amount,
+                    'payment_mode'     => $payment_mode,
+                    'payment_type'     => 'emi',
+                    'payment_date'     => $payment_date,
+                    'reference_number' => $reference,
+                    'narration'        => ($remarks ? $remarks . ' | ' : '') . 'Overdue clearance #' . $inst->installment_number,
+                    'created_by'       => $admin_id,
+                ];
+
+                $payment_id = $this->Loan_model->record_payment($payment_data);
+
+                if ($payment_id) {
+                    if (!$loan_obj) {
+                        $loan_obj = $this->Loan_model->get_by_id($loan_id);
+                        $this->load->model('Ledger_model');
+                    }
+                    $this->Ledger_model->post_transaction(
+                        'loan_payment',
+                        $payment_id,
+                        $inst->emi_amount,
+                        $loan_obj->member_id,
+                        'Overdue EMI #' . $inst->installment_number . ' for ' . $loan_obj->loan_number,
+                        $admin_id
+                    );
+                    $this->log_audit('create', 'loan_payments', 'loan_payments', $payment_id, null, $payment_data);
+                    $success_count++;
+                }
+            } catch (Exception $e) {
+                $errors[] = 'EMI #' . $inst->installment_number . ': ' . $e->getMessage();
+                break; // Stop on first error to preserve data integrity
+            }
+        }
+
+        if ($success_count > 0) {
+            $msg = $success_count . ' overdue EMI(s) cleared successfully.';
+            if (!empty($errors)) {
+                $msg .= ' Warning: ' . implode(', ', $errors);
+            }
+            $this->session->set_flashdata('success', $msg);
+        } else {
+            $this->session->set_flashdata('error', 'Failed to clear overdue payments. ' . implode(', ', $errors));
+        }
+
+        redirect('admin/loans/view/' . $loan_id);
+    }
+
     /**
      * AJAX: Check Interest-Only Payment Eligibility
      * Returns eligibility status, interest amount, and extension info for a loan.
@@ -1403,24 +1515,35 @@ class Loans extends Admin_Controller {
      * View Single Payment Receipt
      */
     public function payment_receipt($payment_id) {
-        $addressExpr = "CONCAT(IFNULL(m.address_line1,''), ' ', IFNULL(m.address_line2,''), ', ', IFNULL(m.city,'')) as address";
-        $payment = $this->db->select('lp.*, l.loan_number, l.member_id, l.principal_amount, l.interest_rate, m.member_code, m.first_name, m.last_name, m.phone')
-                           ->select($addressExpr, false)
-                           ->from('loan_payments lp')
-                           ->join('loans l', 'l.id = lp.loan_id')
-                           ->join('members m', 'm.id = l.member_id')
-                           ->where('lp.id', $payment_id)
-                           ->get()
-                           ->row();
-        
+        $this->load->helper(['settings', 'format']);
+
+        $addressExpr = "TRIM(CONCAT_WS(', ', NULLIF(TRIM(CONCAT_WS(' ', m.address_line1, m.address_line2)),''), NULLIF(m.city,''), NULLIF(m.state,''), NULLIF(m.pincode,''))) as member_address";
+
+        $payment = $this->db
+            ->select('lp.*, l.loan_number, l.member_id, l.principal_amount, l.interest_rate, l.emi_amount as loan_emi_amount, m.member_code, m.first_name, m.last_name, m.phone, m.email')
+            ->select($addressExpr, false)
+            ->select('li.installment_number, li.due_date as installment_due_date', false)
+            ->from('loan_payments lp')
+            ->join('loans l',             'l.id  = lp.loan_id')
+            ->join('members m',           'm.id  = l.member_id')
+            ->join('loan_installments li', 'li.id = lp.installment_id', 'left')
+            ->where('lp.id', $payment_id)
+            ->get()
+            ->row();
+
         if (!$payment) {
             $this->session->set_flashdata('error', 'Payment record not found.');
             redirect('admin/loans/repayment_history');
         }
-        
-        $data['payment'] = $payment;
-        $data['title'] = 'Payment Receipt - ' . $payment->payment_code;
-        
+
+        $data['payment']      = $payment;
+        $data['title']        = 'Payment Receipt - ' . $payment->payment_code;
+        $data['company_name'] = get_setting('company_name',  'Windeep Finance');
+        $data['company_address'] = get_setting('company_address', '');
+        $data['company_phone']   = get_setting('company_phone',   '');
+        $data['company_email']   = get_setting('company_email',   '');
+        $data['company_short_name'] = get_setting('company_short_name', 'WF');
+
         $this->load->view('admin/loans/payment_receipt', $data);
     }
     
