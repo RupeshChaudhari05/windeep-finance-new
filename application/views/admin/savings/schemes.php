@@ -124,7 +124,7 @@
                     </div>
                     <div class="form-row">
                         <div class="form-group col-md-6">
-                            <label>Monthly Amount <span class="text-danger">*</span></label>
+                            <label id="enroll_amount_label">Monthly Amount <span class="text-danger">*</span></label>
                             <input type="number" step="0.01" name="monthly_amount" id="enroll_monthly_amount" class="form-control" required>
                         </div>
                         <div class="form-group col-md-6">
@@ -155,9 +155,9 @@
                 </div>
                 <div class="modal-body">
                     <div class="form-group">
-                        <label>Monthly Amount</label>
+                        <label id="enroll_all_amount_label">Monthly Amount</label>
                         <input type="number" step="0.01" name="monthly_amount" id="enroll_all_monthly_amount" class="form-control" required>
-                        <small class="text-muted">Defaults to scheme's monthly amount or min deposit</small>
+                        <small class="text-muted" id="enroll_all_amount_hint">Defaults to scheme's monthly amount or min deposit</small>
                     </div>
                     <div class="form-group">
                         <label>Start Date</label>
@@ -245,6 +245,7 @@
                                     <option value="monthly" selected>Monthly</option>
                                     <option value="quarterly">Quarterly</option>
                                     <option value="yearly">Yearly</option>
+                                    <option value="onetime">One Time</option>
                                 </select>
                             </div>
                         </div>
@@ -328,19 +329,28 @@ $(document).ready(function() {
     // Enroll members to scheme modal
     $('.btn-enroll').click(function() {
         var scheme = $(this).data('scheme');
+        var isOnetime = scheme.deposit_frequency === 'onetime';
         $('#enroll_scheme_id').val(scheme.id);
         $('#enroll_monthly_amount').val(scheme.monthly_amount || scheme.min_deposit || 0);
         $('#enroll_start_date').val(new Date().toISOString().slice(0,10));
+        $('#enroll_amount_label').html(isOnetime
+            ? 'One Time Amount <span class="text-danger">*</span>'
+            : 'Monthly Amount <span class="text-danger">*</span>');
         $('#enrollMembersModal').modal('show');
     });
 
     // Enroll all members modal
     $('.btn-enroll-all').click(function() {
         var scheme = $(this).data('scheme');
+        var isOnetime = scheme.deposit_frequency === 'onetime';
         $('#enroll_all_scheme_id').val(scheme.id);
         $('#enroll_all_monthly_amount').val(scheme.monthly_amount || scheme.min_deposit || 0);
         $('#enroll_all_start_date').val(new Date().toISOString().slice(0,10));
         $('#enroll_all_force').prop('checked', false);
+        $('#enroll_all_amount_label').text(isOnetime ? 'One Time Amount' : 'Monthly Amount');
+        $('#enroll_all_amount_hint').text(isOnetime
+            ? 'Member pays this amount once only'
+            : "Defaults to scheme's monthly amount or min deposit");
         $('#enrollAllModal').modal('show');
     });
     
