@@ -348,8 +348,8 @@
                     <div class="row">
                         <div class="col-md-6">
                             <div class="form-group">
-                                <label for="payment_reference">Reference / Transaction ID</label>
-                                <input type="text" class="form-control" id="payment_reference" name="payment_reference" 
+                                <label for="reference_number">Reference / Transaction ID</label>
+                                <input type="text" class="form-control" id="reference_number" name="reference_number" 
                                        placeholder="UPI ID / UTR / Cheque No">
                             </div>
                         </div>
@@ -364,7 +364,7 @@
                     <hr class="my-3">
                     
                     <!-- ═══ STEP 3: Payment Breakdown ═══ -->
-                    <label class="d-block mb-2"><i class="fas fa-chart-pie mr-1"></i> Step 3: Payment Breakdown <small class="text-muted">(auto-calculated as per RBI norms: Fine → Interest → Principal)</small></label>
+                    <label class="d-block mb-2"><i class="fas fa-chart-pie mr-1"></i> Step 3: Payment Breakdown <small class="text-muted">(auto-calculated as per RBI norms: Interest → Principal → Fine)</small></label>
                     <div class="row mb-3">
                         <div class="col-md-3 col-6">
                             <div class="card bg-light mb-2">
@@ -448,8 +448,8 @@
                         <?php foreach (array_slice($recent_payments ?? [], 0, 5) as $pmt): ?>
                         <tr>
                             <td><?= format_date($pmt->payment_date) ?></td>
-                            <td><small><?= $pmt->receipt_number ?></small></td>
-                            <td class="text-right"><?= format_amount($pmt->amount, 0) ?></td>
+                            <td><small><?= $pmt->payment_code ?? '-' ?></small></td>
+                            <td class="text-right"><?= format_amount($pmt->total_amount ?? 0, 0) ?></td>
                             <td><small><?= ucfirst($pmt->payment_mode) ?></small></td>
                         </tr>
                         <?php endforeach; ?>
@@ -571,12 +571,15 @@ $(document).ready(function() {
             $('#amountHint').html('<i class="fas fa-info-circle mr-1"></i>Interest portion only — principal deferred');
         } else if (type === 'multi_emi') {
             $('#multiEmiCard').removeClass('d-none');
-            $('#payment_type').val('emi');
-            setRegularMode();
+            $('#payment_type').val('multi_emi');
+            $('#collectionForm').attr('action', '<?= site_url('admin/loans/pay_next_emis') ?>');
+            $('#pay_all_overdue_flag').val('0');
+            $('#submitBtn').removeClass('btn-warning btn-danger').addClass('btn-success');
+            $('#submitBtnText').text('Pay Multiple EMIs');
             $('#paymentTypeLabel').removeClass('badge-success badge-warning badge-danger').addClass('badge-primary').text('Multi EMI');
             $('#amountHint').html('<i class="fas fa-info-circle mr-1"></i>Select number of EMIs above');
         } else if (type === 'settlement') {
-            $('#payment_type').val('emi');
+            $('#payment_type').val('foreclosure');
             setRegularMode();
             $('#paymentTypeLabel').removeClass('badge-success badge-warning badge-primary').addClass('badge-danger').text('Full Settlement');
             $('#amountHint').html('<i class="fas fa-flag-checkered mr-1"></i>Loan will be closed after this payment');
@@ -608,11 +611,13 @@ $(document).ready(function() {
         updateBreakdown(amount);
     });
     
-    // Multi EMI count buttons
+    // Multi EMI count buttons — also wire hidden num_emis for pay_next_emis endpoint
+    $('<input>').attr({type:'hidden', id:'num_emis', name:'num_emis', value:'2'}).appendTo('#collectionForm');
     $('.emi-count-btn').on('click', function() {
         var count = parseInt($(this).data('count'));
         var amount = emiAmount * count;
         $('#amount').val(amount);
+        $('#num_emis').val(count);
         updateBreakdown(amount);
     });
     

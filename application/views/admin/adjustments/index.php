@@ -296,6 +296,7 @@
                                             <th>Paid Date</th>
                                             <th>Late</th>
                                             <th>Remarks</th>
+                                            <th>Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody></tbody>
@@ -327,6 +328,7 @@
                                             <th>Fine</th>
                                             <th>Mode</th>
                                             <th>Narration</th>
+                                            <th>Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody></tbody>
@@ -377,6 +379,33 @@
                                             <th>Paid Date</th>
                                             <th>Late</th>
                                             <th>Remarks</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Savings Transactions for selected account -->
+                        <div class="card card-outline card-secondary mt-2">
+                            <div class="card-header py-2">
+                                <h3 class="card-title"><i class="fas fa-exchange-alt mr-1"></i> Transaction Records</h3>
+                                <div class="card-tools">
+                                    <button class="btn btn-tool" data-card-widget="collapse"><i class="fas fa-minus"></i></button>
+                                </div>
+                            </div>
+                            <div class="card-body p-0">
+                                <table class="table table-sm table-striped mb-0" id="savingsTxnTable">
+                                    <thead>
+                                        <tr>
+                                            <th>Code</th>
+                                            <th>Date</th>
+                                            <th>Type</th>
+                                            <th>Amount</th>
+                                            <th>Mode</th>
+                                            <th>Narration</th>
+                                            <th>Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody></tbody>
@@ -393,6 +422,36 @@
                     </div>
                 </div>
 
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Entry Confirm Modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title"><i class="fas fa-trash-alt mr-1"></i> Delete Entry</h5>
+                <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-danger py-2">
+                    <i class="fas fa-exclamation-triangle mr-1"></i>
+                    You are about to permanently delete this <strong><span id="deleteTargetLabel">entry</span></strong>.
+                    This action is irreversible. The deletion will be permanently recorded in the audit trail.
+                </div>
+                <div class="form-group mb-0">
+                    <label>Reason for Deletion <span class="text-danger">*</span></label>
+                    <textarea class="form-control" id="deleteReason" rows="3" placeholder="Explain why this entry is being deleted (e.g. duplicate entry, data entry error)..."></textarea>
+                    <small class="text-muted">Minimum 5 characters required.</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="btnConfirmDelete">
+                    <i class="fas fa-trash-alt mr-1"></i> Delete Entry
+                </button>
             </div>
         </div>
     </div>
@@ -638,7 +697,7 @@ $(window).on('load', function() {
         
         var html = '<div class="table-responsive"><table class="table table-bordered table-sm adj-table">' +
             '<thead class="thead-dark"><tr>' +
-            '<th>Code</th><th>Date</th><th>Type</th><th>Fine Amount</th><th>Paid</th><th>Waived</th><th>Balance</th><th>Status</th><th>Remarks</th>' +
+            '<th>Code</th><th>Date</th><th>Type</th><th>Fine Amount</th><th>Paid</th><th>Waived</th><th>Balance</th><th>Status</th><th>Remarks</th><th>Actions</th>' +
             '</tr></thead><tbody>';
         
         fines.forEach(function(f) {
@@ -658,6 +717,7 @@ $(window).on('load', function() {
                     '<span class="cell-value">' + getStatusBadge(f.status) + '</span><i class="fas fa-pencil-alt edit-icon"></i></td>' +
                 '<td class="cell-editable" data-type="fine" data-id="' + f.id + '" data-field="remarks" data-value="' + (f.remarks||'') + '">' +
                     '<span class="cell-value">' + (f.remarks || '-') + '</span><i class="fas fa-pencil-alt edit-icon"></i></td>' +
+                '<td><button class="btn btn-danger btn-xs" onclick="confirmDelete(\'fine\',' + f.id + ')" title="Delete this fine"><i class="fas fa-trash-alt"></i></button></td>' +
                 '</tr>';
         });
         
@@ -670,7 +730,7 @@ $(window).on('load', function() {
         currentLoanId = loanId;
         
         $('#loanDrillPanel').removeClass('d-none');
-        $('#installmentsTable tbody').html('<tr><td colspan="14" class="text-center py-3"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr>');
+        $('#installmentsTable tbody').html('<tr><td colspan="15" class="text-center py-3"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr>');
         
         $.getJSON(BASE + 'loan_installments/' + loanId, function(resp) {
             if (!resp.success) {
@@ -739,6 +799,7 @@ $(window).on('load', function() {
                     editableCell('loan_installment', inst.id, 'paid_date', inst.paid_date || '', inst.paid_date || '-') +
                     '<td>' + (inst.is_late == 1 ? '<span class="text-danger">' + inst.days_late + 'd</span>' : '-') + '</td>' +
                     editableCell('loan_installment', inst.id, 'remarks', inst.remarks || '', inst.remarks || '-') +
+                    '<td><button class="btn btn-danger btn-xs" onclick="confirmDelete(\'loan_installment\',' + inst.id + ')" title="Delete this installment"><i class="fas fa-trash-alt"></i></button></td>' +
                     '</tr>';
             });
             
@@ -755,14 +816,16 @@ $(window).on('load', function() {
                 '<td>' + fmtAmt(totals.fine) + '</td>' +
                 '<td>' + fmtAmt(totals.fpaid) + '</td>' +
                 '<td>' + fmtAmt(totals.tpaid) + '</td>' +
-                '<td></td><td></td><td></td><td></td>'
+                '<td></td><td></td><td></td><td></td><td></td>'
             );
             
             // Payments
             var ptbody = '';
             resp.payments.forEach(function(p) {
-                ptbody += '<tr>' +
-                    '<td><small>' + p.payment_code + '</small></td>' +
+                var reversedClass = p.is_reversed == 1 ? 'table-danger text-muted' : '';
+                var reversedBadge = p.is_reversed == 1 ? ' <span class="badge badge-danger badge-sm">REVERSED</span>' : '';
+                ptbody += '<tr class="' + reversedClass + '">' +
+                    '<td><small>' + p.payment_code + reversedBadge + '</small></td>' +
                     '<td>' + p.payment_date + '</td>' +
                     '<td><span class="badge badge-secondary">' + p.payment_type + '</span></td>' +
                     '<td class="font-weight-bold">' + fmtAmt(p.total_amount) + '</td>' +
@@ -771,10 +834,12 @@ $(window).on('load', function() {
                     '<td>' + fmtAmt(p.fine_component) + '</td>' +
                     '<td>' + (p.payment_mode || '') + '</td>' +
                     '<td><small>' + (p.narration || '') + '</small></td>' +
+                    '<td>' + (p.is_reversed == 1 ? '<span class="text-muted"><i class="fas fa-ban"></i></span>' :
+                        '<button class="btn btn-danger btn-xs" onclick="confirmDelete(\'loan_payment\',' + p.id + ')" title="Delete this payment"><i class="fas fa-trash-alt"></i></button>') + '</td>' +
                     '</tr>';
             });
             if (!resp.payments.length) {
-                ptbody = '<tr><td colspan="9" class="text-center text-muted">No payment records</td></tr>';
+                ptbody = '<tr><td colspan="10" class="text-center text-muted">No payment records</td></tr>';
             }
             $('#paymentsTable tbody').html(ptbody);
             
@@ -797,7 +862,7 @@ $(window).on('load', function() {
         currentSavingsId = accountId;
         
         $('#savingsDrillPanel').removeClass('d-none');
-        $('#savingsScheduleTable tbody').html('<tr><td colspan="10" class="text-center py-3"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr>');
+        $('#savingsScheduleTable tbody').html('<tr><td colspan="11" class="text-center py-3"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr>');
         
         $.getJSON(BASE + 'savings_schedule/' + accountId, function(resp) {
             if (!resp.success) {
@@ -848,14 +913,38 @@ $(window).on('load', function() {
                     editableCell('savings_schedule', s.id, 'paid_date', s.paid_date || '', s.paid_date || '-') +
                     '<td>' + (s.is_late == 1 ? '<span class="text-danger">' + s.days_late + 'd</span>' : '-') + '</td>' +
                     editableCell('savings_schedule', s.id, 'remarks', s.remarks || '', s.remarks || '-') +
+                    '<td><button class="btn btn-danger btn-xs" onclick="confirmDelete(\'savings_schedule\',' + s.id + ')" title="Delete this entry"><i class="fas fa-trash-alt"></i></button></td>' +
                     '</tr>';
             });
             
             if (!resp.schedule.length) {
-                tbody = '<tr><td colspan="10" class="text-center text-muted">No schedule entries</td></tr>';
+                tbody = '<tr><td colspan="11" class="text-center text-muted">No schedule entries</td></tr>';
             }
             
             $('#savingsScheduleTable tbody').html(tbody);
+
+            // ─── Savings Transactions ───
+            var stbody = '';
+            if (resp.transactions && resp.transactions.length) {
+                resp.transactions.forEach(function(t) {
+                    var reversedClass = t.is_reversed == 1 ? 'table-danger text-muted' : '';
+                    var reversedBadge = t.is_reversed == 1 ? ' <span class="badge badge-danger badge-sm">REVERSED</span>' : '';
+                    var typeCls = {deposit:'success', withdrawal:'danger', interest_credit:'info', opening_balance:'primary', fine_payment:'warning'}[t.transaction_type] || 'secondary';
+                    stbody += '<tr class="' + reversedClass + '">' +
+                        '<td><small>' + (t.transaction_code || t.id) + reversedBadge + '</small></td>' +
+                        '<td>' + t.transaction_date + '</td>' +
+                        '<td><span class="badge badge-' + typeCls + '">' + (t.transaction_type || '') + '</span></td>' +
+                        '<td class="font-weight-bold">' + fmtAmt(t.amount) + '</td>' +
+                        '<td>' + (t.payment_mode || '') + '</td>' +
+                        '<td><small>' + (t.narration || t.remarks || '') + '</small></td>' +
+                        '<td>' + (t.is_reversed == 1 ? '<span class="text-muted"><i class="fas fa-ban"></i></span>' :
+                            '<button class="btn btn-danger btn-xs" onclick="confirmDelete(\'savings_transaction\',' + t.id + ')" title="Delete this transaction"><i class="fas fa-trash-alt"></i></button>') + '</td>' +
+                        '</tr>';
+                });
+            } else {
+                stbody = '<tr><td colspan="7" class="text-center text-muted py-2">No transaction records</td></tr>';
+            }
+            $('#savingsTxnTable tbody').html(stbody);
             
             $('html, body').animate({scrollTop: $('#savingsDrillPanel').offset().top - 70}, 300);
         }).fail(function(xhr, status, error) {
@@ -1087,6 +1176,84 @@ $(window).on('load', function() {
             $('#auditModal').modal('show');
         });
     }
+
+    // ─── Delete Entry ───
+    var deleteCtx = {};
+
+    window.confirmDelete = function(type, id) {
+        deleteCtx = { type: type, id: id };
+
+        var labels = {
+            loan_installment:  'loan installment',
+            savings_schedule:  'savings schedule entry',
+            loan_payment:      'loan payment record',
+            savings_transaction: 'savings transaction',
+            fine:              'fine entry'
+        };
+        $('#deleteTargetLabel').text(labels[type] || type);
+        $('#deleteReason').val('');
+        $('#deleteModal').modal('show');
+        setTimeout(function() { $('#deleteReason').focus(); }, 400);
+    };
+
+    $('#btnConfirmDelete').on('click', function() {
+        var reason = $.trim($('#deleteReason').val());
+        if (reason.length < 5) {
+            toastr.error('Please provide a reason (min 5 characters)');
+            $('#deleteReason').focus();
+            return;
+        }
+
+        var urlMap = {
+            loan_installment:    BASE + 'delete_loan_installment',
+            savings_schedule:    BASE + 'delete_savings_schedule_entry',
+            loan_payment:        BASE + 'delete_loan_payment',
+            savings_transaction: BASE + 'delete_savings_transaction',
+            fine:                BASE + 'delete_fine_entry'
+        };
+        var fieldMap = {
+            loan_installment:    'installment_id',
+            savings_schedule:    'schedule_id',
+            loan_payment:        'payment_id',
+            savings_transaction: 'txn_id',
+            fine:                'fine_id'
+        };
+
+        var url = urlMap[deleteCtx.type];
+        if (!url) { toastr.error('Unknown delete type'); return; }
+
+        var postData = { reason: reason };
+        postData[fieldMap[deleteCtx.type]] = deleteCtx.id;
+        postData[CSRF_NAME] = CSRF_HASH;
+
+        var $btn = $(this);
+        $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin mr-1"></i> Deleting...');
+
+        $.post(url, postData, function(resp) {
+            if (resp.success) {
+                toastr.success(resp.message);
+                if (resp.csrf_hash) CSRF_HASH = resp.csrf_hash;
+                $('#deleteModal').modal('hide');
+
+                // Reload the relevant drill-down and overview
+                if (deleteCtx.type === 'loan_installment' || deleteCtx.type === 'loan_payment') {
+                    if (currentLoanId) openLoanDrill(currentLoanId);
+                    refreshOverview();
+                } else if (deleteCtx.type === 'savings_schedule' || deleteCtx.type === 'savings_transaction') {
+                    if (currentSavingsId) openSavingsDrill(currentSavingsId);
+                    refreshOverview();
+                } else if (deleteCtx.type === 'fine') {
+                    if (selectedMemberId) loadMemberOverview(selectedMemberId);
+                }
+            } else {
+                toastr.error(resp.message || 'Delete failed');
+            }
+        }, 'json').fail(function(xhr) {
+            toastr.error('Server error: ' + (xhr.responseJSON ? xhr.responseJSON.message : xhr.statusText));
+        }).always(function() {
+            $btn.prop('disabled', false).html('<i class="fas fa-trash-alt mr-1"></i> Delete Entry');
+        });
+    });
 
     // ─── Helper Functions ───
     function editableCell(type, id, field, value, displayHtml) {

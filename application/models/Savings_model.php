@@ -131,8 +131,18 @@ class Savings_model extends MY_Model {
                 $this->db->where('id', $account_id)
                          ->update($this->table, ['account_number' => $real_account_number]);
 
-                // Generate schedule for upcoming months
-                $this->generate_schedule($account_id, $data['start_date'], $data['monthly_amount']);
+                // For one-time schemes create a single schedule entry; otherwise generate monthly schedule
+                $scheme_frequency = 'monthly';
+                if (!empty($data['scheme_id'])) {
+                    $scheme_row = $this->db->where('id', $data['scheme_id'])->get('savings_schemes')->row();
+                    if ($scheme_row) $scheme_frequency = $scheme_row->deposit_frequency ?? 'monthly';
+                }
+
+                if ($scheme_frequency === 'onetime') {
+                    $this->generate_onetime_schedule($account_id, $data['start_date'], $data['monthly_amount']);
+                } else {
+                    $this->generate_schedule($account_id, $data['start_date'], $data['monthly_amount']);
+                }
             }
             
             if ($this->db->trans_status() === FALSE) {
@@ -149,6 +159,29 @@ class Savings_model extends MY_Model {
         }
     }
     
+    /**
+     * Generate One-Time Schedule
+     * Creates a single savings_schedule entry — member pays once and the account is done.
+     */
+    public function generate_onetime_schedule($account_id, $start_date, $amount) {
+        $due_date = date('Y-m-d', strtotime($start_date));
+        $due_month = date('Y-m-01', strtotime($start_date));
+
+        $exists = $this->db->where('savings_account_id', $account_id)
+                           ->count_all_results('savings_schedule');
+        if (!$exists) {
+            $this->db->insert('savings_schedule', [
+                'savings_account_id' => $account_id,
+                'due_month'          => $due_month,
+                'due_amount'         => $amount,
+                'due_date'           => $due_date,
+                'status'             => 'pending',
+                'created_at'         => date('Y-m-d H:i:s'),
+            ]);
+        }
+        return true;
+    }
+
     /**
      * Generate Monthly Schedule
      */
@@ -243,13 +276,14 @@ class Savings_model extends MY_Model {
             $new_balance = $account->current_balance;
             
             if ($data['transaction_type'] === 'deposit') {
-                // SAV-6 FIX: Cap deposits at 10x monthly amount as sanity check
+                // SAV-6 FIX (updated): Cap deposits at 24x monthly amount to allow up to 2-year advance payment
                 // Skip this cap for bank_transfer (admin-mapped bank statement entries are already verified)
                 $payment_mode = $data['payment_mode'] ?? 'cash';
                 if ($payment_mode !== 'bank_transfer') {
-                    $max_deposit = $account->monthly_amount * 10;
+                    $max_deposit = $account->monthly_amount * 24;
                     if ($max_deposit > 0 && $data['amount'] > $max_deposit) {
-                        throw new Exception('Deposit amount (' . number_format($data['amount'], 2) . ') exceeds 10x the monthly amount (' . number_format($max_deposit, 2) . '). Please verify.');
+                        $months = floor($data['amount'] / $account->monthly_amount);
+                        throw new Exception('Deposit amount (' . number_format($data['amount'], 2) . ') would cover ' . $months . ' months, which exceeds the maximum 24-month advance limit. Use bank_transfer mode for exceptional cases.');
                     }
                 }
                 $new_balance += $data['amount'];
@@ -309,9 +343,16 @@ class Savings_model extends MY_Model {
                 );
             }
             
-            // Update schedule if applicable
-            if (!empty($data['schedule_id'])) {
-                $this->update_schedule_payment($data['schedule_id'], $data['amount']);
+            // ── Schedule update (FIFO – Indian banking standard) ──────────────────
+            // If a specific schedule entry was targeted, apply to it (with overflow carry-forward).
+            // Otherwise auto-apply against the oldest pending/overdue entries first.
+            if ($data['transaction_type'] === 'deposit') {
+                $payment_date = $data['transaction_date'] ?? date('Y-m-d');
+                if (!empty($data['schedule_id'])) {
+                    $this->update_schedule_payment($data['schedule_id'], $data['amount'], $payment_date);
+                } else {
+                    $this->auto_apply_deposit_fifo($data['savings_account_id'], $data['amount'], $payment_date);
+                }
             }
             
             if ($this->db->trans_status() === FALSE) {
@@ -329,63 +370,113 @@ class Savings_model extends MY_Model {
     }
     
     /**
-     * Update Schedule Payment
-     * SAV-8 FIX: Carry forward overpayment to the next pending schedule entry
+     * Update Schedule Payment for a specific entry, then carry forward any overpayment.
+     * Indian banking standard: oldest dues settled first (FIFO).
+     *
+     * @param int    $schedule_id  savings_schedule.id to apply this payment to
+     * @param float  $amount       amount being applied
+     * @param string $payment_date actual payment date (YYYY-MM-DD); defaults to today
      */
-    private function update_schedule_payment($schedule_id, $amount) {
+    private function update_schedule_payment($schedule_id, $amount, $payment_date = null) {
+        if ($payment_date === null) $payment_date = date('Y-m-d');
+
         $schedule = $this->db->query(
             "SELECT * FROM savings_schedule WHERE id = ? FOR UPDATE",
             [$schedule_id]
         )->row();
-        
-        if (!$schedule) return false;
-        
-        $remaining_due = $schedule->due_amount - $schedule->paid_amount;
-        $applied = min($amount, max(0, $remaining_due));
-        $overpayment = $amount - $applied;
 
-        $new_paid = $schedule->paid_amount + $applied;
-        $status = 'partial';
-        
-        if ($new_paid >= $schedule->due_amount) {
-            $status = 'paid';
-        }
-        
-        // Check if late
-        $is_late = (safe_timestamp(date('Y-m-d')) > safe_timestamp($schedule->due_date));
+        if (!$schedule) return false;
+
+        $remaining_due = (float)$schedule->due_amount - (float)$schedule->paid_amount;
+        $applied       = min((float)$amount, max(0.0, $remaining_due));
+        $overpayment   = (float)$amount - $applied;
+
+        $new_paid = (float)$schedule->paid_amount + $applied;
+        $status   = ($new_paid >= (float)$schedule->due_amount) ? 'paid' : 'partial';
+
+        $is_late   = (safe_timestamp($payment_date) > safe_timestamp($schedule->due_date));
         $days_late = 0;
-        
         if ($is_late && $status === 'paid') {
-            $days_late = floor((safe_timestamp(date('Y-m-d')) - safe_timestamp($schedule->due_date)) / 86400);
+            $days_late = (int)floor((safe_timestamp($payment_date) - safe_timestamp($schedule->due_date)) / 86400);
         }
-        
+
         $this->db->where('id', $schedule_id)
                  ->update('savings_schedule', [
-                     'paid_amount' => $new_paid,
-                     'status' => $status,
-                     'paid_date' => date('Y-m-d'),
-                     'is_late' => $is_late ? 1 : 0,
-                     'days_late' => $days_late,
-                     'updated_at' => date('Y-m-d H:i:s')
+                     'paid_amount' => round($new_paid, 2),
+                     'status'      => $status,
+                     'paid_date'   => $payment_date,
+                     'is_late'     => $is_late ? 1 : 0,
+                     'days_late'   => $days_late,
+                     'updated_at'  => date('Y-m-d H:i:s')
                  ]);
 
-        // SAV-8: If there is overpayment, apply it to the next pending schedule entry
-        if ($overpayment > 0) {
-            $next_schedule = $this->db->where('savings_account_id', $schedule->savings_account_id)
-                                      ->where('id !=', $schedule_id)
-                                      ->where_in('status', ['pending', 'partial', 'overdue'])
-                                      ->order_by('due_date', 'ASC')
-                                      ->get('savings_schedule')
-                                      ->row();
-
-            if ($next_schedule) {
-                // Recursive call to apply excess to next schedule entry
-                $this->update_schedule_payment($next_schedule->id, $overpayment);
+        // Carry forward overpayment to the next pending/partial/overdue entry (FIFO)
+        if ($overpayment > 0.009) {
+            $next = $this->db->where('savings_account_id', $schedule->savings_account_id)
+                             ->where('id !=', $schedule_id)
+                             ->where_in('status', ['pending', 'partial', 'overdue'])
+                             ->order_by('due_date', 'ASC')
+                             ->get('savings_schedule')
+                             ->row();
+            if ($next) {
+                $this->update_schedule_payment($next->id, $overpayment, $payment_date);
             }
-            // If no next schedule, the excess just stays in the account balance (already added)
+            // Remaining overpayment beyond last due entry stays as advance credit balance
         }
 
         return true;
+    }
+
+    /**
+     * Auto-apply a deposit against ALL pending/overdue schedule entries in chronological
+     * order (oldest first — FIFO, Indian banking standard).
+     * Called when no specific schedule_id is passed (e.g., member pays 3 months at once).
+     *
+     * @param int    $account_id
+     * @param float  $amount       total deposit amount
+     * @param string $payment_date YYYY-MM-DD
+     */
+    private function auto_apply_deposit_fifo($account_id, $amount, $payment_date) {
+        // Fetch ALL pending/partial/overdue entries oldest-first (lock for concurrent safety)
+        $pending = $this->db->query(
+            "SELECT * FROM savings_schedule
+              WHERE savings_account_id = ?
+                AND status IN ('pending','partial','overdue')
+              ORDER BY due_date ASC
+              FOR UPDATE",
+            [$account_id]
+        )->result();
+
+        $remaining = (float)$amount;
+
+        foreach ($pending as $entry) {
+            if ($remaining < 0.01) break;
+
+            $remaining_due = (float)$entry->due_amount - (float)$entry->paid_amount;
+            if ($remaining_due <= 0) continue;
+
+            $applied      = min($remaining, $remaining_due);
+            $new_paid     = (float)$entry->paid_amount + $applied;
+            $remaining   -= $applied;
+
+            $status    = ($new_paid >= (float)$entry->due_amount) ? 'paid' : 'partial';
+            $is_late   = (safe_timestamp($payment_date) > safe_timestamp($entry->due_date));
+            $days_late = 0;
+            if ($is_late && $status === 'paid') {
+                $days_late = (int)floor((safe_timestamp($payment_date) - safe_timestamp($entry->due_date)) / 86400);
+            }
+
+            $this->db->where('id', $entry->id)
+                     ->update('savings_schedule', [
+                         'paid_amount' => round($new_paid, 2),
+                         'status'      => $status,
+                         'paid_date'   => $payment_date,
+                         'is_late'     => $is_late ? 1 : 0,
+                         'days_late'   => $days_late,
+                         'updated_at'  => date('Y-m-d H:i:s')
+                     ]);
+        }
+        // Any $remaining > 0 stays as advance credit in the account balance (already deposited)
     }
     
     /**

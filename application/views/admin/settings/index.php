@@ -1482,6 +1482,8 @@ $(document).ready(function() {
                                     <option value="weekly">Weekly</option>
                                     <option value="daily">Daily</option>
                                     <option value="quarterly">Quarterly</option>
+                                    <option value="yearly">Yearly</option>
+                                    <option value="onetime">One Time</option>
                                 </select>
                             </div>
                         </div>
