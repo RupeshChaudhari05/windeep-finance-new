@@ -825,35 +825,101 @@ class Savings_model extends MY_Model {
     /**
      * Get Dashboard Stats
      */
-    public function get_dashboard_stats() {
-        $stats = [];
-        
-        // Total Savings
-        $stats['total_savings'] = $this->db->select_sum('current_balance')
-                                           ->where('status', 'active')
-                                           ->get($this->table)
-                                           ->row()
-                                           ->current_balance ?? 0;
-        
-        // Active Accounts
-        $stats['active_accounts'] = $this->db->where('status', 'active')
-                                             ->count_all_results($this->table);
-        
-        // This Month Collection
-        $month = date('Y-m-01');
-        $stats['month_collection'] = $this->db->select_sum('paid_amount')
-                                               ->where('due_month', $month)
-                                               ->get('savings_schedule')
-                                               ->row()
-                                               ->paid_amount ?? 0;
-        
-        // Pending Dues
-        $stats['pending_dues'] = $this->db->select('SUM(due_amount - paid_amount) as pending')
-                                          ->where_in('status', ['pending', 'partial', 'overdue'])
-                                          ->get('savings_schedule')
-                                          ->row()
-                                          ->pending ?? 0;
-        
+    public function get_dashboard_stats($filters = []) {
+        $search = isset($filters['search']) ? trim($filters['search']) : '';
+        $scheme = isset($filters['scheme']) ? trim($filters['scheme']) : '';
+        $status = isset($filters['status']) ? trim($filters['status']) : '';
+
+        // ── Total Balance ────────────────────────────────────────────────────
+        $this->db->select_sum('sa.current_balance', 'current_balance');
+        $this->db->from($this->table . ' sa');
+        if ($scheme !== '' || $search !== '') {
+            $this->db->join('members m', 'm.id = sa.member_id', 'left');
+        }
+        $this->db->where('sa.status', 'active');
+        if ($scheme !== '') {
+            $this->db->where('sa.scheme_id', $scheme);
+        }
+        if ($search !== '') {
+            $this->db->group_start();
+            $this->db->like('sa.account_number', $search);
+            $this->db->or_like('m.member_code', $search);
+            $this->db->or_like('m.first_name', $search);
+            $this->db->or_like('m.last_name', $search);
+            $this->db->group_end();
+        }
+        $row = $this->db->get()->row();
+        $stats['total_balance'] = isset($row->current_balance) ? (float)$row->current_balance : 0;
+
+        // ── Active Accounts ──────────────────────────────────────────────────
+        $this->db->from($this->table . ' sa');
+        if ($scheme !== '' || $search !== '') {
+            $this->db->join('members m', 'm.id = sa.member_id', 'left');
+        }
+        $this->db->where('sa.status', 'active');
+        if ($scheme !== '') {
+            $this->db->where('sa.scheme_id', $scheme);
+        }
+        if ($search !== '') {
+            $this->db->group_start();
+            $this->db->like('sa.account_number', $search);
+            $this->db->or_like('m.member_code', $search);
+            $this->db->or_like('m.first_name', $search);
+            $this->db->or_like('m.last_name', $search);
+            $this->db->group_end();
+        }
+        $stats['active_accounts'] = (int)$this->db->count_all_results();
+
+        // ── Pending Collection ───────────────────────────────────────────────
+        $this->db->select('SUM(sch.due_amount - sch.paid_amount) as pending');
+        $this->db->from('savings_schedule sch');
+        $this->db->join($this->table . ' sa', 'sa.id = sch.savings_account_id', 'inner');
+        if ($scheme !== '' || $search !== '') {
+            $this->db->join('members m', 'm.id = sa.member_id', 'left');
+        }
+        if ($status !== '') {
+            $this->db->where('sa.status', $status);
+        }
+        if ($scheme !== '') {
+            $this->db->where('sa.scheme_id', $scheme);
+        }
+        if ($search !== '') {
+            $this->db->group_start();
+            $this->db->like('sa.account_number', $search);
+            $this->db->or_like('m.member_code', $search);
+            $this->db->or_like('m.first_name', $search);
+            $this->db->or_like('m.last_name', $search);
+            $this->db->group_end();
+        }
+        $this->db->where_in('sch.status', ['pending', 'partial', 'overdue']);
+        $row = $this->db->get()->row();
+        $stats['pending_collection'] = isset($row->pending) ? (float)$row->pending : 0;
+
+        // ── Overdue Accounts ─────────────────────────────────────────────────
+        $this->db->select('COUNT(DISTINCT sch.savings_account_id) as cnt');
+        $this->db->from('savings_schedule sch');
+        $this->db->join($this->table . ' sa', 'sa.id = sch.savings_account_id', 'inner');
+        if ($scheme !== '' || $search !== '') {
+            $this->db->join('members m', 'm.id = sa.member_id', 'left');
+        }
+        if ($status !== '') {
+            $this->db->where('sa.status', $status);
+        }
+        if ($scheme !== '') {
+            $this->db->where('sa.scheme_id', $scheme);
+        }
+        if ($search !== '') {
+            $this->db->group_start();
+            $this->db->like('sa.account_number', $search);
+            $this->db->or_like('m.member_code', $search);
+            $this->db->or_like('m.first_name', $search);
+            $this->db->or_like('m.last_name', $search);
+            $this->db->group_end();
+        }
+        $this->db->where_in('sch.status', ['pending', 'partial', 'overdue']);
+        $row = $this->db->get()->row();
+        $stats['overdue_accounts'] = isset($row->cnt) ? (int)$row->cnt : 0;
+
         return $stats;
     }
 }
