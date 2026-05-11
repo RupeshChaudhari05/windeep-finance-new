@@ -17,4 +17,10 @@ class Welcome extends CI_Controller {
 		$data['title'] = 'Welcome to Windeep Finance';
 		$this->load->view('public/landing', $data);
 	}
+
+	public function home()
+	{
+		$data['title'] = 'Windeep Finance – Loans, Savings & Investments | 100% Genuine';
+		$this->load->view('public/home', $data);
+	}
 }

@@ -7,6 +7,8 @@
     <footer class="main-footer">
         <strong>Copyright &copy; <?= date('Y') ?> <a href="#">Windeep Finance</a>.</strong>
         All rights reserved.
+        &nbsp;|&nbsp; Developed by <a href="mailto:rupeshchaudhari05@gmail.com">Rupesh Chaudhari</a>
+        &nbsp;&bull;&nbsp; <a href="tel:+919028581320">+91 90285 81320</a>
         <div class="float-right d-none d-sm-inline-block">
             <b>Version</b> 1.0.0
         </div>

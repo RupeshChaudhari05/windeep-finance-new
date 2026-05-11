@@ -60,6 +60,9 @@ $route['public/guarantor_consent/(:num)'] = 'publiccontroller/guarantor_consent/
 // Root redirect - show landing page
 $route['^$'] = 'welcome/index';
 
+// New client-facing home page
+$route['home'] = 'welcome/home';
+
 // Admin routes
 $route['admin'] = 'admin/dashboard';
 $route['admin/auth'] = 'admin/auth/index';
