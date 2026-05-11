@@ -192,14 +192,25 @@ class Adjustments extends Admin_Controller {
                 exit;
             }
             
+            // Always recalculate loan totals from installments before returning data
+            $this->recalculate_loan_totals($loan_id);
+
+            // Re-fetch loan after recalculation to return fresh values
+            $loan = $this->db->select('l.*, COALESCE(lp.product_name,"Unknown") as product_name, lp.interest_type, m.member_code, m.first_name, m.last_name')
+                             ->from('loans l')
+                             ->join('loan_products lp', 'lp.id = l.loan_product_id', 'left')
+                             ->join('members m', 'm.id = l.member_id')
+                             ->where('l.id', $loan_id)
+                             ->get()
+                             ->row();
+
             $installments = $this->db->where('loan_id', $loan_id)
                                      ->order_by('installment_number', 'ASC')
                                      ->get('loan_installments')
                                      ->result();
-            
-            // Get payments for this loan
+
+            // Get payments for this loan (include all, flag reversed)
             $payments = $this->db->where('loan_id', $loan_id)
-                                 ->where('is_reversed', 0)
                                  ->order_by('payment_date', 'DESC')
                                  ->get('loan_payments')
                                  ->result();
@@ -242,15 +253,27 @@ class Adjustments extends Admin_Controller {
                 exit;
             }
             
+            // Always recalculate savings balance from transactions before returning data
+            $this->recalculate_savings_balance($account_id);
+
+            // Re-fetch account after recalculation
+            $account = $this->db->select('sa.*, COALESCE(ss.scheme_name,"Unknown") as scheme_name, ss.monthly_amount, m.member_code, m.first_name, m.last_name')
+                                ->from('savings_accounts sa')
+                                ->join('savings_schemes ss', 'ss.id = sa.scheme_id', 'left')
+                                ->join('members m', 'm.id = sa.member_id')
+                                ->where('sa.id', $account_id)
+                                ->get()
+                                ->row();
+
             $schedule = $this->db->where('savings_account_id', $account_id)
                                  ->order_by('due_month', 'ASC')
                                  ->get('savings_schedule')
                                  ->result();
-            
-            // Get transactions
+
+            // Get all transactions (include reversed flag for admin view)
             $transactions = $this->db->where('savings_account_id', $account_id)
-                                     ->where('is_reversed', 0)
                                      ->order_by('transaction_date', 'DESC')
+                                     ->order_by('id', 'DESC')
                                      ->get('savings_transactions')
                                      ->result();
             
@@ -856,6 +879,295 @@ class Adjustments extends Admin_Controller {
                          ->result();
         
         $this->json_response(['success' => true, 'logs' => $logs]);
+    }
+
+    /**
+     * AJAX: Delete Loan Installment (duplicate/erroneous entry removal)
+     * Recalculates loan totals after deletion.
+     */
+    public function delete_loan_installment() {
+        if ($this->input->method() !== 'post') {
+            return $this->error_response('POST required');
+        }
+
+        $installment_id = (int)$this->input->post('installment_id');
+        $reason         = trim((string)$this->input->post('reason'));
+
+        if (!$installment_id || strlen($reason) < 5) {
+            return $this->error_response('installment_id and reason (min 5 chars) are required');
+        }
+
+        $this->db->trans_begin();
+
+        try {
+            $installment = $this->db->where('id', $installment_id)->get('loan_installments')->row();
+            if (!$installment) {
+                throw new Exception('Installment not found');
+            }
+
+            $loan_id = $installment->loan_id;
+
+            $this->db->where('id', $installment_id)->delete('loan_installments');
+
+            $this->recalculate_loan_totals($loan_id);
+
+            $this->log_audit(
+                'delete',
+                'admin_adjustments',
+                'loan_installments',
+                $installment_id,
+                (array)$installment,
+                [],
+                'Admin Deleted Installment #' . $installment->installment_number . ': ' . $reason
+            );
+
+            if ($this->db->trans_status() === FALSE) {
+                $this->db->trans_rollback();
+                return $this->error_response('Database error');
+            }
+
+            $this->db->trans_commit();
+
+            $this->json_response([
+                'success'  => true,
+                'message'  => 'Installment #' . $installment->installment_number . ' deleted. Loan totals recalculated.',
+                'loan_id'  => $loan_id
+            ]);
+
+        } catch (Exception $e) {
+            $this->db->trans_rollback();
+            $this->error_response($e->getMessage());
+        }
+    }
+
+    /**
+     * AJAX: Delete Savings Schedule Entry (duplicate/erroneous entry removal)
+     * Recalculates savings balance after deletion.
+     */
+    public function delete_savings_schedule_entry() {
+        if ($this->input->method() !== 'post') {
+            return $this->error_response('POST required');
+        }
+
+        $schedule_id = (int)$this->input->post('schedule_id');
+        $reason      = trim((string)$this->input->post('reason'));
+
+        if (!$schedule_id || strlen($reason) < 5) {
+            return $this->error_response('schedule_id and reason (min 5 chars) are required');
+        }
+
+        $this->db->trans_begin();
+
+        try {
+            $entry = $this->db->where('id', $schedule_id)->get('savings_schedule')->row();
+            if (!$entry) {
+                throw new Exception('Schedule entry not found');
+            }
+
+            $account_id = $entry->savings_account_id;
+
+            $this->db->where('id', $schedule_id)->delete('savings_schedule');
+
+            $this->recalculate_savings_balance($account_id);
+
+            $this->log_audit(
+                'delete',
+                'admin_adjustments',
+                'savings_schedule',
+                $schedule_id,
+                (array)$entry,
+                [],
+                'Admin Deleted Schedule Entry ' . $entry->due_month . ': ' . $reason
+            );
+
+            if ($this->db->trans_status() === FALSE) {
+                $this->db->trans_rollback();
+                return $this->error_response('Database error');
+            }
+
+            $this->db->trans_commit();
+
+            $this->json_response([
+                'success'    => true,
+                'message'    => 'Schedule entry for ' . $entry->due_month . ' deleted. Balance recalculated.',
+                'account_id' => $account_id
+            ]);
+
+        } catch (Exception $e) {
+            $this->db->trans_rollback();
+            $this->error_response($e->getMessage());
+        }
+    }
+
+    /**
+     * AJAX: Delete Loan Payment (duplicate/erroneous entry removal)
+     * Recalculates loan totals after deletion.
+     */
+    public function delete_loan_payment() {
+        if ($this->input->method() !== 'post') {
+            return $this->error_response('POST required');
+        }
+
+        $payment_id = (int)$this->input->post('payment_id');
+        $reason     = trim((string)$this->input->post('reason'));
+
+        if (!$payment_id || strlen($reason) < 5) {
+            return $this->error_response('payment_id and reason (min 5 chars) are required');
+        }
+
+        $this->db->trans_begin();
+
+        try {
+            $payment = $this->db->where('id', $payment_id)->get('loan_payments')->row();
+            if (!$payment) {
+                throw new Exception('Payment not found');
+            }
+
+            $loan_id = $payment->loan_id;
+
+            $this->db->where('id', $payment_id)->delete('loan_payments');
+
+            $this->recalculate_loan_totals($loan_id);
+
+            $this->log_audit(
+                'delete',
+                'admin_adjustments',
+                'loan_payments',
+                $payment_id,
+                (array)$payment,
+                [],
+                'Admin Deleted Payment ' . $payment->payment_code . ': ' . $reason
+            );
+
+            if ($this->db->trans_status() === FALSE) {
+                $this->db->trans_rollback();
+                return $this->error_response('Database error');
+            }
+
+            $this->db->trans_commit();
+
+            $this->json_response([
+                'success' => true,
+                'message' => 'Payment ' . $payment->payment_code . ' deleted. Loan totals recalculated.',
+                'loan_id' => $loan_id
+            ]);
+
+        } catch (Exception $e) {
+            $this->db->trans_rollback();
+            $this->error_response($e->getMessage());
+        }
+    }
+
+    /**
+     * AJAX: Delete Savings Transaction (duplicate/erroneous entry removal)
+     * Recalculates savings balance after deletion.
+     */
+    public function delete_savings_transaction() {
+        if ($this->input->method() !== 'post') {
+            return $this->error_response('POST required');
+        }
+
+        $txn_id = (int)$this->input->post('txn_id');
+        $reason = trim((string)$this->input->post('reason'));
+
+        if (!$txn_id || strlen($reason) < 5) {
+            return $this->error_response('txn_id and reason (min 5 chars) are required');
+        }
+
+        $this->db->trans_begin();
+
+        try {
+            $txn = $this->db->where('id', $txn_id)->get('savings_transactions')->row();
+            if (!$txn) {
+                throw new Exception('Transaction not found');
+            }
+
+            $account_id = $txn->savings_account_id;
+
+            $this->db->where('id', $txn_id)->delete('savings_transactions');
+
+            $this->recalculate_savings_balance($account_id);
+
+            $this->log_audit(
+                'delete',
+                'admin_adjustments',
+                'savings_transactions',
+                $txn_id,
+                (array)$txn,
+                [],
+                'Admin Deleted Savings Transaction: ' . $reason
+            );
+
+            if ($this->db->trans_status() === FALSE) {
+                $this->db->trans_rollback();
+                return $this->error_response('Database error');
+            }
+
+            $this->db->trans_commit();
+
+            $this->json_response([
+                'success'    => true,
+                'message'    => 'Transaction deleted. Savings balance recalculated.',
+                'account_id' => $account_id
+            ]);
+
+        } catch (Exception $e) {
+            $this->db->trans_rollback();
+            $this->error_response($e->getMessage());
+        }
+    }
+
+    /**
+     * AJAX: Delete Fine entry
+     */
+    public function delete_fine_entry() {
+        if ($this->input->method() !== 'post') {
+            return $this->error_response('POST required');
+        }
+
+        $fine_id = (int)$this->input->post('fine_id');
+        $reason  = trim((string)$this->input->post('reason'));
+
+        if (!$fine_id || strlen($reason) < 5) {
+            return $this->error_response('fine_id and reason (min 5 chars) are required');
+        }
+
+        $this->db->trans_begin();
+
+        try {
+            $fine = $this->db->where('id', $fine_id)->get('fines')->row();
+            if (!$fine) {
+                throw new Exception('Fine not found');
+            }
+
+            $this->db->where('id', $fine_id)->delete('fines');
+
+            $this->log_audit(
+                'delete',
+                'admin_adjustments',
+                'fines',
+                $fine_id,
+                (array)$fine,
+                [],
+                'Admin Deleted Fine ' . $fine->fine_code . ': ' . $reason
+            );
+
+            if ($this->db->trans_status() === FALSE) {
+                $this->db->trans_rollback();
+                return $this->error_response('Database error');
+            }
+
+            $this->db->trans_commit();
+
+            $this->json_response([
+                'success' => true,
+                'message' => 'Fine ' . $fine->fine_code . ' deleted successfully'
+            ]);
+
+        } catch (Exception $e) {
+            $this->db->trans_rollback();
+            $this->error_response($e->getMessage());
+        }
     }
 
     // ─── Private Helper Methods ───

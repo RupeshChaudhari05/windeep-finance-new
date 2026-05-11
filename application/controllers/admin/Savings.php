@@ -23,17 +23,18 @@ class Savings extends Admin_Controller {
             ['title' => 'Savings', 'url' => '']
         ];
         
-        $data['stats'] = $this->Savings_model->get_dashboard_stats();
-        
-        // Get accounts with pagination
-        $page = (int) ($this->input->get('page') ?: 1);
-        $per_page = 20;
         // Filters for the view
         $data['filters'] = [
             'search' => $this->input->get('search') ?: '',
             'scheme' => $this->input->get('scheme') ?: '',
             'status' => $this->input->get('status') ?: ''
         ];
+
+        $data['summary'] = $this->Savings_model->get_dashboard_stats($data['filters']);
+        
+        // Get accounts with pagination
+        $page = (int) ($this->input->get('page') ?: 1);
+        $per_page = 20;
         
         // Build base query for counting
         $this->db->from('savings_accounts sa');

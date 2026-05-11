@@ -249,23 +249,11 @@ $(document).ready(function() {
                     
                     <!-- Quick Amount Buttons -->
                     <div class="mb-3">
-                        <label class="d-block">Quick Select:</label>
-                        <div class="btn-group btn-group-sm">
-                            <button type="button" class="btn btn-outline-primary quick-amount" data-amount="<?= $account->monthly_amount ?>">
-                                1 Month (<?= format_amount($account->monthly_amount, 0) ?>)
-                            </button>
-                            <button type="button" class="btn btn-outline-primary quick-amount" data-amount="<?= $account->monthly_amount * 3 ?>">
-                                3 Months (<?= format_amount($account->monthly_amount * 3, 0) ?>)
-                            </button>
-                            <button type="button" class="btn btn-outline-primary quick-amount" data-amount="<?= $account->monthly_amount * 6 ?>">
-                                6 Months (<?= format_amount($account->monthly_amount * 6, 0) ?>)
-                            </button>
-                            <?php if ($pending_dues): ?>
-                            <button type="button" class="btn btn-outline-danger quick-amount" data-amount="<?= array_sum(array_column($pending_dues, 'amount')) ?>">
-                                All Pending (<?= get_currency_symbol() ?><?= number_format(array_sum(array_column($pending_dues, 'amount'))) ?>)
-                            </button>
-                            <?php endif; ?>
-                        </div>
+                        <label class="d-block">Quick Fill:</label>
+                        <button type="button" class="btn btn-sm btn-outline-primary quick-amount" data-amount="<?= $account->monthly_amount ?>">
+                            1 Month (<?= format_amount($account->monthly_amount, 0) ?>)
+                        </button>
+                        <small class="text-muted ml-2">For multiple months use the <a href="<?= site_url('admin/adjustments') ?>">Adjustments</a> page.</small>
                     </div>
                     
                     <div class="row">
@@ -298,7 +286,7 @@ $(document).ready(function() {
                     </div>
                     
                     <!-- Summary -->
-                    <div class="alert alert-info">
+                    <div class="alert alert-info" id="paymentSummaryBox">
                         <div class="row">
                             <div class="col-md-6">
                                 <strong>Collection Summary:</strong>
@@ -378,25 +366,30 @@ $(document).ready(function() {
 <?php if ($account): ?>
 <script>
 $(document).ready(function() {
-    var currentBalance = <?= $account->current_balance ?>;
-    
-    // Quick amount buttons
+    var currentBalance = <?= (float)$account->current_balance ?>;
+    var CS             = '<?= get_currency_symbol() ?>';
+
+    // Quick amount button
     $('.quick-amount').on('click', function() {
-        var amount = $(this).data('amount');
-        $('#amount').val(amount);
+        $('#amount').val($(this).data('amount'));
         updateSummary();
     });
-    
-    // Amount change
+
     $('#amount').on('input', updateSummary);
-    
+
+    function fmt(n) {
+        return CS + Number(n).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    }
+
     function updateSummary() {
         var amount = parseFloat($('#amount').val()) || 0;
-        $('#summaryAmount').text('<?= get_currency_symbol() ?>' + amount.toLocaleString());
-        $('#summaryNewBalance').text('<?= get_currency_symbol() ?>' + (currentBalance + amount).toLocaleString());
+        $('#summaryAmount').text(fmt(amount));
+        $('#summaryNewBalance').text(fmt(currentBalance + amount));
     }
-    
-    // Payment mode change - require reference for non-cash
+
+    updateSummary();
+
+    // Payment mode — require reference for non-cash
     $('#payment_mode').on('change', function() {
         if ($(this).val() !== 'cash') {
             $('#payment_reference').attr('required', true);
@@ -406,7 +399,7 @@ $(document).ready(function() {
             $('#payment_reference').closest('.form-group').find('small').text('Required for non-cash payments');
         }
     });
-    
+
     // Form submit
     $('#collectionForm').on('submit', function(e) {
         var amount = parseFloat($('#amount').val());
@@ -415,13 +408,13 @@ $(document).ready(function() {
             Swal.fire('Error', 'Please enter a valid amount', 'error');
             return false;
         }
-        
+
         Swal.fire({
             title: 'Processing...',
-            text: 'Recording payment of <?= get_currency_symbol() ?>' + amount.toLocaleString(),
+            text: 'Recording payment of ' + CS + amount.toLocaleString('en-IN'),
             allowOutsideClick: false,
             showConfirmButton: false,
-            willOpen: () => { Swal.showLoading(); }
+            willOpen: function() { Swal.showLoading(); }
         });
     });
 });

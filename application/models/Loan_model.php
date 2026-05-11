@@ -895,7 +895,7 @@ class Loan_model extends MY_Model {
             
             // Update installment if provided
             if (!empty($data['installment_id'])) {
-                $this->update_installment_payment($data['installment_id'], $principal_paid, $interest_paid, $fine_paid);
+                $this->update_installment_payment($data['installment_id'], $principal_paid, $interest_paid, $fine_paid, $data['payment_date'] ?? null);
             }
             
             if ($this->db->trans_status() === FALSE) {
@@ -916,7 +916,7 @@ class Loan_model extends MY_Model {
      * Update Installment Payment
      * LOAN-9 FIX: Added SELECT FOR UPDATE to prevent concurrent partial payment corruption
      */
-    private function update_installment_payment($installment_id, $principal, $interest, $fine) {
+    private function update_installment_payment($installment_id, $principal, $interest, $fine, $payment_date = null) {
         // LOAN-9 FIX: Lock installment row within the active transaction
         $installment = $this->db->query(
             'SELECT * FROM loan_installments WHERE id = ? FOR UPDATE',
@@ -942,11 +942,12 @@ class Loan_model extends MY_Model {
             $status = 'paid';
         }
         
-        // Check if late
-        $is_late = (safe_timestamp(date('Y-m-d')) > safe_timestamp($installment->due_date));
+        // Use actual payment_date for is_late check (supports backdated payments)
+        $paid_on = $payment_date ?: date('Y-m-d');
+        $is_late = (safe_timestamp($paid_on) > safe_timestamp($installment->due_date));
         $days_late = 0;
         if ($is_late) {
-            $days_late = floor((safe_timestamp(date('Y-m-d')) - safe_timestamp($installment->due_date)) / 86400);
+            $days_late = floor((safe_timestamp($paid_on) - safe_timestamp($installment->due_date)) / 86400);
         }
         
         return $this->db->where('id', $installment_id)
@@ -956,7 +957,7 @@ class Loan_model extends MY_Model {
                             'fine_paid' => $new_fine_paid,
                             'total_paid' => $new_total_paid + $new_fine_paid,
                             'status' => $status,
-                            'paid_date' => date('Y-m-d'),
+                            'paid_date' => $paid_on,
                             'is_late' => $is_late ? 1 : 0,
                             'days_late' => $days_late,
                             'updated_at' => date('Y-m-d H:i:s')
