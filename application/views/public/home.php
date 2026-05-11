@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <meta name="theme-color" content="#1a56db">
+    <link rel="icon" type="image/x-icon" href="<?= base_url('assets/favicon.ico') ?>">
     <meta name="description" content="Windeep Finance – 100% genuine loans, savings schemes & investment plans. Apply online instantly. RBI compliant. App available on Android & iOS.">
     <meta name="keywords" content="personal loan, home loan, savings scheme, gold loan, microfinance, instant loan, loan app, windeep finance">
     <title><?= $title ?? 'Windeep Finance – Loans, Savings & Investments | 100% Genuine' ?></title>
@@ -16,17 +17,18 @@
 
     <style>
         :root {
-            --blue:      #1a56db;
-            --blue-dark: #1e429f;
-            --green:     #057a55;
-            --amber:     #d97706;
-            --red:       #e02424;
-            --dark:      #111827;
-            --gray:      #6b7280;
-            --light:     #f9fafb;
-            --border:    #e5e7eb;
-            --white:     #ffffff;
-            --grad:      linear-gradient(135deg, #1a56db 0%, #0ea5e9 100%);
+            --orange:      #d35400;
+            --orange-dark: #a63900;
+            --gold:        #f59e0b;
+            --amber:       #f6ad55;
+            --red:         #c2410c;
+            --dark:        #3d1f0a;
+            --gray:        #6b7280;
+            --light:       #fff7ed;
+            --border:      #f5e6d8;
+            --white:       #ffffff;
+            --fark:        #af5811;       
+            --grad:        linear-gradient(135deg, #d35400 0%, #f59e0b 100%);
         }
 
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -57,7 +59,7 @@
 
         /* ─── TOPBAR ─────────────────────────────────── */
         .topbar {
-            background: var(--blue-dark); color: #fff;
+            background: var(--fark); color: #fff;
             text-align: center; padding: 8px 20px; font-size: 0.85rem;
         }
         .topbar a { color: #93c5fd; font-weight: 600; }
@@ -73,7 +75,7 @@
             justify-content: space-between; padding: 14px 20px;
             max-width: 1200px; margin: 0 auto;
         }
-        .logo { display: flex; align-items: center; gap: 10px; font-family: 'Nunito', sans-serif; font-weight: 900; font-size: 1.5rem; color: var(--blue); }
+        .logo { display: flex; align-items: center; gap: 10px; font-family: 'Nunito', sans-serif; font-weight: 900; font-size: 1.5rem; color: var(--orange); }
         .logo-box {
             width: 38px; height: 38px; border-radius: 9px;
             background: var(--grad); display: flex; align-items: center;
@@ -81,22 +83,23 @@
         }
         .nav-links { display: flex; align-items: center; gap: 32px; }
         .nav-links a { color: var(--dark); font-weight: 600; font-size: 0.95rem; }
-        .nav-links a:hover { color: var(--blue); }
+        .nav-links a:hover { color: var(--orange); }
         .nav-cta { display: flex; gap: 10px; }
         .btn {
             display: inline-flex; align-items: center; gap: 8px;
             padding: 11px 26px; border-radius: 10px; font-weight: 700;
             font-size: 0.95rem; cursor: pointer; border: none; transition: all 0.25s;
         }
-        .btn-primary { background: var(--blue); color: #fff; }
-        .btn-primary:hover { background: var(--blue-dark); transform: translateY(-1px); }
-        .btn-outline { background: transparent; color: var(--blue); border: 2px solid var(--blue); }
-        .btn-outline:hover { background: var(--blue); color: #fff; }
+        .btn-primary { background: var(--orange); color: #fff; }
+        .btn-primary:hover { background: var(--orange-dark); transform: translateY(-1px); }
+        .btn-outline { background: transparent; color: var(--orange); border: 2px solid var(--orange); }
+        .btn-outline:hover { background: var(--orange); color: #fff; }
         .btn-lg { padding: 15px 36px; font-size: 1.05rem; border-radius: 12px; }
-        .btn-white { background: #fff; color: var(--blue); font-weight: 700; }
-        .btn-white:hover { background: #eff6ff; }
+        .btn-white { background: #fff; color: var(--orange); font-weight: 700; }
+        .btn-white:hover { background: #fff3e2; }
 
         .hamburger { display: none; background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--dark); }
+        .mobile-btns { display: none; }
 
         /* ─── HERO ───────────────────────────────────── */
         .hero {
@@ -115,7 +118,7 @@
             display: inline-flex; align-items: center; gap: 8px;
             background: #fff; border: 1px solid var(--border);
             padding: 8px 18px; border-radius: 999px; font-size: 0.875rem; font-weight: 600;
-            color: var(--green); margin-bottom: 24px; box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+            color: var(--orange-dark); margin-bottom: 24px; box-shadow: 0 1px 4px rgba(0,0,0,0.05);
         }
         .hero-title { font-size: 3.2rem; color: var(--dark); margin-bottom: 20px; }
         .hero-title span { color: var(--blue); }
@@ -134,7 +137,7 @@
         }
         .stat-card .label { font-size: 0.8rem; color: var(--gray); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
         .stat-card .value { font-size: 2rem; font-weight: 900; font-family: 'Nunito', sans-serif; color: var(--dark); }
-        .stat-card .sub { font-size: 0.82rem; color: var(--green); font-weight: 600; margin-top: 4px; }
+        .stat-card .sub { font-size: 0.82rem; color: var(--gold); font-weight: 600; margin-top: 4px; }
         .floating-badge {
             position: absolute; background: #fff; border-radius: 14px;
             padding: 12px 18px; box-shadow: 0 8px 24px rgba(0,0,0,0.12);
@@ -172,7 +175,7 @@
         .loan-card p { color: var(--gray); font-size: 0.9rem; margin-bottom: 16px; }
         .loan-meta { display: flex; gap: 12px; flex-wrap: wrap; }
         .loan-tag {
-            background: var(--light); color: var(--blue); font-size: 0.78rem;
+            background: var(--light); color: var(--orange); font-size: 0.78rem;
             font-weight: 700; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--border);
         }
 
@@ -180,7 +183,7 @@
         .process-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 30px; position: relative; }
         .process-grid::before {
             content: ''; position: absolute; top: 36px; left: 10%; right: 10%; height: 2px;
-            background: linear-gradient(90deg, var(--blue) 0%, #0ea5e9 100%);
+            background: linear-gradient(90deg, var(--orange) 0%, var(--gold) 100%);
             z-index: 0;
         }
         .step-card { text-align: center; position: relative; z-index: 1; }
@@ -319,6 +322,10 @@
                 background: #fff; border-bottom: 1px solid var(--border);
                 padding: 20px; gap: 16px; box-shadow: 0 8px 20px rgba(0,0,0,0.06);
             }
+            .nav-links.open .mobile-btns {
+                display: flex; flex-direction: column; gap: 10px; width: 100%; padding-top: 8px; border-top: 1px solid var(--border);
+            }
+            .nav-links.open .mobile-btns .btn { width: 100%; justify-content: center; }
             .footer-grid { grid-template-columns: 1fr; }
             .footer-bottom { flex-direction: column; text-align: center; }
             .app-stats { grid-template-columns: repeat(3,1fr); }
@@ -336,7 +343,9 @@
 <nav class="navbar">
     <div class="nav-inner">
         <a href="<?= base_url('home') ?>" class="logo">
-            <div class="logo-box"><i class="fas fa-landmark"></i></div>
+            <div class="logo-box">
+              <img src="<?= base_url('assets/logo-icon.png') ?>" alt="Windeep Logo" style="width:20px; height:20px;">
+            </div>
             Windeep Finance
         </a>
         <div class="nav-links" id="navLinks">
@@ -345,6 +354,10 @@
             <a href="#process">How It Works</a>
             <a href="#app">App</a>
             <a href="#contact">Contact</a>
+            <div class="mobile-btns">
+                <a href="<?= site_url('member/login') ?>" class="btn btn-outline">Member Login</a>
+                <a href="<?= site_url('admin/login') ?>" class="btn btn-primary">Apply Now</a>
+            </div>
         </div>
         <div class="nav-cta">
             <a href="<?= site_url('member/login') ?>" class="btn btn-outline">Member Login</a>
@@ -391,10 +404,10 @@
                         <div class="label">Total Disbursed This Year</div>
                         <div class="value">₹ 48.6 Cr</div>
                         <div class="sub"><i class="fas fa-arrow-up"></i> 22% growth over last year</div>
-                        <div style="height:80px; margin-top:18px; background:linear-gradient(180deg,rgba(26,86,219,0.06) 0%,transparent 100%); border-bottom:2px solid var(--blue); border-radius:4px;"></div>
+                        <div style="height:80px; margin-top:18px; background:linear-gradient(180deg,rgba(211,84,0,0.12) 0%,transparent 100%); border-bottom:2px solid var(--orange); border-radius:4px;"></div>
                     </div>
                     <div class="floating-badge fb-top" style="background:#f0fdf4; border-color:#bbf7d0;">
-                        <div class="icon-circle" style="background:#dcfce7;"><i class="fas fa-check" style="color:var(--green)"></i></div>
+                        <div class="icon-circle" style="background:#ffedd5;"><i class="fas fa-check" style="color:var(--orange)"></i></div>
                         <div>
                             <div style="font-size:0.7rem;color:var(--gray);font-weight:600;">Loan Approved</div>
                             <div style="color:var(--green);">₹2,50,000 · MEMB001</div>
@@ -777,13 +790,13 @@
             <a href="<?= site_url('admin/login') ?>" class="btn btn-primary btn-lg">
                 <i class="fas fa-rocket"></i> Apply for a Loan
             </a>
-            <a href="tel:+919028581320" class="btn btn-white btn-lg">
+            <a href="tel:+919834752251" class="btn btn-white btn-lg">
                 <i class="fas fa-phone-alt"></i> Call Us Now
             </a>
         </div>
         <div style="margin-top:36px; color:rgba(255,255,255,0.5); font-size:0.9rem;">
-            📞 <a href="tel:+919028581320" style="color:rgba(255,255,255,0.7);">+91 90285 81320</a>
-            &nbsp;&nbsp;✉️ <a href="mailto:rupeshchaudhari05@gmail.com" style="color:rgba(255,255,255,0.7);">rupeshchaudhari05@gmail.com</a>
+            📞 <a href="tel:+919834752251" style="color:rgba(255,255,255,0.7);">+91 98347 52251</a>
+            &nbsp;&nbsp;✉️ <a href="mailto:windeepfinance@gmail.com" style="color:rgba(255,255,255,0.7);">windeepfinance@gmail.com</a>
         </div>
     </div>
 </section>
@@ -822,8 +835,8 @@
             <div>
                 <h5>Contact</h5>
                 <ul class="footer-links">
-                    <li><a href="tel:+919028581320"><i class="fas fa-phone-alt"></i> +91 90285 81320</a></li>
-                    <li><a href="mailto:rupeshchaudhari05@gmail.com"><i class="fas fa-envelope"></i> rupeshchaudhari05@gmail.com</a></li>
+                    <li><a href="tel:+919834752251"><i class="fas fa-phone-alt"></i> +91 98347 52251</a></li>
+                    <li><a href="mailto:windeepfinance@gmail.com"><i class="fas fa-envelope"></i> windeepfinance@gmail.com</a></li>
                 </ul>
                 <div style="margin-top:20px; display:flex; gap:12px;">
                     <a href="#" style="color:rgba(255,255,255,0.5); font-size:1.2rem;"><i class="fab fa-facebook"></i></a>
