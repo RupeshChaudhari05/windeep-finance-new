@@ -6,7 +6,7 @@
 --
 -- TABLES PRESERVED (not touched):
 --   admin_users, admin_details, system_settings, chart_of_accounts,
---   savings_schemes, loan_products, fine_rules, guarantor_settings,
+--   guarantor_settings,
 --   accounting_settings, bank_accounts, requests_status,
 --   schema_migrations, financial_years
 --
@@ -50,6 +50,8 @@ TRUNCATE TABLE loan_foreclosure_requests;
 
 TRUNCATE TABLE loan_transactions;
 
+TRUNCATE TABLE loan_products;
+
 TRUNCATE TABLE loan_transaction_details;
 
 TRUNCATE TABLE disbursement_tracking;
@@ -62,6 +64,8 @@ TRUNCATE TABLE savings_accounts;
 TRUNCATE TABLE savings_transactions;
 
 TRUNCATE TABLE savings_schedule;
+
+TRUNCATE TABLE savings_schemes;
 
 TRUNCATE TABLE bonus_transactions;
 
@@ -85,6 +89,8 @@ TRUNCATE TABLE internal_transactions;
 -- ---------------------------------------------------------------------------
 -- 5. FINES & FEES
 -- ---------------------------------------------------------------------------
+TRUNCATE TABLE fine_rules;
+
 TRUNCATE TABLE fines;
 
 -- ---------------------------------------------------------------------------
@@ -112,6 +118,7 @@ TRUNCATE TABLE send_form;
 TRUNCATE TABLE chat_box;
 
 TRUNCATE TABLE view_requests;
+
 TRUNCATE TABLE import_logs;
 
 -- ---------------------------------------------------------------------------
@@ -158,8 +165,6 @@ SET FOREIGN_KEY_CHECKS = 1;
 --   admin_details        — admin profile details
 --   system_settings      — all site configuration values
 --   chart_of_accounts    — accounting COA structure
---   savings_schemes      — savings product definitions
---   loan_products        — loan product definitions
 --   fine_rules           — fine calculation rules
 --   guarantor_settings   — guarantor policy config
 --   accounting_settings  — accounting method config

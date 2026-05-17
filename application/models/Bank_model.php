@@ -116,17 +116,8 @@ class Bank_model extends MY_Model {
                 // Ensure amount is positive and transaction_type is set correctly
                 $txn['amount'] = abs($txn['amount']);
                 
-                // Try auto-match
-                $match = $this->auto_match($txn);
-                if ($match) {
-                    $txn['mapping_status'] = 'mapped';
-                    $txn['detected_member_id'] = $match['member_id'] ?? null;
-                    $matched++;
-                    log_message('debug', 'Auto-matched transaction: ' . json_encode($txn));
-                } else {
-                    $unmatched++;
-                    log_message('debug', 'Unmatched transaction: ' . json_encode($txn));
-                }
+                // Auto-match disabled — all transactions imported as unmapped for manual mapping
+                $unmatched++;
                 
                 $total_amount += $txn['amount'];
                 
