@@ -713,6 +713,12 @@ $(document).ready(function() {
     // Form submit validation
     $('#collectionForm').on('submit', function(e) {
         var amount = parseFloat($('#amount').val());
+
+        // Keep backend amount source in sync with visible amount input.
+        if (!isNaN(amount) && amount > 0) {
+            $('#total_amount').val(amount);
+        }
+
         if (amount <= 0) {
             e.preventDefault();
             Swal.fire('Error', 'Please enter a valid amount', 'error');

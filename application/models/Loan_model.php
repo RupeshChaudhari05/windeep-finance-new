@@ -431,6 +431,11 @@ class Loan_model extends MY_Model {
         $monthly_rate = ($rate / 12) / 100;
         $balance = $principal;
 
+        // Guard against mathematically invalid reducing-balance schedules.
+        if ($type !== 'flat' && $monthly_rate > 0 && $emi <= ($principal * $monthly_rate)) {
+            throw new Exception('EMI is too low to cover monthly interest for this schedule.');
+        }
+
         // Respect global "fixed due day" setting: whenever fixed_due_day is configured (1-28),
         // snap the first due date to that day-of-month regardless of the force_fixed_due_day toggle.
         // Capped at 28 so the day is valid in February and all short months.
@@ -471,31 +476,38 @@ class Loan_model extends MY_Model {
                 $interest = $total_interest / $tenure;
                 $principal_part = $principal / $tenure;
             } else {
-                $interest = $balance * $monthly_rate;
-                $principal_part = $emi - $interest;
+                $interest = max(0, $balance * $monthly_rate);
+                $principal_part = max(0, $emi - $interest);
             }
             
             $outstanding_before = $balance;
+
+            if ($outstanding_before <= 0) {
+                $interest = 0;
+                $principal_part = 0;
+                $emi_amount = 0;
+                $balance = 0;
+            }
             
             // Last installment adjustment - allocate remaining principal exactly
             if ($i === $tenure) {
-                $principal_part = $principal - $total_principal_allocated;
+                $principal_part = max(0, $outstanding_before);
                 $balance = 0;
             } else {
-                $principal_part = round($principal_part, 2);
+                $principal_part = min(round($principal_part, 2), max(0, $outstanding_before));
                 $balance -= $principal_part;
                 $total_principal_allocated += $principal_part;
             }
             
             $interest = round($interest, 2);
-            $emi_amount = $principal_part + $interest;
+            $emi_amount = max(0, $principal_part + $interest);
             
             $this->db->insert('loan_installments', [
                 'loan_id' => $loan_id,
                 'installment_number' => $i,
                 'due_date' => $due_date->format('Y-m-d'),
-                'principal_amount' => $principal_part,
-                'interest_amount' => $interest,
+                'principal_amount' => max(0, $principal_part),
+                'interest_amount' => max(0, $interest),
                 'emi_amount' => round($emi_amount, 2),
                 'outstanding_principal_before' => round($outstanding_before, 2),
                 'outstanding_principal_after' => round(max(0, $balance), 2),
@@ -993,6 +1005,10 @@ class Loan_model extends MY_Model {
         if (!$installment) {
             throw new Exception('Installment not found');
         }
+
+        if ((int) $installment->loan_id !== (int) $loan->id) {
+            throw new Exception('Installment does not belong to selected loan');
+        }
         
         if (!in_array($installment->status, ['pending', 'overdue', 'partial'])) {
             throw new Exception('Installment is not eligible for interest-only payment (status: ' . $installment->status . ')');
@@ -1007,13 +1023,19 @@ class Loan_model extends MY_Model {
         }
         
         // Calculate interest portion for this installment
-        $interest_due = $installment->interest_amount - $installment->interest_paid;
+        $interest_due = max(0, (float) $installment->interest_amount - (float) ($installment->interest_paid ?? 0));
         $amount = $data['total_amount'];
         
         if ($amount < $interest_due) {
             throw new Exception('Payment amount (₹' . number_format($amount, 2) . ') is less than interest due (₹' . number_format($interest_due, 2) . '). Minimum payment must cover the interest.');
         }
         
+        // For interest-only, allow paying only interest + pending fine. Never principal.
+        $max_allowed = $interest_due + max(0, (float) $loan->outstanding_fine);
+        if ($amount > ($max_allowed + 0.01)) {
+            throw new Exception('Interest-only payment cannot exceed interest due plus pending fine (max ₹' . number_format($max_allowed, 2) . ').');
+        }
+
         // Allocate: Interest only from this installment
         $interest_paid = $interest_due;
         $remaining = $amount - $interest_paid;
@@ -1027,13 +1049,20 @@ class Loan_model extends MY_Model {
         
         // Principal is NOT paid - it's deferred
         $principal_paid = 0;
-        $deferred_principal = $installment->principal_amount - $installment->principal_paid;
+        $deferred_principal = max(0, (float) $installment->principal_amount - (float) ($installment->principal_paid ?? 0));
+
+        // Any unallocated remainder means invalid amount for this mode.
+        if ($remaining > 0.01) {
+            throw new Exception('Interest-only payment amount has excess that cannot be allocated. Please enter exact interest due (and optional pending fine only).');
+        }
+        $remaining = 0;
         
         // Set payment components
         $data['principal_component'] = $principal_paid;
         $data['interest_component'] = $interest_paid;
         $data['fine_component'] = $fine_paid;
-        $data['excess_amount'] = $remaining;
+        $data['excess_amount'] = 0;
+        $data['total_amount'] = $interest_paid + $fine_paid;
         
         // Outstanding amounts - principal stays same, only interest decreases
         $new_outstanding_principal = $loan->outstanding_principal; // Principal unchanged
@@ -1044,25 +1073,26 @@ class Loan_model extends MY_Model {
         $data['outstanding_interest_after'] = $new_outstanding_interest;
         $data['narration'] = ($data['narration'] ?? '') . ' [Interest-only: Principal ₹' . number_format($deferred_principal, 2) . ' deferred]';
         $data['created_at'] = date('Y-m-d H:i:s');
+
+        $paid_on = !empty($data['payment_date']) ? $data['payment_date'] : date('Y-m-d');
+        $is_late = (safe_timestamp($paid_on) > safe_timestamp($installment->due_date));
+        $days_late = 0;
+        if ($is_late) {
+            $days_late = floor((safe_timestamp($paid_on) - safe_timestamp($installment->due_date)) / 86400);
+        }
         
         // Insert payment record
         $this->db->insert('loan_payments', $data);
         $payment_id = $this->db->insert_id();
         
         // Mark installment as interest_only
-        $is_late = (safe_timestamp(date('Y-m-d')) > safe_timestamp($installment->due_date));
-        $days_late = 0;
-        if ($is_late) {
-            $days_late = floor((safe_timestamp(date('Y-m-d')) - safe_timestamp($installment->due_date)) / 86400);
-        }
-        
         $this->db->where('id', $installment->id)
                  ->update('loan_installments', [
                      'interest_paid' => $installment->interest_paid + $interest_paid,
                      'fine_paid' => $installment->fine_paid + $fine_paid,
                      'total_paid' => $installment->total_paid + $interest_paid + $fine_paid,
                      'status' => 'interest_only',
-                     'paid_date' => date('Y-m-d'),
+                     'paid_date' => $paid_on,
                      'is_late' => $is_late ? 1 : 0,
                      'days_late' => $days_late,
                      'deferred_principal' => $deferred_principal,
@@ -1070,19 +1100,33 @@ class Loan_model extends MY_Model {
                      'updated_at' => date('Y-m-d H:i:s')
                  ]);
         
-        // Extend tenure: add new installment at end of schedule
+        // Rebuild the remaining unpaid schedule and append the extended installment
         $this->extend_tenure_for_deferred_principal($loan, $installment, $deferred_principal);
         
-        // Update loan totals
+        // Update loan totals from the refreshed schedule
         $new_tenure = $loan->tenure_months + 1;
+        $total_interest = (float) ($this->db->select_sum('interest_amount', 'total_interest')
+                                           ->where('loan_id', $loan->id)
+                                           ->get('loan_installments')
+                                           ->row()
+                                           ->total_interest ?? 0);
+        $outstanding_interest = (float) ($this->db->select('SUM(IF(interest_amount - IFNULL(interest_paid, 0) > 0, interest_amount - IFNULL(interest_paid, 0), 0)) as outstanding_interest')
+                                          ->where('loan_id', $loan->id)
+                                          ->where('status !=', 'paid')
+                                          ->get('loan_installments')
+                                          ->row()
+                                          ->outstanding_interest ?? 0);
+        
         $loan_update = [
-            'outstanding_interest' => $new_outstanding_interest,
+            'outstanding_interest' => $outstanding_interest,
             'outstanding_fine' => $new_outstanding_fine,
-            'total_amount_paid' => $loan->total_amount_paid + $data['total_amount'],
+            'total_amount_paid' => $loan->total_amount_paid + $interest_paid + $fine_paid,
             'total_interest_paid' => $loan->total_interest_paid + $interest_paid,
             'total_fine_paid' => $loan->total_fine_paid + $fine_paid,
             'tenure_months' => $new_tenure,
             'tenure_extensions' => $extensions_used + 1,
+            'total_interest' => round($total_interest, 2),
+            'total_payable' => round($loan->principal_amount + $total_interest, 2),
             'updated_at' => date('Y-m-d H:i:s')
         ];
         
@@ -1094,14 +1138,6 @@ class Loan_model extends MY_Model {
                                      ->row();
         if ($last_installment) {
             $loan_update['last_emi_date'] = $last_installment->due_date;
-        }
-        
-        // Also update outstanding_interest to add interest for the new installment
-        $new_installment_interest = $this->get_last_added_installment_interest($loan->id);
-        if ($new_installment_interest > 0) {
-            $loan_update['outstanding_interest'] = $new_outstanding_interest + $new_installment_interest;
-            $loan_update['total_interest'] = $loan->total_interest + $new_installment_interest;
-            $loan_update['total_payable'] = $loan->total_payable + $new_installment_interest;
         }
         
         $this->db->where('id', $loan->id)
@@ -1127,53 +1163,87 @@ class Loan_model extends MY_Model {
      * @param float $deferred_principal The principal amount being deferred
      */
     private function extend_tenure_for_deferred_principal($loan, $original_installment, $deferred_principal) {
-        // Get the last installment to determine next installment number and due date
-        $last_installment = $this->db->where('loan_id', $loan->id)
-                                     ->order_by('installment_number', 'DESC')
-                                     ->limit(1)
-                                     ->get('loan_installments')
-                                     ->row();
+        $remaining_installments = $this->db->where('loan_id', $loan->id)
+                                          ->where('installment_number >', $original_installment->installment_number)
+                                          ->where('status !=', 'paid')
+                                          ->order_by('installment_number', 'ASC')
+                                          ->get('loan_installments')
+                                          ->result();
         
-        $new_installment_number = $last_installment->installment_number + 1;
-        
-        // Next due date = last installment due date + 1 month
-        $next_due_date = new DateTime($last_installment->due_date);
-        $next_due_date->modify('+1 month');
-        
-        // Calculate interest for the new installment
         $monthly_rate = ($loan->interest_rate / 12) / 100;
+        $balance = $loan->outstanding_principal;
+        $last_due_date = $original_installment->due_date;
+        $last_installment_number = $original_installment->installment_number;
+        $remaining_count = count($remaining_installments);
         
+        foreach ($remaining_installments as $index => $inst) {
+            $outstanding_before = $balance;
+
+            if ($outstanding_before <= 0) {
+                $interest = 0;
+                $principal_part = 0;
+            } else {
+                if ($loan->interest_type === 'flat') {
+                    $years = ($remaining_count + 1) / 12;
+                    $total_interest = $loan->outstanding_principal * ($loan->interest_rate / 100) * $years;
+                    $interest = round($total_interest / ($remaining_count + 1), 2);
+                    $principal_part = round(max(0, $loan->emi_amount - $interest), 2);
+                } else {
+                    $interest = round(max(0, $balance * $monthly_rate), 2);
+                    $principal_part = round(max(0, $loan->emi_amount - $interest), 2);
+                }
+            }
+
+            $principal_part = min($principal_part, max(0, $balance));
+            $balance -= $principal_part;
+            $emi_amount = round($interest + $principal_part, 2);
+
+            $this->db->where('id', $inst->id)
+                     ->update([
+                         'principal_amount' => round(max(0, $principal_part), 2),
+                         'interest_amount' => max(0, $interest),
+                         'emi_amount' => round($emi_amount, 2),
+                         'outstanding_principal_before' => round(max(0, $outstanding_before), 2),
+                         'outstanding_principal_after' => round(max(0, $balance), 2),
+                         'updated_at' => date('Y-m-d H:i:s')
+                     ]);
+
+            $last_due_date = $inst->due_date;
+            $last_installment_number = $inst->installment_number;
+        }
+
+        $next_due_date = new DateTime($last_due_date);
+        $next_due_date->modify('+1 month');
+        $new_principal = round(max(0, $balance), 2);
+
+        if ($new_principal <= 0) {
+            return null;
+        }
+
         if ($loan->interest_type === 'flat') {
-            // Flat: same interest per month as original schedule
             $interest_for_new = $original_installment->interest_amount;
         } else {
-            // Reducing balance: interest on the outstanding principal at that point
-            // The deferred principal will still be in outstanding, so calculate on it
-            $interest_for_new = round($deferred_principal * $monthly_rate, 2);
+            $interest_for_new = round($new_principal * $monthly_rate, 2);
         }
-        
-        $emi_for_new = round($deferred_principal + $interest_for_new, 2);
-        
-        // Outstanding principal context for the new installment
-        $outstanding_before = $last_installment->outstanding_principal_after + $deferred_principal;
-        $outstanding_after = $last_installment->outstanding_principal_after; // After paying the deferred principal
-        
+
+        $emi_for_new = round($new_principal + $interest_for_new, 2);
+
         $this->db->insert('loan_installments', [
             'loan_id' => $loan->id,
-            'installment_number' => $new_installment_number,
+            'installment_number' => $last_installment_number + 1,
             'due_date' => $next_due_date->format('Y-m-d'),
-            'principal_amount' => $deferred_principal,
+            'principal_amount' => $new_principal,
             'interest_amount' => $interest_for_new,
             'emi_amount' => $emi_for_new,
-            'outstanding_principal_before' => round($outstanding_before, 2),
-            'outstanding_principal_after' => round(max(0, $outstanding_after), 2),
+            'outstanding_principal_before' => round($new_principal, 2),
+            'outstanding_principal_after' => 0,
             'status' => 'upcoming',
             'is_extension' => 1,
             'extended_from_installment' => $original_installment->id,
             'remarks' => 'Extended installment for deferred principal from installment #' . $original_installment->installment_number,
             'created_at' => date('Y-m-d H:i:s')
         ]);
-        
+
         return $this->db->insert_id();
     }
     
@@ -1413,31 +1483,36 @@ class Loan_model extends MY_Model {
             
             // Regenerate schedule for remaining installments
             $balance = $outstanding_principal;
-            $total_principal_allocated = 0;
             
             foreach ($remaining_installments as $index => $inst) {
-                $interest = $balance * $monthly_rate;
-                $principal_part = $new_emi - $interest;
+                $outstanding_before = $balance;
+
+                if ($outstanding_before <= 0) {
+                    $interest = 0;
+                    $principal_part = 0;
+                } else {
+                    $interest = max(0, $balance * $monthly_rate);
+                    $principal_part = max(0, $new_emi - $interest);
+                }
                 
                 // Last installment adjustment
                 if ($index === $remaining_count - 1) {
-                    $principal_part = $outstanding_principal - $total_principal_allocated;
+                    $principal_part = max(0, $outstanding_before);
                 } else {
-                    $principal_part = round($principal_part, 2);
-                    $total_principal_allocated += $principal_part;
+                    $principal_part = min(round($principal_part, 2), max(0, $outstanding_before));
                 }
                 
                 $interest = round($interest, 2);
-                $emi_amount = $principal_part + $interest;
+                $emi_amount = max(0, $principal_part + $interest);
                 $balance -= $principal_part;
                 
                 // Update installment
                 $this->db->where('id', $inst->id)
                          ->update('loan_installments', [
-                             'principal_amount' => $principal_part,
-                             'interest_amount' => $interest,
+                             'principal_amount' => max(0, $principal_part),
+                             'interest_amount' => max(0, $interest),
                              'emi_amount' => round($emi_amount, 2),
-                             'outstanding_principal_before' => round($outstanding_principal - $total_principal_allocated + $principal_part, 2),
+                             'outstanding_principal_before' => round(max(0, $outstanding_before), 2),
                              'outstanding_principal_after' => round(max(0, $balance), 2),
                              'updated_at' => date('Y-m-d H:i:s')
                          ]);
@@ -2285,7 +2360,10 @@ class Loan_model extends MY_Model {
     private function regenerate_schedule_from($loan_id, $principal, $rate, $tenure, $interest_type, $emi, $first_due_date, $start_number = 1) {
         $monthly_rate = ($rate / 12) / 100;
         $balance = $principal;
-        $total_principal_allocated = 0;
+
+        if ($interest_type !== 'flat' && $monthly_rate > 0 && $emi <= ($principal * $monthly_rate)) {
+            throw new Exception('Calculated EMI is too low to cover monthly interest while regenerating schedule.');
+        }
 
         $due_date = new DateTime($first_due_date);
 
@@ -2298,30 +2376,36 @@ class Loan_model extends MY_Model {
                 $interest = $total_interest / $tenure;
                 $principal_part = $principal / $tenure;
             } else {
-                $interest = $balance * $monthly_rate;
-                $principal_part = $emi - $interest;
+                $interest = max(0, $balance * $monthly_rate);
+                $principal_part = max(0, $emi - $interest);
             }
 
             $outstanding_before = $balance;
 
+            if ($outstanding_before <= 0) {
+                $interest = 0;
+                $principal_part = 0;
+                $emi_amount = 0;
+                $balance = 0;
+            }
+
             if ($i === $tenure) {
-                $principal_part = $principal - $total_principal_allocated;
+                $principal_part = max(0, $outstanding_before);
                 $balance = 0;
             } else {
-                $principal_part = round($principal_part, 2);
+                $principal_part = min(round($principal_part, 2), max(0, $outstanding_before));
                 $balance -= $principal_part;
-                $total_principal_allocated += $principal_part;
             }
 
             $interest = round($interest, 2);
-            $emi_amount = $principal_part + $interest;
+            $emi_amount = max(0, $principal_part + $interest);
 
             $this->db->insert('loan_installments', [
                 'loan_id'                      => $loan_id,
                 'installment_number'           => $inst_number,
                 'due_date'                     => $due_date->format('Y-m-d'),
-                'principal_amount'             => round($principal_part, 2),
-                'interest_amount'              => $interest,
+                'principal_amount'             => round(max(0, $principal_part), 2),
+                'interest_amount'              => max(0, $interest),
                 'emi_amount'                   => round($emi_amount, 2),
                 'outstanding_principal_before' => round($outstanding_before, 2),
                 'outstanding_principal_after'  => round(max(0, $balance), 2),

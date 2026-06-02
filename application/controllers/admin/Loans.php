@@ -110,7 +110,20 @@ class Loans extends Admin_Controller {
 
         // Provide installments, payments and fines for the view (compatibility)
         $data['installments'] = $loan->installments ?? $this->Loan_model->get_loan_installments($id);
+
+        // Safety filter: ignore clearly corrupted future schedule rows with negative values.
+        // Existing bad data can happen from older schedule-generation bugs.
+        $data['installments'] = array_values(array_filter($data['installments'], function($inst) {
+            $has_negative = (isset($inst->emi_amount) && (float)$inst->emi_amount < 0)
+                || (isset($inst->principal_amount) && (float)$inst->principal_amount < 0)
+                || (isset($inst->interest_amount) && (float)$inst->interest_amount < 0);
+
+            $future_like_status = in_array($inst->status ?? '', ['pending', 'upcoming', 'partial']);
+            return !($has_negative && $future_like_status);
+        }));
+
         // Normalize installment fields for view compatibility
+        $deferred_carry = 0.0;
         foreach ($data['installments'] as &$inst) {
             // Map schema names to view-friendly properties
             if (!isset($inst->principal_component) && isset($inst->principal_amount)) {
@@ -128,8 +141,38 @@ class Loans extends Admin_Controller {
             $inst->outstanding_after = $inst->outstanding_after ?? 0;
             $inst->emi_amount = $inst->emi_amount ?? ($inst->principal_component + $inst->interest_component);
 
+            // Display fix for interest-only flows:
+            // scheduled outstanding_principal_after values are precomputed at disbursement time.
+            // When principal is deferred (interest-only), subsequent displayed balances must carry that deferred amount.
+            $is_extension = !empty($inst->is_extension) && (int) $inst->is_extension === 1;
+            $display_outstanding_after = (float) $inst->outstanding_after;
+
+            if (!$is_extension && $deferred_carry > 0) {
+                $display_outstanding_after += $deferred_carry;
+            }
+
+            if (($inst->status ?? null) === 'interest_only') {
+                $deferred_here = isset($inst->deferred_principal)
+                    ? (float) $inst->deferred_principal
+                    : max(0, (float) $inst->principal_component - (float) ($inst->principal_paid ?? 0));
+
+                if ($deferred_here > 0) {
+                    $deferred_carry += $deferred_here;
+                    $display_outstanding_after += $deferred_here;
+                }
+
+                // In interest-only month, principal is deferred (not paid).
+                $inst->principal_component = 0;
+            }
+
+            if ($is_extension && $deferred_carry > 0) {
+                $deferred_carry = max(0, $deferred_carry - (float) ($inst->principal_component ?? 0));
+            }
+
+            $inst->outstanding_after = $display_outstanding_after;
+
             // Fetch actual payment date – prefer bank passbook date (transaction_date) over system payment_date
-            if ($inst->status === 'paid' || $inst->status === 'partial') {
+            if ($inst->status === 'paid' || $inst->status === 'partial' || $inst->status === 'interest_only') {
                 $pmt_row = $this->db->select('payment_date, bank_transaction_id, reference_number')
                                     ->where('installment_id', $inst->id)
                                     ->where('is_reversed', 0)
@@ -1047,6 +1090,7 @@ class Loans extends Admin_Controller {
         $this->form_validation->set_rules('installment_id', 'Installment', 'required|numeric');
         $this->form_validation->set_rules('total_amount', 'Amount', 'required|numeric|greater_than[0]');
         $this->form_validation->set_rules('payment_mode', 'Payment Mode', 'required');
+        $this->form_validation->set_rules('payment_date', 'Payment Date', 'required');
         
         $loan_id = $this->input->post('loan_id');
         
@@ -1065,11 +1109,22 @@ class Loans extends Admin_Controller {
             if (!$eligibility['allowed']) {
                 throw new Exception($eligibility['reason']);
             }
+
+            // Prefer hidden total_amount (used by calculator), fallback to visible amount input.
+            $posted_total = $this->input->post('total_amount');
+            $posted_amount = $this->input->post('amount');
+            $final_amount = is_numeric($posted_total) ? (float) $posted_total : 0;
+            if ($final_amount <= 0 && is_numeric($posted_amount)) {
+                $final_amount = (float) $posted_amount;
+            }
+            if ($final_amount <= 0) {
+                throw new Exception('Payment amount must be greater than zero');
+            }
             
             $payment_data = [
                 'loan_id' => $loan_id,
                 'installment_id' => $this->input->post('installment_id'),
-                'total_amount' => $this->input->post('total_amount'),
+                'total_amount' => $final_amount,
                 'payment_mode' => $this->input->post('payment_mode'),
                 'payment_type' => 'interest_only',
                 'payment_date' => $this->input->post('payment_date') ?: date('Y-m-d'),
@@ -1081,8 +1136,10 @@ class Loans extends Admin_Controller {
             $payment_id = $this->Loan_model->record_payment($payment_data);
             
             if ($payment_id) {
-                // Post to ledger
+                // Refresh loan so tenure/extension values are current after processing.
                 $loan = $this->Loan_model->get_by_id($loan_id);
+
+                // Post to ledger
                 $this->load->model('Ledger_model');
                 $this->Ledger_model->post_transaction(
                     'loan_payment',
