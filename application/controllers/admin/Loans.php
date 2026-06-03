@@ -1980,6 +1980,68 @@ class Loans extends Admin_Controller {
         }
     }
 
+    /**
+     * Remove/Reverse a Wrongly Entered Part Payment
+     * URL: admin/loans/remove_part_payment/{part_payment_id}
+     */
+    public function remove_part_payment($part_payment_id = 0) {
+        if ($this->input->method() === 'post') {
+            $part_payment_id = (int) $this->input->post('part_payment_id');
+            
+            if (!$part_payment_id) {
+                $this->session->set_flashdata('error', 'Invalid part payment ID.');
+                redirect('admin/loans');
+                return;
+            }
+
+            // Load part payment to verify it exists and get loan_id
+            $part_payment = $this->Loan_model->get_part_payment($part_payment_id);
+            if (!$part_payment) {
+                $this->session->set_flashdata('error', 'Part payment not found.');
+                redirect('admin/loans');
+                return;
+            }
+
+            // Check if already reversed
+            if ($part_payment->is_reversed) {
+                $this->session->set_flashdata('error', 'This part payment has already been reversed.');
+                redirect('admin/loans/view/' . $part_payment->loan_id);
+                return;
+            }
+
+            // Reverse the part payment
+            $result = $this->Loan_model->reverse_part_payment($part_payment_id, $this->admin_data->id);
+
+            if ($result === true) {
+                $this->session->set_flashdata('success', 'Part payment removed successfully. Loan state has been restored.');
+                redirect('admin/loans/view/' . $part_payment->loan_id);
+            } else {
+                $this->session->set_flashdata('error', $result);
+                redirect('admin/loans/view/' . $part_payment->loan_id);
+            }
+        } else {
+            // Show confirmation page
+            $part_payment_id = (int) $part_payment_id;
+            $part_payment = $this->Loan_model->get_part_payment($part_payment_id);
+
+            if (!$part_payment) {
+                $this->session->set_flashdata('error', 'Part payment not found.');
+                redirect('admin/loans');
+                return;
+            }
+
+            if ($part_payment->is_reversed) {
+                $this->session->set_flashdata('error', 'This part payment has already been reversed.');
+                redirect('admin/loans/view/' . $part_payment->loan_id);
+                return;
+            }
+
+            $data['part_payment'] = $part_payment;
+            $data['page_title'] = 'Confirm Part Payment Removal';
+            $this->load_view('admin/loans/remove_part_payment', $data);
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     //  LOAN TOP-UP
     // ═══════════════════════════════════════════════════════════════════

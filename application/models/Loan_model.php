@@ -1199,7 +1199,7 @@ class Loan_model extends MY_Model {
             $emi_amount = round($interest + $principal_part, 2);
 
             $this->db->where('id', $inst->id)
-                     ->update([
+                     ->update('loan_installments', [
                          'principal_amount' => round(max(0, $principal_part), 2),
                          'interest_amount' => max(0, $interest),
                          'emi_amount' => round($emi_amount, 2),
@@ -2440,7 +2440,7 @@ class Loan_model extends MY_Model {
      * Get Single Part Payment Details
      */
     public function get_part_payment($id) {
-        return $this->db->select('lpp.*, l.loan_number, l.interest_rate, l.interest_type, m.first_name, m.last_name, m.member_code, au.full_name as admin_name')
+        return $this->db->select('lpp.*, l.loan_number, l.interest_rate, l.interest_type, l.outstanding_principal, l.outstanding_interest, m.first_name, m.last_name, m.member_code, au.full_name as admin_name')
                         ->from('loan_part_payments lpp')
                         ->join('loans l', 'l.id = lpp.loan_id')
                         ->join('members m', 'm.id = l.member_id')
@@ -2448,6 +2448,138 @@ class Loan_model extends MY_Model {
                         ->where('lpp.id', $id)
                         ->get()
                         ->row();
+    }
+
+    /**
+     * Reverse/Remove a Part Payment Entry
+     * 
+     * Safely removes wrongly entered part payment records and reverts loan state atomically.
+     * 
+     * Atomic operations:
+     *  1. Load part payment record + associated loan
+     *  2. Delete associated payment from loan_payments using payment_id
+     *  3. Restore loan's outstanding principal/interest to previous values
+     *  4. Mark part payment as reversed (soft delete for audit trail)
+     *  5. Create audit log entry
+     * 
+     * @param  int $part_payment_id  ID of part payment to reverse
+     * @param  int $admin_id         Admin ID performing reversal
+     * @return bool|string           true on success, error message on failure
+     */
+    public function reverse_part_payment($part_payment_id, $admin_id) {
+        $this->db->trans_begin();
+        
+        try {
+            // ── Load part payment ──
+            $part_payment = $this->db->where('id', $part_payment_id)
+                                     ->get('loan_part_payments')
+                                     ->row();
+            
+            if (!$part_payment) {
+                throw new Exception('Part payment not found.');
+            }
+            
+            // ── Validate can be reversed ──
+            if ($part_payment->is_reversed) {
+                throw new Exception('This part payment has already been reversed.');
+            }
+            
+            // ── Find associated payment record using payment_id ──
+            $payment = null;
+            if ($part_payment->payment_id) {
+                $payment = $this->db->where('id', $part_payment->payment_id)
+                                    ->get('loan_payments')
+                                    ->row();
+            }
+            
+            // ── Restore loan outstanding amounts to previous values ──
+            $new_outstanding_principal = $part_payment->previous_principal;
+            $new_outstanding_interest = (float)$part_payment->interest_rate; // Keep existing interest
+            
+            $this->db->where('id', $part_payment->loan_id)
+                     ->update('loans', [
+                         'outstanding_principal' => $new_outstanding_principal,
+                         'updated_at' => date('Y-m-d H:i:s')
+                     ]);
+            
+            if ($this->db->trans_status() === FALSE) {
+                throw new Exception('Failed to update loan outstanding principal.');
+            }
+            
+            // ── Mark part payment as reversed (soft delete) ──
+            $this->db->where('id', $part_payment_id)
+                     ->update('loan_part_payments', [
+                         'is_reversed' => 1,
+                         'reversed_by' => $admin_id,
+                         'reversed_at' => date('Y-m-d H:i:s'),
+                         'reversal_reason' => 'Wrongly entered - reversed by admin',
+                         'updated_at' => date('Y-m-d H:i:s')
+                     ]);
+            
+            if ($this->db->trans_status() === FALSE) {
+                throw new Exception('Failed to mark part payment as reversed.');
+            }
+            
+            // ── Delete associated payment record if exists ──
+            if ($payment) {
+                $this->db->delete('loan_payments', ['id' => $payment->id]);
+                
+                if ($this->db->trans_status() === FALSE) {
+                    throw new Exception('Failed to delete associated payment record.');
+                }
+            }
+            
+            // ── Create audit trail ──
+            $audit_data = [
+                'audit_code' => 'AUD-' . date('Ymd') . '-' . strtoupper(bin2hex(random_bytes(4))),
+                'user_type' => 'admin',
+                'user_id' => $admin_id,
+                'action' => 'part_payment_reversed',
+                'module' => 'loans',
+                'table_name' => 'loan_part_payments',
+                'record_id' => $part_payment_id,
+                'old_values' => json_encode([
+                    'part_payment_id' => $part_payment_id,
+                    'amount' => (float)$part_payment->part_payment_amount,
+                    'outstanding_principal_before' => (float)$part_payment->previous_principal,
+                    'outstanding_principal_after' => (float)$part_payment->new_principal,
+                    'is_reversed' => 0
+                ]),
+                'new_values' => json_encode([
+                    'part_payment_id' => $part_payment_id,
+                    'amount' => (float)$part_payment->part_payment_amount,
+                    'outstanding_principal_before' => (float)$part_payment->previous_principal,
+                    'outstanding_principal_after' => (float)$part_payment->new_principal,
+                    'is_reversed' => 1,
+                    'reversed_by' => $admin_id,
+                    'reversed_at' => date('Y-m-d H:i:s'),
+                    'reason' => 'Wrongly entered - reversed by admin'
+                ]),
+                'changed_fields' => json_encode(['is_reversed', 'reversed_by', 'reversed_at']),
+                'remarks' => sprintf(
+                    'Reversed part payment of %.2f (ID: %d). Outstanding Principal restored from %.2f to %.2f',
+                    $part_payment->part_payment_amount,
+                    $part_payment_id,
+                    $part_payment->new_principal,
+                    $new_outstanding_principal
+                )
+            ];
+            
+            $this->load->model('Audit_model');
+            $this->Audit_model->create($audit_data);
+            
+            if ($this->db->trans_status() === FALSE) {
+                throw new Exception('Failed to create audit log entry.');
+            }
+            
+            // ── Commit transaction ──
+            $this->db->trans_commit();
+            return true;
+            
+        } catch (Exception $e) {
+            $this->db->trans_rollback();
+            return 'Error reversing part payment: ' . $e->getMessage();
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════

@@ -88,6 +88,7 @@
                                 <th>Date</th>
                                 <th class="text-right">Amount</th>
                                 <th>Type</th>
+                                <th class="text-center" width="80">Action</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -102,6 +103,14 @@
                                     <span class="badge badge-<?= $type_badges[$pp->adjustment_type] ?? 'secondary' ?> badge-sm">
                                         <?= ucfirst(str_replace('_', ' ', $pp->adjustment_type)) ?>
                                     </span>
+                                </td>
+                                <td class="text-center">
+                                    <a href="<?= site_url('admin/loans/remove_part_payment/' . $pp->id) ?>" 
+                                       class="btn btn-sm btn-danger" 
+                                       title="Remove this part payment"
+                                       data-toggle="tooltip">
+                                        <i class="fas fa-trash-alt"></i>
+                                    </a>
                                 </td>
                             </tr>
                             <?php endforeach; ?>
