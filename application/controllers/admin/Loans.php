@@ -123,7 +123,9 @@ class Loans extends Admin_Controller {
         }));
 
         // Normalize installment fields for view compatibility
-        $deferred_carry = 0.0;
+        // Professional banking standard: Interest-only payments keep balance unchanged
+        $prev_balance = (float) ($loan->principal_amount ?? 0);
+        
         foreach ($data['installments'] as &$inst) {
             // Map schema names to view-friendly properties
             if (!isset($inst->principal_component) && isset($inst->principal_amount)) {
@@ -141,41 +143,36 @@ class Loans extends Admin_Controller {
             $inst->outstanding_after = $inst->outstanding_after ?? 0;
             $inst->emi_amount = $inst->emi_amount ?? ($inst->principal_component + $inst->interest_component);
 
-            // Display fix for interest-only flows:
-            // scheduled outstanding_principal_after values are precomputed at disbursement time.
-            // When principal is deferred (interest-only), subsequent displayed balances must carry that deferred amount.
-            $is_extension = !empty($inst->is_extension) && (int) $inst->is_extension === 1;
-            $display_outstanding_after = (float) $inst->outstanding_after;
-
-            if (!$is_extension && $deferred_carry > 0) {
-                $display_outstanding_after += $deferred_carry;
-            }
+            // ============================================================================
+            // PROFESSIONAL BANKING STANDARD: Interest-Only Payment Flow
+            // ============================================================================
+            // Interest-only payment rules:
+            // 1. Customer pays ONLY interest (not principal)
+            // 2. Outstanding balance REMAINS SAME (does not increase or decrease)
+            // 3. Principal is deferred to later months
+            // 4. Display only actual payment amount (interest + fine)
+            // ============================================================================
 
             if (($inst->status ?? null) === 'interest_only') {
-                $deferred_here = isset($inst->deferred_principal)
-                    ? (float) $inst->deferred_principal
-                    : max(0, (float) $inst->principal_component - (float) ($inst->principal_paid ?? 0));
-
-                if ($deferred_here > 0) {
-                    $deferred_carry += $deferred_here;
-                    $display_outstanding_after += $deferred_here;
-                }
-
-                // In interest-only month, principal is deferred (not paid).
+                // Interest-only: Balance stays same as previous
+                $inst->outstanding_after = $prev_balance;
+                
+                // Principal is NOT paid (deferred)
                 $inst->principal_component = 0;
                 
-                // FIX: Recalculate EMI to show only interest paid (not original EMI)
-                // Industry standard: display actual payment amount for clarity
+                // Display actual payment (interest + fine only)
                 $actual_interest_paid = (float) ($inst->interest_paid ?? $inst->interest_component ?? 0);
                 $actual_fine_paid = (float) ($inst->fine_paid ?? 0);
                 $inst->emi_amount = round($actual_interest_paid + $actual_fine_paid, 2);
+                
+            } else {
+                // Regular payment: Balance decreases by principal amount paid
+                $principal_paid = (float) ($inst->principal_paid ?? $inst->principal_component ?? 0);
+                $inst->outstanding_after = max(0, $prev_balance - $principal_paid);
             }
 
-            if ($is_extension && $deferred_carry > 0) {
-                $deferred_carry = max(0, $deferred_carry - (float) ($inst->principal_component ?? 0));
-            }
-
-            $inst->outstanding_after = $display_outstanding_after;
+            // Update previous balance for next iteration
+            $prev_balance = (float) $inst->outstanding_after;
 
             // Fetch actual payment date – prefer bank passbook date (transaction_date) over system payment_date
             if ($inst->status === 'paid' || $inst->status === 'partial' || $inst->status === 'interest_only') {

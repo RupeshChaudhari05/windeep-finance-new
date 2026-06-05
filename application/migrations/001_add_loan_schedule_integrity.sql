@@ -7,10 +7,23 @@
 -- Purpose: Enforce data integrity at database level + compliance audit trail
 -- Status: Production Ready | Industry Standard: Banking Audit Compliant
 --
--- FIXES IMPLEMENTED:
---   1. Interest-Only EMI Display (PHP display logic + constraint)
---   2. Balance Progression Validation (CHECK constraint)
---   3. EMI Variance Tracking (Audit table + logging)
+-- PROFESSIONAL BANKING STANDARDS IMPLEMENTED:
+--   1. Interest-Only Payment Flow (Industry Standard):
+--      - Customer pays ONLY interest (not principal)
+--      - Outstanding balance REMAINS SAME (no increase, no decrease)
+--      - Principal is deferred to future months
+--      - Display shows actual payment amount (interest + fine)
+--
+--   2. Regular Payment Flow:
+--      - Customer pays full EMI (principal + interest)
+--      - Outstanding balance DECREASES by principal amount
+--      - Interest decreases monthly (reducing balance method)
+--      - Principal increases monthly (fixed EMI calculation)
+--
+--   3. Database Constraints (Multi-layer Protection):
+--      - CHECK constraint prevents invalid balance progression
+--      - Audit trail tracks all schedule changes
+--      - Migration tracking for deployment verification
 --
 -- IDEMPOTENT: Safe to run multiple times on any database state
 -- ============================================================================
@@ -18,27 +31,81 @@
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- ============================================================================
--- SECTION 1: DATA INTEGRITY CONSTRAINTS
+-- SECTION 1: DROP OLD CONSTRAINTS (Safe cleanup before data fix)
 -- ============================================================================
 
--- Drop old constraints if they exist (safe for re-runs)
 ALTER TABLE `loan_installments`
 DROP CONSTRAINT IF EXISTS `chk_balance_progression`;
 
 ALTER TABLE `loan_installments`
 DROP CONSTRAINT IF EXISTS `chk_nonnegative_amounts`;
 
--- CONSTRAINT #1: Balance Progression Validation
--- Ensures: outstanding_principal_after = outstanding_principal_before - principal_amount
--- Allows: Interest-only status (principal deferred)
+-- ============================================================================
+-- SECTION 2: FIX ALL EXISTING DATA FIRST (MUST run before adding constraints)
+-- ============================================================================
+
+-- Fix interest-only rows: balance must stay the same
+UPDATE `loan_installments`
+SET
+    `outstanding_principal_after` = `outstanding_principal_before`
+WHERE
+    `status` = 'interest_only';
+
+-- Fix regular rows where balance incorrectly increased
+-- Use principal_paid if available (the actual principal paid)
+UPDATE `loan_installments`
+SET
+    `outstanding_principal_after` = GREATEST(
+        0,
+        `outstanding_principal_before` - COALESCE(`principal_paid`, 0)
+    )
+WHERE
+    `status` != 'interest_only'
+    AND `outstanding_principal_after` > `outstanding_principal_before` + 0.01;
+
+-- Fix any negative amounts (set to 0)
+UPDATE `loan_installments`
+SET
+    `outstanding_principal_after` = 0
+WHERE
+    `outstanding_principal_after` < 0;
+
+UPDATE `loan_installments`
+SET
+    `outstanding_principal_before` = 0
+WHERE
+    `outstanding_principal_before` < 0;
+
+UPDATE `loan_installments`
+SET
+    `principal_amount` = 0
+WHERE
+    `principal_amount` < 0;
+
+UPDATE `loan_installments`
+SET
+    `interest_amount` = 0
+WHERE
+    `interest_amount` < 0;
+
+UPDATE `loan_installments`
+SET
+    `emi_amount` = 0
+WHERE
+    `emi_amount` < 0;
+
+-- ============================================================================
+-- SECTION 3: ADD CONSTRAINTS (Only AFTER data is clean)
+-- ============================================================================
+
+-- CONSTRAINT #1: Balance Progression (Interest-only stays same, regular decreases)
 ALTER TABLE `loan_installments`
 ADD CONSTRAINT `chk_balance_progression` CHECK (
     status = 'interest_only'
     OR outstanding_principal_after <= outstanding_principal_before + 0.01
 );
 
--- CONSTRAINT #2: Non-Negative Amounts
--- Ensures: No negative principal, interest, EMI, or outstanding amounts
+-- CONSTRAINT #2: No Negative Amounts
 ALTER TABLE `loan_installments`
 ADD CONSTRAINT `chk_nonnegative_amounts` CHECK (
     principal_amount >= 0
@@ -49,11 +116,9 @@ ADD CONSTRAINT `chk_nonnegative_amounts` CHECK (
 );
 
 -- ============================================================================
--- SECTION 2: PERFORMANCE INDICES
+-- SECTION 4: PERFORMANCE INDICES
 -- ============================================================================
 
--- INDEX #1: Schedule Lookup Optimization
--- Used in: Part payment recalculation, interest-only processing
 ALTER TABLE `loan_installments`
 ADD KEY IF NOT EXISTS `idx_loan_status_date` (
     `loan_id`,
@@ -61,8 +126,6 @@ ADD KEY IF NOT EXISTS `idx_loan_status_date` (
     `due_date`
 );
 
--- INDEX #2: Unpaid Installment Finder
--- Used in: Finding next payment due, collection schedules
 ALTER TABLE `loan_installments`
 ADD KEY IF NOT EXISTS `idx_unpaid_installments` (
     `loan_id`,
@@ -71,11 +134,9 @@ ADD KEY IF NOT EXISTS `idx_unpaid_installments` (
 );
 
 -- ============================================================================
--- SECTION 3: MIGRATION TRACKING TABLE
+-- SECTION 5: MIGRATION TRACKING TABLE
 -- ============================================================================
 
--- TABLE: Deployment Audit Log
--- Purpose: Track all migrations executed (for deployment management)
 DROP TABLE IF EXISTS `migrations`;
 
 CREATE TABLE `migrations` (
@@ -103,30 +164,27 @@ CREATE TABLE `migrations` (
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
 
 -- ============================================================================
--- SECTION 4: AUDIT LOGGING TABLE (Financial Compliance)
+-- SECTION 6: AUDIT LOGGING TABLE
 -- ============================================================================
 
--- TABLE: Loan Schedule Audit Trail
--- Purpose: Track all loan schedule changes for compliance & debugging
--- Required: Banking/Finance regulations
 DROP TABLE IF EXISTS `loan_schedule_audit`;
 
 CREATE TABLE `loan_schedule_audit` (
     `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
     `loan_id` INT UNSIGNED NOT NULL,
-    `action` VARCHAR(50) NOT NULL COMMENT 'regenerate, validate, adjust, cancel',
-    `previous_principal` DECIMAL(15, 2) COMMENT 'Before change',
-    `new_principal` DECIMAL(15, 2) COMMENT 'After change',
+    `action` VARCHAR(50) NOT NULL,
+    `previous_principal` DECIMAL(15, 2),
+    `new_principal` DECIMAL(15, 2),
     `previous_tenure` INT,
     `new_tenure` INT,
     `previous_emi` DECIMAL(15, 2),
     `new_emi` DECIMAL(15, 2),
     `previous_installment_count` INT,
     `new_installment_count` INT,
-    `reason` VARCHAR(255) COMMENT 'Why change made',
-    `validation_errors` TEXT COMMENT 'JSON: validation failure details',
-    `validation_warnings` TEXT COMMENT 'JSON: non-blocking warnings',
-    `performed_by` INT UNSIGNED COMMENT 'admin_id user',
+    `reason` VARCHAR(255),
+    `validation_errors` TEXT,
+    `validation_warnings` TEXT,
+    `performed_by` INT UNSIGNED,
     `performed_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
@@ -136,15 +194,7 @@ CREATE TABLE `loan_schedule_audit` (
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
 
 -- ============================================================================
--- SECTION 5: DATA CORRECTIONS (Existing Issues)
--- ============================================================================
-
--- NOTE: If any historical data requires correction, do it here
--- Example: Loan ID 3 balance progression fix (already applied locally)
--- Production: Run this only if needed after validation
-
--- ============================================================================
--- SECTION 6: RE-ENABLE INTEGRITY CHECKS
+-- SECTION 7: RE-ENABLE INTEGRITY CHECKS
 -- ============================================================================
 
 SET FOREIGN_KEY_CHECKS = 1;
