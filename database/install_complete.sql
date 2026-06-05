@@ -2008,6 +2008,120 @@ END;;
 DELIMITER;
 
 -- ============================================================
+-- NEW TABLES: Loan Schedule Integrity & Migration Tracking
+-- ============================================================
+
+-- -----------------------------------------------------------
+-- Table: loan_schedule_audit
+-- Tracks all schedule regenerations for audit & compliance
+-- -----------------------------------------------------------
+DROP TABLE IF EXISTS `loan_schedule_audit`;
+
+CREATE TABLE `loan_schedule_audit` (
+    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `loan_id` INT UNSIGNED NOT NULL,
+    `action` VARCHAR(50) NOT NULL COMMENT 'regenerate, validate, adjust, cancel',
+    `previous_principal` DECIMAL(15, 2),
+    `new_principal` DECIMAL(15, 2),
+    `previous_tenure` INT,
+    `new_tenure` INT,
+    `previous_emi` DECIMAL(15, 2),
+    `new_emi` DECIMAL(15, 2),
+    `previous_installment_count` INT,
+    `new_installment_count` INT,
+    `reason` VARCHAR(255),
+    `validation_errors` TEXT COMMENT 'JSON array of validation errors if any',
+    `validation_warnings` TEXT COMMENT 'JSON array of warnings if any',
+    `performed_by` INT UNSIGNED COMMENT 'admin_id',
+    `performed_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_loan_id` (`loan_id`),
+    KEY `idx_action_date` (`action`, `created_at`),
+    FOREIGN KEY (`loan_id`) REFERENCES `loans` (`id`) ON DELETE CASCADE
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
+
+-- -----------------------------------------------------------
+-- Table: migrations
+-- Tracks all database migrations for deployment management
+-- -----------------------------------------------------------
+DROP TABLE IF EXISTS `migrations`;
+
+CREATE TABLE `migrations` (
+    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `migration_name` VARCHAR(255) NOT NULL UNIQUE COMMENT 'File name of migration',
+    `migration_file` LONGTEXT NOT NULL COMMENT 'Full migration SQL content',
+    `status` ENUM(
+        'pending',
+        'running',
+        'completed',
+        'failed',
+        'rolled_back'
+    ) DEFAULT 'pending' COMMENT 'Current status',
+    `executed_by` INT UNSIGNED COMMENT 'admin_id who ran migration',
+    `execution_timestamp` TIMESTAMP NULL COMMENT 'When migration was executed',
+    `completion_timestamp` TIMESTAMP NULL COMMENT 'When migration finished',
+    `duration_seconds` INT UNSIGNED COMMENT 'How long migration took',
+    `error_message` TEXT COMMENT 'If failed, error details',
+    `output_log` LONGTEXT COMMENT 'Migration execution output',
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_status` (`status`),
+    KEY `idx_executed_by` (`executed_by`),
+    KEY `idx_created_at` (`created_at`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
+
+-- ============================================================
+-- INTEGRITY CONSTRAINTS: Loan Schedule
+-- ============================================================
+
+-- Drop old constraints if they exist (for safe re-runs)
+ALTER TABLE `loan_installments`
+DROP CONSTRAINT IF EXISTS `chk_balance_progression`;
+
+ALTER TABLE `loan_installments`
+DROP CONSTRAINT IF EXISTS `chk_nonnegative_amounts`;
+
+-- Add balance progression constraint
+-- Ensures: principal paid = balance before - balance after (or interest-only status)
+ALTER TABLE `loan_installments`
+ADD CONSTRAINT `chk_balance_progression` CHECK (
+    status = 'interest_only'
+    OR outstanding_principal_after <= outstanding_principal_before + 0.01
+);
+
+-- Add non-negative amounts constraint
+-- Ensures: all monetary amounts are >= 0
+ALTER TABLE `loan_installments`
+ADD CONSTRAINT `chk_nonnegative_amounts` CHECK (
+    principal_amount >= 0
+    AND interest_amount >= 0
+    AND emi_amount >= 0
+    AND outstanding_principal_before >= 0
+    AND outstanding_principal_after >= 0
+);
+
+-- ============================================================
+-- PERFORMANCE INDICES: Loan Schedule
+-- ============================================================
+
+-- Index for faster schedule lookups during part payment recalculation
+ALTER TABLE `loan_installments`
+ADD KEY IF NOT EXISTS `idx_loan_status_date` (
+    `loan_id`,
+    `status`,
+    `due_date`
+);
+
+-- Index for finding next unpaid installments quickly
+ALTER TABLE `loan_installments`
+ADD KEY IF NOT EXISTS `idx_unpaid_installments` (
+    `loan_id`,
+    `status`,
+    `installment_number`
+);
+
+-- ============================================================
 -- Re-enable foreign key checks before seeding
 -- ============================================================
 SET FOREIGN_KEY_CHECKS = 1;

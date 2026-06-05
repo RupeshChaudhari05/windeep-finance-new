@@ -141,12 +141,12 @@
                     <table class="table table-sm table-borderless">
                         <?php foreach ($fine_rules ?? [] as $rule): ?>
                         <tr>
-                            <td><?= ucfirst(str_replace('_', ' ', $rule->fine_type)) ?></td>
+                            <td><?= ucfirst(str_replace('_', ' ', $rule->fine_type ?? 'Unknown')) ?></td>
                             <td class="text-right">
-                                <?php if ($rule->calculation_type == 'fixed'): ?>
-                                    <?= format_amount($rule->amount, 0) ?>
+                                <?php if (isset($rule->calculation_type) && $rule->calculation_type == 'fixed'): ?>
+                                    <?= format_amount($rule->amount ?? 0, 0) ?>
                                 <?php else: ?>
-                                    <?= $rule->amount ?>%
+                                    <?= $rule->amount ?? 0 ?>%
                                 <?php endif; ?>
                             </td>
                         </tr>

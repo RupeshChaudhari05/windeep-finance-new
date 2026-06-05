@@ -163,6 +163,12 @@ class Loans extends Admin_Controller {
 
                 // In interest-only month, principal is deferred (not paid).
                 $inst->principal_component = 0;
+                
+                // FIX: Recalculate EMI to show only interest paid (not original EMI)
+                // Industry standard: display actual payment amount for clarity
+                $actual_interest_paid = (float) ($inst->interest_paid ?? $inst->interest_component ?? 0);
+                $actual_fine_paid = (float) ($inst->fine_paid ?? 0);
+                $inst->emi_amount = round($actual_interest_paid + $actual_fine_paid, 2);
             }
 
             if ($is_extension && $deferred_carry > 0) {

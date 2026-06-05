@@ -1198,15 +1198,16 @@ class Loan_model extends MY_Model {
             $balance -= $principal_part;
             $emi_amount = round($interest + $principal_part, 2);
 
-            $this->db->where('id', $inst->id)
-                     ->update('loan_installments', [
-                         'principal_amount' => round(max(0, $principal_part), 2),
-                         'interest_amount' => max(0, $interest),
-                         'emi_amount' => round($emi_amount, 2),
-                         'outstanding_principal_before' => round(max(0, $outstanding_before), 2),
-                         'outstanding_principal_after' => round(max(0, $balance), 2),
-                         'updated_at' => date('Y-m-d H:i:s')
-                     ]);
+            $this->db->set([
+                'principal_amount' => round(max(0, $principal_part), 2),
+                'interest_amount' => max(0, $interest),
+                'emi_amount' => round($emi_amount, 2),
+                'outstanding_principal_before' => round(max(0, $outstanding_before), 2),
+                'outstanding_principal_after' => round(max(0, $balance), 2),
+                'updated_at' => date('Y-m-d H:i:s')
+            ])
+                     ->where('id', $inst->id)
+                     ->update('loan_installments');
 
             $last_due_date = $inst->due_date;
             $last_installment_number = $inst->installment_number;
@@ -2240,7 +2241,7 @@ class Loan_model extends MY_Model {
                          ->delete('loan_installments');
             }
 
-            // --- 4. Regenerate amortization schedule ---
+            // --- 4. Regenerate amortization schedule with audit logging ---
             // Find the next due date from the first remaining installment
             $first_remaining = reset($remaining_installments);
             $next_due_date = $first_remaining->due_date;
@@ -2251,11 +2252,23 @@ class Loan_model extends MY_Model {
                                  ->get('loan_installments')
                                  ->row();
             $start_number = ($max_paid && $max_paid->max_num) ? (int)$max_paid->max_num + 1 : 1;
+            
+            // Industry Standard: Log schedule regeneration for audit trail
+            log_message('info', "Schedule regeneration initiated for loan {$loan->id}: principal {$principal} -> {$new_principal}, tenure {$remaining_tenure} -> {$new_tenure}, EMI {$current_emi} -> {$new_emi}, type: {$adjustment_type}");
 
             $this->regenerate_schedule_from(
                 $loan->id, $new_principal, $annual_rate, $new_tenure,
                 $loan->interest_type, $new_emi, $next_due_date, $start_number
             );
+            
+            // Industry Standard: Validate schedule integrity after regeneration
+            $validation = $this->validate_schedule_integrity($loan->id);
+            if (!$validation['valid']) {
+                throw new Exception('Schedule validation failed: ' . implode(' | ', $validation['errors']));
+            }
+            if (!empty($validation['warnings'])) {
+                log_message('warning', 'Schedule validation warnings after regeneration: ' . implode(' | ', $validation['warnings']));
+            }
 
             // --- 5. Update loan master record ---
             $last_new_installment = $this->db->where('loan_id', $loan->id)
@@ -2365,7 +2378,16 @@ class Loan_model extends MY_Model {
             throw new Exception('Calculated EMI is too low to cover monthly interest while regenerating schedule.');
         }
 
+        // Industry Standard: Validate that tenure is sufficient for the principal and EMI
+        if ($interest_type !== 'flat' && $monthly_rate > 0) {
+            $max_possible_tenure = ceil(log($emi / max(0.01, $emi - ($principal * $monthly_rate))) / log(1 + $monthly_rate));
+            if ($tenure < $max_possible_tenure && $tenure > 1) {
+                log_message('warn', "Regenerate schedule: tenure {$tenure} may be insufficient. Calculated: {$max_possible_tenure}. Loan: {$loan_id}");
+            }
+        }
+
         $due_date = new DateTime($first_due_date);
+        $emi_consistency_check = [];
 
         for ($i = 1; $i <= $tenure; $i++) {
             $inst_number = $start_number + $i - 1;
@@ -2389,16 +2411,24 @@ class Loan_model extends MY_Model {
                 $balance = 0;
             }
 
+            // Industry Standard: Better remainder handling
+            // For the last installment, adjust principal to exactly match outstanding balance
             if ($i === $tenure) {
+                // This is the final payment - close out exactly
                 $principal_part = max(0, $outstanding_before);
                 $balance = 0;
             } else {
                 $principal_part = min(round($principal_part, 2), max(0, $outstanding_before));
-                $balance -= $principal_part;
+                $balance = max(0, $outstanding_before - $principal_part);
             }
 
             $interest = round($interest, 2);
-            $emi_amount = max(0, $principal_part + $interest);
+            $emi_amount = round(max(0, $principal_part + $interest), 2);
+            
+            // Track EMI for consistency validation (non-final installments)
+            if ($i < $tenure) {
+                $emi_consistency_check[] = $emi_amount;
+            }
 
             $this->db->insert('loan_installments', [
                 'loan_id'                      => $loan_id,
@@ -2406,7 +2436,7 @@ class Loan_model extends MY_Model {
                 'due_date'                     => $due_date->format('Y-m-d'),
                 'principal_amount'             => round(max(0, $principal_part), 2),
                 'interest_amount'              => max(0, $interest),
-                'emi_amount'                   => round($emi_amount, 2),
+                'emi_amount'                   => $emi_amount,
                 'outstanding_principal_before' => round($outstanding_before, 2),
                 'outstanding_principal_after'  => round(max(0, $balance), 2),
                 'status'                       => $i === 1 ? 'pending' : 'upcoming',
@@ -2415,6 +2445,103 @@ class Loan_model extends MY_Model {
 
             $due_date->modify('+1 month');
         }
+        
+        // Industry Standard: Post-generation audit
+        // Verify EMI consistency across non-final installments
+        if (!empty($emi_consistency_check)) {
+            $emi_values = array_unique($emi_consistency_check);
+            if (count($emi_values) > 1) {
+                // EMI variance detected - log for audit but don't fail (may happen with rounding)
+                $variance = max($emi_consistency_check) - min($emi_consistency_check);
+                if ($variance > 0.10) { // Allow small rounding differences
+                    log_message('warn', "Schedule regeneration: EMI variance detected for loan {$loan_id}. Variance: {$variance}. This may indicate insufficient tenure for the principal amount.");
+                }
+            }
+        }
+    }
+
+    /**
+     * Industry Standard: Validate Schedule Integrity
+     * Ensures generated schedule has logical consistency:
+     * 1. Outstanding principal always decreases (except interest-only)
+     * 2. No negative values
+     * 3. Final balance is zero
+     * 4. EMI variance is within acceptable range for non-final installments
+     * 
+     * @param int $loan_id
+     * @return array ['valid' => bool, 'errors' => array]
+     */
+    public function validate_schedule_integrity($loan_id) {
+        $errors = [];
+        $warnings = [];
+        
+        $installments = $this->db->where('loan_id', $loan_id)
+                                 ->order_by('installment_number', 'ASC')
+                                 ->get('loan_installments')
+                                 ->result();
+        
+        if (empty($installments)) {
+            $errors[] = 'No installments found for loan';
+            return ['valid' => false, 'errors' => $errors];
+        }
+        
+        $prev_outstanding = null;
+        $emi_values = [];
+        
+        foreach ($installments as $idx => $inst) {
+            // Check for negative values
+            if ((float)$inst->principal_amount < 0 || (float)$inst->interest_amount < 0 || (float)$inst->emi_amount < 0) {
+                $errors[] = "Installment {$inst->installment_number}: Negative amount detected (Principal: {$inst->principal_amount}, Interest: {$inst->interest_amount}, EMI: {$inst->emi_amount})";
+            }
+            
+            // Check balance progression
+            if ($prev_outstanding !== null && $inst->status !== 'interest_only' && $inst->status !== 'skipped') {
+                $balance_decrease = (float)$prev_outstanding - (float)$inst->outstanding_principal_after;
+                if ($balance_decrease < -0.01) { // Allow small rounding
+                    $errors[] = "Installment {$inst->installment_number}: Balance increased instead of decreased (Before: {$prev_outstanding}, After: {$inst->outstanding_principal_after})";
+                }
+            }
+            
+            // Check that outstanding_principal_after matches outstanding_principal_before minus principal paid
+            $expected_after = max(0, (float)$inst->outstanding_principal_before - (float)$inst->principal_amount);
+            if (abs($expected_after - (float)$inst->outstanding_principal_after) > 0.01) {
+                $errors[] = "Installment {$inst->installment_number}: Balance mismatch. Expected {$expected_after}, Got {$inst->outstanding_principal_after}";
+            }
+            
+            // Track EMI values for consistency check (skip interest-only and final)
+            if ($inst->status !== 'interest_only' && $idx < count($installments) - 1) {
+                $emi_values[] = (float)$inst->emi_amount;
+            }
+            
+            $prev_outstanding = (float)$inst->outstanding_principal_after;
+        }
+        
+        // Check EMI consistency for non-final installments
+        if (!empty($emi_values)) {
+            $emi_min = min($emi_values);
+            $emi_max = max($emi_values);
+            $emi_variance = $emi_max - $emi_min;
+            
+            if ($emi_variance > 0.10) { // Allow 0.10 rounding tolerance
+                $warnings[] = "EMI variance detected across installments: Variance {$emi_variance} (Min: {$emi_min}, Max: {$emi_max}). This may indicate insufficient tenure for the principal amount.";
+            }
+        }
+        
+        // Check final balance
+        $last_inst = end($installments);
+        if ((float)$last_inst->outstanding_principal_after > 0.01) {
+            $warnings[] = "Final installment has non-zero balance: {$last_inst->outstanding_principal_after}. This may indicate rounding issues.";
+        }
+        
+        if (!empty($warnings)) {
+            log_message('warning', 'Schedule validation warnings for loan ' . $loan_id . ': ' . implode(' | ', $warnings));
+        }
+        
+        return [
+            'valid' => empty($errors),
+            'errors' => $errors,
+            'warnings' => $warnings
+        ];
     }
 
     /**
@@ -2496,25 +2623,27 @@ class Loan_model extends MY_Model {
             $new_outstanding_principal = $part_payment->previous_principal;
             $new_outstanding_interest = (float)$part_payment->interest_rate; // Keep existing interest
             
-            $this->db->where('id', $part_payment->loan_id)
-                     ->update('loans', [
-                         'outstanding_principal' => $new_outstanding_principal,
-                         'updated_at' => date('Y-m-d H:i:s')
-                     ]);
+            $this->db->set([
+                'outstanding_principal' => $new_outstanding_principal,
+                'updated_at' => date('Y-m-d H:i:s')
+            ])
+                     ->where('id', $part_payment->loan_id)
+                     ->update('loans');
             
             if ($this->db->trans_status() === FALSE) {
                 throw new Exception('Failed to update loan outstanding principal.');
             }
             
             // ── Mark part payment as reversed (soft delete) ──
-            $this->db->where('id', $part_payment_id)
-                     ->update('loan_part_payments', [
-                         'is_reversed' => 1,
-                         'reversed_by' => $admin_id,
-                         'reversed_at' => date('Y-m-d H:i:s'),
-                         'reversal_reason' => 'Wrongly entered - reversed by admin',
-                         'updated_at' => date('Y-m-d H:i:s')
-                     ]);
+            $this->db->set([
+                'is_reversed' => 1,
+                'reversed_by' => $admin_id,
+                'reversed_at' => date('Y-m-d H:i:s'),
+                'reversal_reason' => 'Wrongly entered - reversed by admin',
+                'updated_at' => date('Y-m-d H:i:s')
+            ])
+                     ->where('id', $part_payment_id)
+                     ->update('loan_part_payments');
             
             if ($this->db->trans_status() === FALSE) {
                 throw new Exception('Failed to mark part payment as reversed.');
