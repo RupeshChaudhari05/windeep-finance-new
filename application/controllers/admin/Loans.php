@@ -2308,4 +2308,168 @@ class Loans extends Admin_Controller {
 
         $this->load_view('admin/loans/topup_disburse', $data);
     }
+
+    /**
+     * ================================================================================
+     * FORECLOSURE MANAGEMENT (Force Close / Early Settlement)
+     * ================================================================================
+     */
+
+    /**
+     * List Pending Foreclosure Requests
+     */
+    public function foreclosure_requests() {
+        $this->check_permission('loans_approve');
+
+        $data['title'] = 'Foreclosure Requests';
+        $data['page_title'] = 'Loan Foreclosure Requests';
+        $data['breadcrumb'] = [
+            ['title' => 'Dashboard', 'url' => 'admin/dashboard'],
+            ['title' => 'Loans', 'url' => 'admin/loans'],
+            ['title' => 'Foreclosure Requests', 'url' => '']
+        ];
+
+        // Get foreclosure requests with loan and member details
+        $requests = $this->db->select('
+            fr.id, fr.loan_id, fr.member_id, 
+            fr.foreclosure_amount, fr.reason, fr.settlement_date,
+            fr.status, fr.requested_at, fr.processed_by, fr.processed_at, fr.admin_comments,
+            l.loan_number, l.principal_amount, l.outstanding_principal, l.outstanding_interest,
+            m.member_code, m.first_name, m.last_name, m.phone, m.email
+        ')
+        ->from('loan_foreclosure_requests fr')
+        ->join('loans l', 'l.id = fr.loan_id')
+        ->join('members m', 'm.id = fr.member_id')
+        ->order_by('fr.status', 'ASC')
+        ->order_by('fr.requested_at', 'DESC')
+        ->get()
+        ->result();
+
+        $data['requests'] = $requests ?? [];
+
+        // Count by status
+        $data['status_counts'] = [
+            'pending' => count(array_filter($requests, function($r) { return $r->status === 'pending'; })),
+            'approved' => count(array_filter($requests, function($r) { return $r->status === 'approved'; })),
+            'rejected' => count(array_filter($requests, function($r) { return $r->status === 'rejected'; }))
+        ];
+
+        $this->load_view('admin/loans/foreclosure_requests', $data);
+    }
+
+    /**
+     * View Single Foreclosure Request Details
+     */
+    public function view_foreclosure_request($request_id) {
+        $this->check_permission('loans_approve');
+
+        $request = $this->db->select('
+            fr.id, fr.loan_id, fr.member_id, 
+            fr.foreclosure_amount, fr.reason, fr.settlement_date,
+            fr.status, fr.requested_at, fr.processed_by, fr.processed_at, fr.admin_comments,
+            l.*, lp.product_name,
+            m.member_code, m.first_name, m.last_name, m.phone, m.email, m.pan_number, m.aadhaar_number
+        ')
+        ->from('loan_foreclosure_requests fr')
+        ->join('loans l', 'l.id = fr.loan_id')
+        ->join('loan_products lp', 'lp.id = l.loan_product_id', 'left')
+        ->join('members m', 'm.id = fr.member_id')
+        ->where('fr.id', $request_id)
+        ->get()
+        ->row();
+
+        if (!$request) {
+            $this->session->set_flashdata('error', 'Foreclosure request not found.');
+            redirect('admin/loans/foreclosure_requests');
+        }
+
+        // Get breakdown
+        $breakdown = $this->Loan_model->calculate_foreclosure_amount($request->loan_id);
+        
+        // Get installments for this loan
+        $installments = $this->db->where('loan_id', $request->loan_id)
+                                 ->order_by('installment_number', 'ASC')
+                                 ->get('loan_installments')
+                                 ->result();
+
+        // Get pending payments for this loan
+        $payments = $this->db->where('loan_id', $request->loan_id)
+                            ->order_by('payment_date', 'DESC')
+                            ->limit(10)
+                            ->get('loan_payments')
+                            ->result();
+
+        $data['title'] = 'View Foreclosure Request';
+        $data['page_title'] = 'Foreclosure Request - ' . $request->loan_number;
+        $data['breadcrumb'] = [
+            ['title' => 'Dashboard', 'url' => 'admin/dashboard'],
+            ['title' => 'Loans', 'url' => 'admin/loans'],
+            ['title' => 'Foreclosure Requests', 'url' => 'admin/loans/foreclosure_requests'],
+            ['title' => $request->loan_number, 'url' => '']
+        ];
+
+        $data['request'] = $request;
+        $data['breakdown'] = $breakdown;
+        $data['installments'] = $installments;
+        $data['payments'] = $payments;
+
+        $this->load_view('admin/loans/view_foreclosure_request', $data);
+    }
+
+    /**
+     * Process Foreclosure Request (Approve/Reject)
+     */
+    public function process_foreclosure_request() {
+        $this->check_permission('loans_approve');
+        
+        if (!$this->input->is_ajax_request()) {
+            echo json_encode(['success' => false, 'message' => 'Invalid request']);
+            return;
+        }
+
+        $request_id = $this->input->post('request_id');
+        $action = $this->input->post('action'); // 'approve' or 'reject'
+        $remarks = $this->input->post('remarks');
+        $admin_id = $this->session->userdata('admin_id');
+
+        // Payment details (only for approve)
+        $payment_mode = $this->input->post('payment_mode');
+        $transaction_id = $this->input->post('transaction_id');
+        $payment_date = $this->input->post('payment_date');
+
+        if (!in_array($action, ['approve', 'reject'])) {
+            echo json_encode(['success' => false, 'message' => 'Invalid action']);
+            return;
+        }
+
+        $result = $this->Loan_model->process_foreclosure_request(
+            $request_id, $admin_id, $action, $remarks,
+            ['payment_mode' => $payment_mode, 'transaction_id' => $transaction_id, 'payment_date' => $payment_date]
+        );
+
+        if ($result['success']) {
+            // Log activity
+            $this->load->model('Audit_model');
+            $this->Audit_model->create([
+                'user_type'  => 'admin',
+                'user_id'    => $admin_id,
+                'action'     => 'foreclosure_' . $action,
+                'module'     => 'loans',
+                'table_name' => 'loan_foreclosure_requests',
+                'record_id'  => $request_id,
+                'remarks'    => "Foreclosure request $action. Remarks: $remarks. Payment: $payment_mode / $transaction_id"
+            ]);
+
+            echo json_encode([
+                'success' => true,
+                'message' => 'Foreclosure request ' . $action . 'd successfully',
+                'redirect' => site_url('admin/loans/foreclosure_requests')
+            ]);
+        } else {
+            echo json_encode([
+                'success' => false,
+                'message' => $result['message'] ?? 'Failed to process foreclosure request'
+            ]);
+        }
+    }
 }

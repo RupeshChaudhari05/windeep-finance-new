@@ -126,6 +126,11 @@ $route['admin/loans/calculate_part_payment'] = 'admin/loans/calculate_part_payme
 $route['admin/loans/calculate_manual_override'] = 'admin/loans/calculate_manual_override';
 $route['admin/loans/process_part_payment'] = 'admin/loans/process_part_payment';
 
+// Foreclosure routes
+$route['admin/loans/foreclosure_requests'] = 'admin/loans/foreclosure_requests';
+$route['admin/loans/view_foreclosure_request/(:num)'] = 'admin/loans/view_foreclosure_request/$1';
+$route['admin/loans/process_foreclosure_request'] = 'admin/loans/process_foreclosure_request';
+
 // Fines routes
 $route['admin/fines'] = 'admin/fines/index';
 $route['admin/fines/pending'] = 'admin/fines/index';

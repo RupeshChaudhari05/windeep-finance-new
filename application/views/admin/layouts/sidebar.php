@@ -183,6 +183,22 @@
                                     <p>Loan Products</p>
                                 </a>
                             </li>
+                            <li class="nav-item">
+                                <a href="<?= base_url('admin/loans/foreclosure_requests') ?>" class="nav-link">
+                                    <i class="far fa-circle nav-icon"></i>
+                                    <p>
+                                        Foreclosure Requests
+                                        <?php
+                                            $CI =& get_instance();
+                                            $CI->load->model('Loan_model');
+                                            $pending_foreclosure = count($CI->Loan_model->get_foreclosure_requests('pending'));
+                                            if ($pending_foreclosure > 0):
+                                        ?>
+                                        <span class="badge badge-danger right"><?= $pending_foreclosure ?></span>
+                                        <?php endif; ?>
+                                    </p>
+                                </a>
+                            </li>
                         </ul>
                     </li>
 

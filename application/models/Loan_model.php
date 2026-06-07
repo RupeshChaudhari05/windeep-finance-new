@@ -1976,7 +1976,7 @@ class Loan_model extends MY_Model {
     /**
      * Process Foreclosure Request (Admin only)
      */
-    public function process_foreclosure_request($request_id, $admin_id, $action, $comments = null) {
+    public function process_foreclosure_request($request_id, $admin_id, $action, $comments = null, $payment_details = []) {
         $request = $this->db->where('id', $request_id)->get('loan_foreclosure_requests')->row();
         if (!$request) {
             return ['success' => false, 'message' => 'Foreclosure request not found'];
@@ -1991,6 +1991,71 @@ class Loan_model extends MY_Model {
         if ($action === 'approve') {
             $update_data['status'] = 'approved';
 
+            // Get loan details for breakdown calculation
+            $loan = $this->db->where('id', $request->loan_id)->get('loans')->row();
+            if (!$loan) {
+                return ['success' => false, 'message' => 'Loan not found'];
+            }
+
+            // Get breakdown of foreclosure amount from the request object
+            $breakdown = $this->calculate_foreclosure_amount($request->loan_id);
+
+            // Normalize payment_mode to valid ENUM values
+            $payment_mode_input = strtolower($payment_details['payment_mode'] ?? 'cash');
+            $valid_modes = ['cash', 'bank_transfer', 'cheque', 'upi', 'auto_debit', 'adjustment'];
+            
+            // Map form values to valid ENUM values
+            $payment_mode_map = [
+                'cash' => 'cash',
+                'bank_transfer' => 'bank_transfer',
+                'cheque' => 'cheque',
+                'online' => 'bank_transfer',
+                'upi' => 'upi',
+                'demand_draft' => 'bank_transfer',
+                'neft' => 'bank_transfer',
+                'rtgs' => 'bank_transfer',
+                'other' => 'cash',
+                'admin_entry' => 'adjustment'
+            ];
+            
+            $payment_mode = $payment_mode_map[$payment_mode_input] ?? 'cash';
+
+            // Create payment record with complete details
+            $payment_data = [
+                'loan_id' => $request->loan_id,
+                'payment_date' => isset($payment_details['payment_date']) && !empty($payment_details['payment_date']) 
+                                 ? $payment_details['payment_date'] 
+                                 : date('Y-m-d'),
+                'payment_type' => 'foreclosure',
+                'payment_mode' => $payment_mode,
+                'reference_number' => $payment_details['transaction_id'] ?? 'Foreclosure-Req#' . $request_id,
+                'total_amount' => $request->foreclosure_amount,
+                'principal_component' => floatval($breakdown['principal'] ?? $loan->outstanding_principal ?? 0),
+                'interest_component' => floatval($breakdown['interest'] ?? 0),
+                'fine_component' => floatval($breakdown['pending_fines'] ?? 0),
+                'outstanding_principal_after' => 0,
+                'outstanding_interest_after' => 0,
+                'payment_code' => 'FEC' . date('YmdHis'),
+                'is_reversed' => 0,
+                'narration' => 'Foreclosure Settlement: ' . $comments,
+                'created_at' => date('Y-m-d H:i:s'),
+                'created_by' => $admin_id
+            ];
+
+            // Insert payment record
+            $insert_result = $this->db->insert('loan_payments', $payment_data);
+            if (!$insert_result) {
+                return ['success' => false, 'message' => 'Failed to create payment record: ' . $this->db->error()['message']];
+            }
+            $payment_id = $this->db->insert_id();
+
+            // Update outstanding amounts to 0 (loan closed)
+            $this->db->where('id', $payment_id)
+                    ->update('loan_payments', [
+                        'outstanding_principal_after' => 0,
+                        'outstanding_interest_after' => 0
+                    ]);
+
             // LOAN-5 FIX: Use correct column names (closure_date, closure_type)
             $this->db->where('id', $request->loan_id)
                     ->update('loans', [
@@ -1999,6 +2064,8 @@ class Loan_model extends MY_Model {
                         'closure_type' => 'foreclosure',
                         'closure_remarks' => $comments,
                         'closed_by' => $admin_id,
+                        'outstanding_principal' => 0,
+                        'outstanding_interest' => 0,
                         'updated_at' => date('Y-m-d H:i:s')
                     ]);
 
@@ -3106,5 +3173,51 @@ class Loan_model extends MY_Model {
             $this->db->trans_rollback();
             throw $e;
         }
+    }
+
+    /**
+     * ========================================================================
+     * FORECLOSURE REQUEST MANAGEMENT (Admin Processing)
+     * ========================================================================
+     */
+
+    /**
+     * Get All Foreclosure Requests (Admin view)
+     */
+    public function get_foreclosure_requests($status = null) {
+        $query = $this->db->select('
+            fr.id, fr.loan_id, fr.member_id,
+            fr.foreclosure_amount, fr.reason, fr.settlement_date,
+            fr.status, fr.requested_at, fr.processed_by, fr.processed_at, fr.admin_comments,
+            l.loan_number, l.principal_amount, l.outstanding_principal, l.outstanding_interest,
+            m.member_code, m.first_name, m.last_name, m.phone, m.email
+        ')
+        ->from('loan_foreclosure_requests fr')
+        ->join('loans l', 'l.id = fr.loan_id', 'left')
+        ->join('members m', 'm.id = fr.member_id', 'left');
+
+        if ($status) {
+            $query->where('fr.status', $status);
+        }
+
+        return $query->order_by('fr.status', 'ASC')
+                     ->order_by('fr.requested_at', 'DESC')
+                     ->get()
+                     ->result();
+    }
+
+    /**
+     * Get Single Foreclosure Request
+     */
+    public function get_foreclosure_request_by_id($request_id) {
+        return $this->db->select('
+            fr.id, fr.loan_id, fr.member_id,
+            fr.foreclosure_amount, fr.reason, fr.settlement_date,
+            fr.status, fr.requested_at, fr.processed_by, fr.processed_at, fr.admin_comments
+        ')
+        ->from('loan_foreclosure_requests fr')
+        ->where('fr.id', $request_id)
+        ->get()
+        ->row();
     }
 }
