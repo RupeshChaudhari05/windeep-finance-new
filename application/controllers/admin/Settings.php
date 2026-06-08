@@ -1819,4 +1819,85 @@ class Settings extends Admin_Controller {
         redirect('admin/settings');
     }
 
+    /**
+     * Generate Passwords for All Members
+     */
+    public function generate_member_passwords() {
+        $this->load->model('Member_model');
+        
+        $data['title'] = 'Generate Member Passwords';
+        $data['page_title'] = 'Generate Passwords for All Members';
+        $data['breadcrumb'] = [
+            ['title' => 'Dashboard', 'url' => 'admin/dashboard'],
+            ['title' => 'Settings', 'url' => 'admin/settings'],
+            ['title' => 'Generate Passwords', 'url' => '']
+        ];
+        
+        // Get all active members
+        $members = $this->db->select('id, member_code, first_name, last_name, phone, email')
+                           ->where('deleted_at', NULL)
+                           ->where('status', 'active')
+                           ->order_by('member_code', 'ASC')
+                           ->get('members')
+                           ->result();
+        
+        $credentials = [];
+        $updated_count = 0;
+        $errors = [];
+        
+        // Generate and update passwords
+        foreach ($members as $member) {
+            $plain_password = $this->generate_random_password(12);
+            $password_hash = password_hash($plain_password, PASSWORD_DEFAULT);
+            $username = strtolower(str_replace('-', '_', $member->member_code));
+            
+            // Update member password
+            $result = $this->db->where('id', $member->id)
+                              ->update('members', ['password' => $password_hash]);
+            
+            if ($result) {
+                $credentials[] = [
+                    'id' => $member->id,
+                    'member_code' => $member->member_code,
+                    'first_name' => $member->first_name,
+                    'last_name' => $member->last_name,
+                    'phone' => $member->phone,
+                    'email' => $member->email,
+                    'username' => $username,
+                    'password' => $plain_password
+                ];
+                $updated_count++;
+            } else {
+                $errors[] = "Error updating " . $member->member_code;
+            }
+        }
+        
+        // Log audit
+        if ($updated_count > 0) {
+            $this->log_audit('bulk_generate', 'members', 'members', 0, null, [
+                'total_updated' => $updated_count,
+                'timestamp' => date('Y-m-d H:i:s')
+            ]);
+        }
+        
+        $data['credentials'] = $credentials;
+        $data['updated_count'] = $updated_count;
+        $data['errors'] = $errors;
+        $data['total_members'] = count($members);
+        
+        $this->load_view('admin/settings/generate_passwords', $data);
+    }
+    
+    /**
+     * Generate random password
+     */
+    private function generate_random_password($length = 12) {
+        $chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+        $password = '';
+        for ($i = 0; $i < $length; $i++) {
+            $password .= $chars[random_int(0, strlen($chars) - 1)];
+        }
+        return $password;
+    }
+
 }

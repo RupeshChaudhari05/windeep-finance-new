@@ -53,6 +53,12 @@
                                     <p>Add New Member</p>
                                 </a>
                             </li>
+                            <li class="nav-item">
+                                <a href="<?= base_url('admin/settings#member_passwords') ?>" class="nav-link">
+                                    <i class="far fa-circle nav-icon"></i>
+                                    <p><strong>Generate Passwords</strong></p>
+                                </a>
+                            </li>
                             <!-- <li class="nav-item">
                                 <a href="<?= base_url('admin/members/kyc-pending') ?>" class="nav-link">
                                     <i class="far fa-circle nav-icon"></i>

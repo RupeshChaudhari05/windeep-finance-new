@@ -44,6 +44,11 @@
                         </a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link" href="#member_passwords" data-toggle="pill">
+                            <i class="fas fa-key mr-2"></i> Member Passwords
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link" href="#whatsapp" data-toggle="pill">
                             <i class="fab fa-whatsapp mr-2"></i> WhatsApp
                         </a>
@@ -694,6 +699,42 @@
                                 <?php endforeach; ?>
                             </tbody>
                         </table>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Member Passwords -->
+            <div class="tab-pane fade" id="member_passwords">
+                <div class="card card-success">
+                    <div class="card-header">
+                        <h3 class="card-title"><i class="fas fa-key mr-1"></i> Generate Member Passwords</h3>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted mb-3">
+                            Generate and update passwords for all active members. A new random password will be created for each member, encrypted, and ready to be distributed.
+                        </p>
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle mr-2"></i>
+                            <strong>What happens:</strong>
+                            <ul class="mb-0">
+                                <li>✓ Random 12-character passwords generated for each active member</li>
+                                <li>✓ Passwords are encrypted and cannot be recovered</li>
+                                <li>✓ Display generated credentials for distribution</li>
+                                <li>✓ Option to export as CSV</li>
+                                <li>✓ Audit log recorded</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="card-footer">
+                        <form action="<?= site_url('admin/settings/generate_member_passwords') ?>" method="post">
+                            <?= form_hidden($this->security->get_csrf_token_name(), $this->security->get_csrf_hash()) ?>
+                            <button type="submit" class="btn btn-success btn-lg" onclick="return confirm('This will generate new passwords for ALL active members. Are you sure?');">
+                                <i class="fas fa-random mr-1"></i> Generate Passwords Now
+                            </button>
+                            <a href="<?= site_url('admin/members') ?>" class="btn btn-secondary">
+                                <i class="fas fa-arrow-left mr-1"></i> Back to Members
+                            </a>
+                        </form>
                     </div>
                 </div>
             </div>

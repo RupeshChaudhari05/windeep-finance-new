@@ -137,6 +137,65 @@
             </div>
         </div>
         
+        <!-- Member Portal Access -->
+        <div class="card card-info">
+            <div class="card-header">
+                <h3 class="card-title"><i class="fas fa-key mr-1"></i> Portal Access</h3>
+            </div>
+            <div class="card-body">
+                <div class="form-group mb-2">
+                    <label><strong>Username:</strong></label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="username" 
+                               value="<?= strtolower(str_replace('-', '_', $member->member_code)) ?>" readonly>
+                        <div class="input-group-append">
+                            <button class="btn btn-outline-secondary btn-sm" type="button" onclick="copyUsername()">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="form-group mb-0">
+                    <label><strong>Password Status:</strong></label>
+                    <?php if ($member->password): ?>
+                        <div class="alert alert-warning mb-2">
+                            <i class="fas fa-lock mr-2"></i>
+                            <strong>Password is encrypted with Bcrypt (One-way)</strong><br>
+                            <small>Cannot be decrypted back to plain text. To create a new password:</small>
+                            <ul class="mb-0 mt-2">
+                                <li>Click <strong>"Set/Change"</strong> to manually set a password you'll see</li>
+                                <li>Or use <strong>Settings → Member Passwords</strong> to generate new passwords for all members</li>
+                            </ul>
+                        </div>
+                        <div class="input-group">
+                            <input type="text" class="form-control font-weight-bold" id="passwordField" 
+                                   value="<?= $member->password ?>" 
+                                   readonly style="font-family: monospace; font-size: 0.75rem; letter-spacing: 0px; word-break: break-all;">
+                            <div class="input-group-append">
+                                <button class="btn btn-outline-secondary btn-sm" type="button" onclick="copyPasswordHash()" title="Copy hash">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </div>
+                        </div>
+                    <?php else: ?>
+                        <div class="alert alert-danger mb-2">
+                            <i class="fas fa-exclamation-triangle mr-2"></i>
+                            <strong>No password set</strong><br>
+                            <small>Member cannot login. Set a password using one of these options:</small>
+                            <ul class="mb-0 mt-2">
+                                <li><a href="<?= site_url('admin/members/edit/' . $member->id) ?>" class="alert-link">Set/Change Password</a></li>
+                                <li><a href="<?= site_url('admin/settings#member_passwords') ?>" class="alert-link">Generate Passwords (all members)</a></li>
+                            </ul>
+                        </div>
+                    <?php endif; ?>
+                    <small class="text-muted d-block mt-2">
+                        <i class="fas fa-info-circle"></i> The hash shown is for reference only. Only plain passwords can be seen when first set.
+                    </small>
+                </div>
+            </div>
+        </div>
+        
         <!-- Guarantor Exposure -->
         <?php if (isset($member->guarantor_exposure)): ?>
         <div class="card card-warning">
@@ -603,3 +662,29 @@
         </div>
     </div>
 </div>
+
+<script>
+// Copy password hash to clipboard
+function copyPasswordHash() {
+    const field = document.getElementById('passwordField');
+    if (field.value === '(Not set)' || !field.value) {
+        alert('No password hash to copy');
+        return;
+    }
+    navigator.clipboard.writeText(field.value).then(() => {
+        alert('Password hash copied to clipboard!');
+    }).catch(() => {
+        alert('Failed to copy hash');
+    });
+}
+
+// Copy username to clipboard
+function copyUsername() {
+    const username = document.getElementById('username').value;
+    navigator.clipboard.writeText(username).then(() => {
+        alert('Username copied: ' + username);
+    }).catch(() => {
+        alert('Failed to copy username');
+    });
+}
+</script>
