@@ -252,6 +252,14 @@
                     </a>
                 </div>
             </li>
+            <?php if (!empty($show_overdue_nav_button)): ?>
+            <li class="nav-item d-none d-sm-inline-block">
+                <a href="#" class="nav-link" data-toggle="modal" data-target="#monthOverduesModal" title="Current Month Overdues">
+                    <i class="fas fa-calendar-times"></i>
+                    <span class="d-none d-md-inline">Month Overdues</span>
+                </a>
+            </li>
+            <?php endif; ?>
 
             <!-- Notifications Dropdown Menu -->
             <li class="nav-item dropdown notif-dropdown">

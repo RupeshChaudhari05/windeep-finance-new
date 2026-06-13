@@ -1779,6 +1779,49 @@ class Loan_model extends MY_Model {
         ->get()
         ->result();
     }
+
+    /**
+     * Get Current Month Overdue Loans with Email Status
+     * Shows overdue loans due in current month with pending/paid status
+     */
+    public function get_current_month_overdue_with_emails() {
+        $current_month = date('Y-m');
+        
+        return $this->db->select('
+            l.id as loan_id,
+            l.loan_number,
+            l.principal_amount,
+            l.outstanding_principal,
+            m.id as member_id,
+            m.member_code,
+            m.first_name,
+            m.last_name,
+            m.email,
+            m.phone,
+            li.id as installment_id,
+            li.installment_number,
+            li.due_date,
+            IFNULL(li.emi_amount, 0) as emi_amount,
+            IFNULL(li.total_paid, 0) as total_paid,
+            (IFNULL(li.emi_amount, 0) - IFNULL(li.total_paid, 0)) as amount_due,
+            li.status as installment_status,
+            CASE 
+                WHEN li.status = "paid" THEN "PAID"
+                ELSE "PENDING"
+            END as payment_status
+        ', false)
+        ->from('loans l')
+        ->join('members m', 'm.id = l.member_id')
+        ->join('loan_installments li', 'li.loan_id = l.id')
+        ->where('l.status', 'active')
+        ->where('DATE_FORMAT(li.due_date, "%Y-%m") =', $current_month)
+        ->where_in('li.status', ['pending','upcoming','partial','paid'])
+        ->where_not_in('li.status', ['cancelled','waived'])
+        ->order_by('li.due_date', 'ASC')
+        ->order_by('l.loan_number', 'ASC')
+        ->get()
+        ->result();
+    }
     
     /**
      * Get Loan Products

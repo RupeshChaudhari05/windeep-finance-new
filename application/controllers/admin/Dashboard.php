@@ -65,6 +65,7 @@ class Dashboard extends Admin_Controller {
 
         // Profit & Loss (Net Earnings) summary
         $data['profit_loss'] = $this->Report_model->get_profit_loss_summary();
+        $data['show_overdue_nav_button'] = true;
         
         $this->load_view('admin/dashboard/index', $data);
     }
@@ -75,6 +76,37 @@ class Dashboard extends Admin_Controller {
     public function quick_stats() {
         $stats = $this->Report_model->get_dashboard_stats();
         $this->json_response($stats);
+    }
+
+    /**
+     * Get Current Month Overdue Loans with Email Status
+     * AJAX endpoint for modal display
+     */
+    public function get_current_month_overdues() {
+        $overdues = $this->Loan_model->get_current_month_overdue_with_emails();
+        
+        // Separate pending and paid
+        $pending = [];
+        $paid = [];
+        
+        foreach ($overdues as $item) {
+            if ($item->payment_status === 'PAID') {
+                $paid[] = $item;
+            } else {
+                $pending[] = $item;
+            }
+        }
+        
+        $response_data = [
+            'pending' => $pending,
+            'paid' => $paid,
+            'pending_count' => count($pending),
+            'paid_count' => count($paid),
+            'month' => date('F Y')
+        ];
+
+        // Explicitly set success and data keys for standardized response
+        $this->json_response(['success' => true, 'data' => $response_data]);
     }
     
     /**

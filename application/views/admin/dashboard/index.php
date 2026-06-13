@@ -1002,3 +1002,6 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 </script>
+
+<!-- Include Current Month Overdues Modal -->
+<?php $this->load->view('admin/dashboard/month_overdues_modal'); ?>
