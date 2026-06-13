@@ -1884,8 +1884,14 @@ class Settings extends Admin_Controller {
         $data['updated_count'] = $updated_count;
         $data['errors'] = $errors;
         $data['total_members'] = count($members);
-        
-        $this->load_view('admin/settings/generate_passwords', $data);
+
+        // Keep the generated cleartext passwords available for the next view
+        // Store in regular session (not flashdata) so they persist until cleared
+        $this->session->set_userdata('generated_credentials', $credentials);
+        $this->session->set_userdata('generated_password_count', $updated_count);
+        $this->session->set_userdata('generated_password_time', date('Y-m-d H:i:s'));
+
+        redirect('admin/settings/view_member_passwords');
     }
     
     /**
@@ -1898,6 +1904,157 @@ class Settings extends Admin_Controller {
             $password .= $chars[random_int(0, strlen($chars) - 1)];
         }
         return $password;
+    }
+
+    /**
+     * View Member Passwords (Display all members with their password status)
+     */
+    public function view_member_passwords() {
+        $this->load->model('Member_model');
+        
+        $data['title'] = 'View Member Passwords';
+        $data['page_title'] = 'View All Member Passwords';
+        $data['breadcrumb'] = [
+            ['title' => 'Dashboard', 'url' => 'admin/dashboard'],
+            ['title' => 'Settings', 'url' => 'admin/settings'],
+            ['title' => 'View Passwords', 'url' => '']
+        ];
+        
+        // Get all members with their password status
+        $members = $this->db->select('id, member_code, first_name, last_name, phone, email, password, created_at, status')
+                           ->where('deleted_at', NULL)
+                           ->order_by('member_code', 'ASC')
+                           ->get('members')
+                           ->result();
+        
+        $members_data = [];
+        $total_members = 0;
+        $password_set = 0;
+        $password_not_set = 0;
+        
+        // Get recently generated credentials from session
+        $generated_credentials = $this->session->userdata('generated_credentials') ?: [];
+        $generated_creds_map = [];
+        foreach ($generated_credentials as $cred) {
+            $generated_creds_map[$cred['id']] = $cred;
+        }
+        
+        foreach ($members as $member) {
+            $total_members++;
+            $has_password = !empty($member->password);
+            if ($has_password) $password_set++;
+            else $password_not_set++;
+            
+            // Check if this password was just generated
+            $plain_password = isset($generated_creds_map[$member->id]) ? $generated_creds_map[$member->id]['password'] : null;
+            
+            $members_data[] = [
+                'id' => $member->id,
+                'member_code' => $member->member_code,
+                'first_name' => $member->first_name,
+                'last_name' => $member->last_name,
+                'phone' => $member->phone,
+                'email' => $member->email,
+                'username' => strtolower(str_replace('-', '_', $member->member_code)),
+                'password_hash' => $member->password,
+                'plain_password' => $plain_password,
+                'has_password' => $has_password,
+                'status' => $member->status
+            ];
+        }
+        
+        $generated_password_count = $this->session->userdata('generated_password_count') ?: 0;
+        $generated_password_time = $this->session->userdata('generated_password_time') ?: null;
+        
+        $data['members'] = $members_data;
+        $data['total_members'] = $total_members;
+        $data['password_set'] = $password_set;
+        $data['password_not_set'] = $password_not_set;
+        $data['generated_credentials'] = $generated_credentials ?: [];
+        $data['generated_password_count'] = $generated_password_count;
+        $data['generated_password_time'] = $generated_password_time;
+        
+        $this->load_view('admin/settings/view_passwords', $data);
+    }
+
+    /**
+     * Reset Individual Member Password
+     * Returns JSON response with new password
+     */
+    public function reset_member_password() {
+        if (!$this->input->is_ajax_request()) {
+            $this->response->set_status_header(403);
+            echo json_encode(['success' => false, 'message' => 'Invalid request']);
+            return;
+        }
+
+        $member_id = $this->input->post('member_id');
+        
+        if (!$member_id) {
+            echo json_encode(['success' => false, 'message' => 'Member ID is required']);
+            return;
+        }
+
+        // Get member details
+        $member = $this->db->where('id', $member_id)
+                          ->where('deleted_at', NULL)
+                          ->get('members')
+                          ->row();
+
+        if (!$member) {
+            echo json_encode(['success' => false, 'message' => 'Member not found']);
+            return;
+        }
+
+        // Generate new password
+        $plain_password = $this->generate_random_password(12);
+        $password_hash = password_hash($plain_password, PASSWORD_DEFAULT);
+
+        // Update member password
+        $result = $this->db->where('id', $member_id)
+                          ->update('members', ['password' => $password_hash]);
+
+        if ($result) {
+            // Log audit
+            $this->log_audit('reset_password', 'members', 'members', $member_id, null, [
+                'member_code' => $member->member_code,
+                'timestamp' => date('Y-m-d H:i:s')
+            ]);
+
+            echo json_encode([
+                'success' => true,
+                'message' => 'Password reset successfully',
+                'data' => [
+                    'member_code' => $member->member_code,
+                    'member_name' => $member->first_name . ' ' . $member->last_name,
+                    'username' => strtolower(str_replace('-', '_', $member->member_code)),
+                    'plain_password' => $plain_password
+                ]
+            ]);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Error updating password']);
+        }
+    }
+
+    /**
+     * Bulk Reset All Member Passwords
+     * Redirects to generate_member_passwords which handles the same functionality
+     */
+    public function reset_all_passwords() {
+        redirect('admin/settings/generate_member_passwords');
+    }
+
+    /**
+     * Clear Generated Passwords from Session
+     */
+    public function clear_generated_passwords() {
+        $this->session->unset_userdata(['generated_credentials', 'generated_password_count', 'generated_password_time']);
+        
+        if ($this->input->is_ajax_request()) {
+            echo json_encode(['success' => true]);
+        } else {
+            redirect('admin/settings/view_member_passwords');
+        }
     }
 
 }

@@ -713,7 +713,7 @@
                         <p class="text-muted mb-3">
                             Generate and update passwords for all active members. A new random password will be created for each member, encrypted, and ready to be distributed.
                         </p>
-                        <div class="alert alert-info">
+                        <div class="alert-info">
                             <i class="fas fa-info-circle mr-2"></i>
                             <strong>What happens:</strong>
                             <ul class="mb-0">
@@ -731,8 +731,8 @@
                             <button type="submit" class="btn btn-success btn-lg" onclick="return confirm('This will generate new passwords for ALL active members. Are you sure?');">
                                 <i class="fas fa-random mr-1"></i> Generate Passwords Now
                             </button>
-                            <a href="<?= site_url('admin/members') ?>" class="btn btn-secondary">
-                                <i class="fas fa-arrow-left mr-1"></i> Back to Members
+                            <a href="<?= site_url('admin/settings/view_member_passwords') ?>" class="btn btn-secondary btn-lg">
+                                <i class="fas fa-arrow-left mr-1"></i> View Existing Passwords
                             </a>
                         </form>
                     </div>
