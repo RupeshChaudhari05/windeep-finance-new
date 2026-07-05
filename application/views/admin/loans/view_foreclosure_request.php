@@ -66,8 +66,9 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 
             <!-- Settlement Breakdown -->
             <div class="card card-success mb-3">
-                <div class="card-header bg-success text-white">
-                    <h3 class="card-title"><i class="fas fa-calculator mr-2"></i>Settlement Amount Breakdown</h3>
+                <div class="card-header bg-success text-white d-flex align-items-center">
+                    <h3 class="card-title mb-0"><i class="fas fa-calculator mr-2"></i>Settlement Amount Breakdown</h3>
+                    <span class="badge badge-light ml-auto text-dark" style="font-size:13px;">Foreclosure</span>
                 </div>
                 <div class="card-body">
                     <table class="table table-sm table-borderless">
@@ -76,22 +77,40 @@ defined('BASEPATH') OR exit('No direct script access allowed');
                             <td class="text-right">₹<?= number_format($breakdown['outstanding_principal'] ?? 0, 2) ?></td>
                         </tr>
                         <tr>
-                            <td><strong>Outstanding Interest:</strong></td>
-                            <td class="text-right">₹<?= number_format($breakdown['outstanding_interest'] ?? 0, 2) ?></td>
+                            <td><strong>Total Pending Interest (Current + Future Months):</strong></td>
+                            <td class="text-right">₹<?= number_format($breakdown['total_interest'] ?? 0, 2) ?></td>
                         </tr>
                         <tr>
-                            <td><strong>Prepayment Charge (<?= $breakdown['prepayment_percentage'] ?? 0 ?>%):</strong></td>
-                            <td class="text-right">₹<?= number_format($breakdown['prepayment_charge'] ?? 0, 2) ?></td>
+                            <td>
+                                <strong>Interest Charge (<?= $breakdown['interest_charge_pct'] ?? 80 ?>%):</strong>
+                                <small class="text-muted d-block">
+                                    <?= $breakdown['interest_charge_pct'] ?? 80 ?>% of total pending interest
+                                    (admin configured)
+                                </small>
+                            </td>
+                            <td class="text-right">₹<?= number_format($breakdown['interest_charge'] ?? 0, 2) ?></td>
                         </tr>
                         <tr>
                             <td><strong>Pending Fines:</strong></td>
                             <td class="text-right">₹<?= number_format($breakdown['pending_fines'] ?? 0, 2) ?></td>
                         </tr>
                         <tr class="border-top bg-light">
-                            <td><strong style="font-size: 16px;">Total Settlement Amount:</strong></td>
-                            <td class="text-right"><strong style="font-size: 16px;">₹<?= number_format($breakdown['total_amount'] ?? 0, 2) ?></strong></td>
+                            <td><strong style="font-size:16px;">Total Settlement Amount:</strong></td>
+                            <td class="text-right"><strong style="font-size:16px;">₹<?= number_format($breakdown['total_amount'] ?? 0, 2) ?></strong></td>
                         </tr>
                     </table>
+
+                    <div class="mt-2 p-2 rounded" style="background:#f8f9fa;border:1px solid #dee2e6;">
+                        <strong>Formula:</strong>
+                        <small class="d-block text-muted">
+                            Settlement = Principal + (Total Interest × Admin %) + Fines
+                        </small>
+                        <strong class="mt-2 d-block">Amount to Collect from Member:</strong>
+                        <span class="float-right font-weight-bold text-primary" style="font-size:1.2em;">
+                            ₹<?= number_format((float)$request->foreclosure_amount, 2) ?>
+                        </span>
+                        <small class="text-muted d-block">(As requested and stored — recalculated at approval time)</small>
+                    </div>
                 </div>
             </div>
 

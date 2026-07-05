@@ -1321,6 +1321,7 @@ CREATE TABLE `loan_foreclosure_requests` (
     `loan_id` INT(10) UNSIGNED NOT NULL,
     `member_id` INT(10) UNSIGNED NOT NULL,
     `foreclosure_amount` DECIMAL(15, 2) NOT NULL,
+    `closure_type` ENUM('regular', 'force_close') NOT NULL DEFAULT 'regular' COMMENT 'Type of foreclosure: regular (full amount) or force_close (next month interest only)',
     `reason` TEXT NOT NULL,
     `settlement_date` DATE NOT NULL,
     `status` ENUM(
@@ -1336,6 +1337,7 @@ CREATE TABLE `loan_foreclosure_requests` (
     KEY `idx_loan_id` (`loan_id`),
     KEY `idx_member_id` (`member_id`),
     KEY `idx_status` (`status`),
+    KEY `idx_closure_type` (`closure_type`),
     CONSTRAINT `loan_foreclosure_requests_ibfk_1` FOREIGN KEY (`loan_id`) REFERENCES `loans` (`id`) ON DELETE CASCADE,
     CONSTRAINT `loan_foreclosure_requests_ibfk_2` FOREIGN KEY (`member_id`) REFERENCES `members` (`id`) ON DELETE CASCADE,
     CONSTRAINT `loan_foreclosure_requests_ibfk_3` FOREIGN KEY (`processed_by`) REFERENCES `admin_users` (`id`) ON DELETE SET NULL

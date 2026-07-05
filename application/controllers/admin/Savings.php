@@ -167,6 +167,7 @@ class Savings extends Admin_Controller {
 
         $data['schedule'] = $this->Savings_model->get_schedule($id);
         $data['transactions'] = $this->Savings_model->get_transactions($id);
+        $data['adjustments'] = $this->Savings_model->get_adjustment_transactions($id);
         
         $this->load_view('admin/savings/view', $data);
     }

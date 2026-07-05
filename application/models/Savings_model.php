@@ -569,7 +569,8 @@ class Savings_model extends MY_Model {
         // Order by transaction_date (passbook/statement date) not created_at (record-insertion timestamp).
         // This ensures mapped bank transactions appear on the date the money actually moved,
         // not the date the admin performed the mapping.
-        $query = $this->db->where('savings_account_id', $account_id);
+        $query = $this->db->where('savings_account_id', $account_id)
+                         ->where('payment_mode !=', 'adjustment');  // Exclude adjustment transactions
         if (!$include_reversed) {
             // By default exclude reversed transactions from passbook view.
             // Pass $include_reversed = TRUE to get full history (e.g. audit/admin).
@@ -580,6 +581,20 @@ class Savings_model extends MY_Model {
                      ->limit($limit)
                      ->get('savings_transactions')
                      ->result();
+    }
+
+    /**
+     * Get Adjustment Transactions (filtered by payment_mode = 'adjustment')
+     */
+    public function get_adjustment_transactions($account_id, $limit = 50) {
+        return $this->db->where('savings_account_id', $account_id)
+                        ->where('payment_mode', 'adjustment')
+                        ->where('is_reversed', 0)
+                        ->order_by('transaction_date', 'DESC')
+                        ->order_by('id', 'DESC')
+                        ->limit($limit)
+                        ->get('savings_transactions')
+                        ->result();
     }
     
     /**

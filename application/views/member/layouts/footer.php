@@ -19,6 +19,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.6.0/js/bootstrap.bundle.min.js"></script>
 <!-- AdminLTE App -->
 <script src="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/js/adminlte.min.js"></script>
+<style>
+/* btn-xs is not in Bootstrap 4 by default */
+.btn-xs { padding: 2px 7px; font-size: 11px; line-height: 1.4; border-radius: 3px; }
+</style>
 <script>
     // Remove page-loading class after AdminLTE has restored sidebar state
     // This re-enables transitions without the initial flicker

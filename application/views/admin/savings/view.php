@@ -110,6 +110,11 @@
                         </a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link" href="#adjustments" data-toggle="tab">
+                            <i class="fas fa-edit mr-1"></i> Adjustments
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link" href="#schedule" data-toggle="tab">
                             <i class="fas fa-calendar mr-1"></i> Schedule
                         </a>
@@ -194,6 +199,90 @@
                         <?php endif; ?>
                     </div>
                     
+                    <!-- Adjustments Tab -->
+                    <div class="tab-pane" id="adjustments">
+                        <?php if (empty($adjustments)): ?>
+                            <div class="text-center py-4 text-muted">
+                                <i class="fas fa-edit fa-3x mb-3"></i>
+                                <p>No adjustment transactions found</p>
+                            </div>
+                        <?php else: ?>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Date</th>
+                                            <th>Receipt No</th>
+                                            <th>Type</th>
+                                            <th class="text-right">Credit</th>
+                                            <th class="text-right">Debit</th>
+                                            <th class="text-right">Balance</th>
+                                            <th>Mode</th>
+                                            <th>Notes</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($adjustments as $adj): ?>
+                                        <tr>
+                                            <td><?= format_date($adj->transaction_date) ?></td>
+                                            <td><small><?= $adj->receipt_number ?></small></td>
+                                            <td>
+                                                <?php
+                                                $type_badges = [
+                                                    'deposit' => 'success',
+                                                    'withdrawal' => 'danger',
+                                                    'interest' => 'info',
+                                                    'penalty' => 'warning',
+                                                    'adjustment' => 'primary'
+                                                ];
+                                                $badge_class = $type_badges[$adj->transaction_type] ?? 'secondary';
+                                                ?>
+                                                <span class="badge badge-<?= $badge_class ?>">
+                                                    <?= ucfirst($adj->transaction_type ?? 'N/A') ?>
+                                                </span>
+                                            </td>
+                                            <?php
+                                            $amount = (float)($adj->amount ?? 0);
+                                            $credit = 0;
+                                            $debit = 0;
+                                            
+                                            // Determine credit/debit based on transaction type
+                                            if (in_array($adj->transaction_type, ['deposit', 'interest', 'adjustment'])) {
+                                                $credit = $amount > 0 ? $amount : abs($amount);
+                                            } elseif ($adj->transaction_type === 'withdrawal') {
+                                                $debit = $amount > 0 ? $amount : abs($amount);
+                                            } else {
+                                                // For other types, use sign
+                                                if ($amount > 0) {
+                                                    $credit = $amount;
+                                                } else {
+                                                    $debit = abs($amount);
+                                                }
+                                            }
+                                            ?>
+                                            <td class="text-right text-success">
+                                                <?= $credit > 0 ? format_amount($credit) : '-' ?>
+                                            </td>
+                                            <td class="text-right text-danger">
+                                                <?= $debit > 0 ? format_amount($debit) : '-' ?>
+                                            </td>
+                                            <td class="text-right font-weight-bold">
+                                                <?= format_amount((float)($adj->running_balance ?? $adj->balance_after ?? 0)) ?>
+                                            </td>
+                                            <td><small><?= ucfirst($adj->payment_mode ?? 'N/A') ?></small></td>
+                                            <td><small><?= htmlspecialchars($adj->notes ?? $adj->description ?? '-') ?></small></td>
+                                            <td>
+                                                <a href="<?= site_url('admin/payments/receipt/'.$adj->id.'?type=savings') ?>" target="_blank" class="btn btn-xs btn-outline-secondary" title="Print Receipt"><i class="fas fa-print"></i></a>
+                                            </td>
+                                        </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                    
                     <!-- Schedule Tab -->
                     <div class="tab-pane" id="schedule">
                         <?php if (empty($schedule)): ?>
@@ -215,7 +304,7 @@
                                     </thead>
                                     <tbody>
                                         <?php foreach ($schedule as $sch): ?>
-                                        <tr class="<?= $sch->status == 'pending' && (safe_timestamp($sch->due_date) < time()) ? 'table-danger' : '' ?>">
+                                        <tr class="<?= $sch->status == 'pending' && (safe_timestamp($sch->due_date) < time()) ? 'table-danger' : '' ?>">>
                                             <td><?= format_date($sch->due_date, 'M Y') ?></td>
                                             <td><?= format_date($sch->due_date) ?></td>
                                             <td class="text-right"><?= format_amount((float)($sch->due_amount ?? 0)) ?></td>

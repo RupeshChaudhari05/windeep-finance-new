@@ -2332,7 +2332,7 @@ class Loans extends Admin_Controller {
         // Get foreclosure requests with loan and member details
         $requests = $this->db->select('
             fr.id, fr.loan_id, fr.member_id, 
-            fr.foreclosure_amount, fr.reason, fr.settlement_date,
+            fr.foreclosure_amount, fr.closure_type, fr.reason, fr.settlement_date,
             fr.status, fr.requested_at, fr.processed_by, fr.processed_at, fr.admin_comments,
             l.loan_number, l.principal_amount, l.outstanding_principal, l.outstanding_interest,
             m.member_code, m.first_name, m.last_name, m.phone, m.email
@@ -2365,7 +2365,7 @@ class Loans extends Admin_Controller {
 
         $request = $this->db->select('
             fr.id, fr.loan_id, fr.member_id, 
-            fr.foreclosure_amount, fr.reason, fr.settlement_date,
+            fr.foreclosure_amount, fr.closure_type, fr.reason, fr.settlement_date,
             fr.status, fr.requested_at, fr.processed_by, fr.processed_at, fr.admin_comments,
             l.*, lp.product_name,
             m.member_code, m.first_name, m.last_name, m.phone, m.email, m.pan_number, m.aadhaar_number
@@ -2383,7 +2383,7 @@ class Loans extends Admin_Controller {
             redirect('admin/loans/foreclosure_requests');
         }
 
-        // Get breakdown
+        // Get breakdown using regular foreclosure calculation
         $breakdown = $this->Loan_model->calculate_foreclosure_amount($request->loan_id);
         
         // Get installments for this loan

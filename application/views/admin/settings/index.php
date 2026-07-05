@@ -227,6 +227,32 @@
                                     </div>
                                 </div>
                             </div>
+
+                            <h5 class="text-primary border-bottom pb-2 mb-3 mt-4">Foreclosure / Force Close Settings</h5>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label>
+                                            Foreclosure Interest Charge (%)
+                                            <i class="fas fa-info-circle text-info" data-toggle="tooltip"
+                                               title="Percentage of total pending interest to charge as foreclosure settlement amount."></i>
+                                        </label>
+                                        <div class="input-group">
+                                            <input type="number" class="form-control"
+                                                   name="foreclosure_interest_charge_pct"
+                                                   value="<?= $settings['foreclosure_interest_charge_pct'] ?? 80 ?>"
+                                                   min="0" max="100" step="0.01">
+                                            <div class="input-group-append">
+                                                <span class="input-group-text">%</span>
+                                            </div>
+                                        </div>
+                                        <small class="form-text text-muted">
+                                            Formula: Settlement = Principal + (Total Interest × This %) + Fines
+                                            <br>E.g. set 80 to charge 80% of total pending interest. Default is 80%.
+                                        </small>
+                                    </div>
+                                </div>
+                            </div>
                             
                             <div class="row">
                                 <div class="col-md-6">

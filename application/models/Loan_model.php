@@ -1904,6 +1904,15 @@ class Loan_model extends MY_Model {
 
     /**
      * Calculate Foreclosure Amount
+     *
+     * Formula:
+     *   Total = Outstanding Principal
+     *         + (Total Interest × Admin Setting %)
+     *         + Pending Fines
+     * 
+     * Where:
+     *   Total Interest = Current Month Interest + All Remaining Months' Interest
+     *   Admin Setting % = foreclosure_interest_charge_pct from settings (e.g., 80%)
      */
     public function calculate_foreclosure_amount($loan_id) {
         $loan = $this->db->where('id', $loan_id)->get('loans')->row();
@@ -1912,51 +1921,60 @@ class Loan_model extends MY_Model {
         }
 
         $outstanding_principal = $loan->outstanding_principal ?? 0;
-        // LOAN-4 FIX: Include outstanding interest in foreclosure calculation
-        $outstanding_interest = $loan->outstanding_interest ?? 0;
 
-        // LOAN-13 FIX: Prepayment charge defaults to 0% (not 2%)
-        $prepayment_row = $this->db->where('setting_key', 'prepayment_charge_percentage')
-                                   ->get('system_settings')
-                                   ->row();
-        $prepayment_percentage = $prepayment_row ? (float)$prepayment_row->setting_value : 0;
+        // Get total interest: current month + all remaining unpaid months
+        $total_interest_row = $this->db->select_sum('interest_amount')
+                                       ->where('loan_id', $loan_id)
+                                       ->where_not_in('status', ['paid', 'waived'])
+                                       ->get('loan_installments')
+                                       ->row();
+        $total_interest = $total_interest_row ? (float)$total_interest_row->interest_amount : 0;
 
-        $prepayment_charge = ($outstanding_principal * $prepayment_percentage) / 100;
+        // Get admin setting for interest charge percentage (e.g., 80%)
+        $interest_pct_row = $this->db->where('setting_key', 'foreclosure_interest_charge_pct')
+                                     ->get('system_settings')
+                                     ->row();
+        $interest_charge_pct = $interest_pct_row ? (float)$interest_pct_row->setting_value : 80; // Default 80%
+        
+        // Calculate interest amount to charge = Total Interest × Setting %
+        $interest_charge = round(($total_interest * $interest_charge_pct) / 100, 2);
 
-        // Get pending fines for this loan (join through installments)
-        $pending_fines = $this->db->select_sum('f.fine_amount')
-                                  ->from('fines f')
-                                  ->join('loan_installments li', 'li.id = f.related_id AND f.related_type = "loan_installment"', 'inner')
-                                  ->where('li.loan_id', $loan_id)
-                                  ->where('f.status', 'pending')
-                                  ->get()
-                                  ->row()
-                                  ->fine_amount ?? 0;
+        // Get pending fines (joined through installments)
+        $pending_fines_row = $this->db->select_sum('f.fine_amount')
+                                      ->from('fines f')
+                                      ->join('loan_installments li', 'li.id = f.related_id AND f.related_type = "loan_installment"', 'inner')
+                                      ->where('li.loan_id', $loan_id)
+                                      ->where('f.status', 'pending')
+                                      ->get()
+                                      ->row();
+        $pending_fines = $pending_fines_row && $pending_fines_row->fine_amount ? (float)$pending_fines_row->fine_amount : 0;
 
-        // LOAN-4 FIX: Total includes outstanding_interest
-        $total_amount = $outstanding_principal + $outstanding_interest + $prepayment_charge + $pending_fines;
+        // Final Settlement Amount: Principal + Interest Charge + Fines
+        $total_amount = $outstanding_principal
+                      + $interest_charge
+                      + $pending_fines;
 
         return [
-            'outstanding_principal' => $outstanding_principal,
-            'outstanding_interest' => $outstanding_interest,
-            'prepayment_charge' => $prepayment_charge,
-            'prepayment_percentage' => $prepayment_percentage,
-            'pending_fines' => $pending_fines,
-            'total_amount' => $total_amount,
-            'pending_fines_list' => $this->db->select('f.*')
-                                           ->from('fines f')
-                                           ->join('loan_installments li', 'li.id = f.related_id AND f.related_type = "loan_installment"', 'inner')
-                                           ->where('li.loan_id', $loan_id)
-                                           ->where('f.status', 'pending')
-                                           ->get()
-                                           ->result()
+            'outstanding_principal'   => $outstanding_principal,
+            'total_interest'          => $total_interest,
+            'interest_charge_pct'     => $interest_charge_pct,
+            'interest_charge'         => $interest_charge,
+            'pending_fines'           => $pending_fines,
+            'total_amount'            => $total_amount,
+            'pending_fines_list'      => $this->db->select('f.*')
+                                                  ->from('fines f')
+                                                  ->join('loan_installments li', 'li.id = f.related_id AND f.related_type = "loan_installment"', 'inner')
+                                                  ->where('li.loan_id', $loan_id)
+                                                  ->where('f.status', 'pending')
+                                                  ->get()
+                                                  ->result(),
         ];
     }
 
     /**
      * Request Loan Foreclosure
      */
-    public function request_foreclosure($loan_id, $member_id, $reason, $settlement_date) {
+    public function request_foreclosure($loan_id, $member_id, $reason, $settlement_date, $closure_type = 'regular') {
         $loan = $this->db->where('id', $loan_id)
                         ->where('member_id', $member_id)
                         ->where('status', 'active')
@@ -1972,16 +1990,18 @@ class Loan_model extends MY_Model {
             return ['success' => false, 'message' => 'Foreclosure already requested for this loan'];
         }
 
+        // Calculate foreclosure amount (regular logic always)
         $calculation = $this->calculate_foreclosure_amount($loan_id);
 
         $data = [
-            'loan_id' => $loan_id,
-            'member_id' => $member_id,
+            'loan_id'            => $loan_id,
+            'member_id'          => $member_id,
             'foreclosure_amount' => $calculation['total_amount'],
-            'reason' => $reason,
-            'settlement_date' => $settlement_date,
-            'status' => 'pending',
-            'requested_at' => date('Y-m-d H:i:s')
+            'closure_type'       => 'regular',
+            'reason'             => $reason,
+            'settlement_date'    => $settlement_date,
+            'status'             => 'pending',
+            'requested_at'       => date('Y-m-d H:i:s')
         ];
 
         $result = $this->db->insert('loan_foreclosure_requests', $data);
@@ -2040,8 +2060,9 @@ class Loan_model extends MY_Model {
                 return ['success' => false, 'message' => 'Loan not found'];
             }
 
-            // Get breakdown of foreclosure amount from the request object
+            // Get breakdown using regular foreclosure calculation
             $breakdown = $this->calculate_foreclosure_amount($request->loan_id);
+            $settlement_note = 'Regular Foreclosure Settlement';
 
             // Normalize payment_mode to valid ENUM values
             $payment_mode_input = strtolower($payment_details['payment_mode'] ?? 'cash');
@@ -2073,14 +2094,14 @@ class Loan_model extends MY_Model {
                 'payment_mode' => $payment_mode,
                 'reference_number' => $payment_details['transaction_id'] ?? 'Foreclosure-Req#' . $request_id,
                 'total_amount' => $request->foreclosure_amount,
-                'principal_component' => floatval($breakdown['principal'] ?? $loan->outstanding_principal ?? 0),
-                'interest_component' => floatval($breakdown['interest'] ?? 0),
+                'principal_component' => floatval($breakdown['outstanding_principal'] ?? $loan->outstanding_principal ?? 0),
+                'interest_component' => floatval($breakdown['outstanding_interest'] ?? 0),
                 'fine_component' => floatval($breakdown['pending_fines'] ?? 0),
                 'outstanding_principal_after' => 0,
                 'outstanding_interest_after' => 0,
                 'payment_code' => 'FEC' . date('YmdHis'),
                 'is_reversed' => 0,
-                'narration' => 'Foreclosure Settlement: ' . $comments,
+                'narration' => $settlement_note . ': ' . $comments,
                 'created_at' => date('Y-m-d H:i:s'),
                 'created_by' => $admin_id
             ];

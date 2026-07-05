@@ -65,6 +65,7 @@ defined('BASEPATH') OR exit('No direct script access allowed');
                                         <th>#</th>
                                         <th>Loan Number</th>
                                         <th>Member</th>
+                                        <th>Type</th>
                                         <th>Settlement Amount</th>
                                         <th>Requested Date</th>
                                         <th>Status</th>
@@ -85,6 +86,13 @@ defined('BASEPATH') OR exit('No direct script access allowed');
                                                 <strong><?= $req->member_code ?></strong><br>
                                                 <?= $req->first_name ?> <?= $req->last_name ?>
                                             </small>
+                                        </td>
+                                        <td>
+                                            <?php if (!empty($req->closure_type) && $req->closure_type === 'force_close'): ?>
+                                                <span class="badge badge-warning"><i class="fas fa-bolt mr-1"></i>Force Close</span>
+                                            <?php else: ?>
+                                                <span class="badge badge-secondary">Regular</span>
+                                            <?php endif; ?>
                                         </td>
                                         <td class="text-right">
                                             <strong>₹<?= number_format((float)$req->foreclosure_amount, 2) ?></strong>

@@ -805,12 +805,12 @@ $(document).ready(function() {
         // Show amount with partial info if applicable
         if (alreadyMapped > 0) {
             $('#match_amount').html(
-                '<span class="text-dark">' + CS + amount.toLocaleString('en-IN', {minimumFractionDigits: 2}) + '</span>' +
-                '<br><small class="text-success"><i class="fas fa-check-circle"></i> ' + CS + alreadyMapped.toLocaleString('en-IN', {minimumFractionDigits: 2}) + ' mapped</small>' +
-                '<br><small class="text-primary font-weight-bold"><i class="fas fa-arrow-right"></i> ' + CS + effectiveAmount.toLocaleString('en-IN', {minimumFractionDigits: 2}) + ' remaining</small>'
+                '<span class="text-dark">' + CS + Math.round(amount).toLocaleString('en-IN') + '</span>' +
+                '<br><small class="text-success"><i class="fas fa-check-circle"></i> ' + CS + Math.round(alreadyMapped).toLocaleString('en-IN') + ' mapped</small>' +
+                '<br><small class="text-primary font-weight-bold"><i class="fas fa-arrow-right"></i> ' + CS + Math.round(effectiveAmount).toLocaleString('en-IN') + ' remaining</small>'
             );
         } else {
-            $('#match_amount').text(CS + amount.toLocaleString('en-IN', {minimumFractionDigits: 2}));
+            $('#match_amount').text(CS + Math.round(amount).toLocaleString('en-IN'));
         }
         $('#match_date').text(date);
         $('#match_description').text(desc);
@@ -911,7 +911,7 @@ $(document).ready(function() {
         var html = '';
         loans.forEach(function(loan) {
             html += '<div class="border rounded p-2 mb-1 loan-item" data-loan-id="' + loan.id + '">';
-            html += '<div class="d-flex justify-content-between"><strong>' + loan.loan_number + '</strong><span class="badge badge-info">' + CS + parseFloat(loan.pending_amount).toLocaleString('en-IN') + '</span></div>';
+            html += '<div class="d-flex justify-content-between"><strong>' + loan.loan_number + '</strong><span class="badge badge-info">' + CS + Math.round(parseFloat(loan.pending_amount)).toLocaleString('en-IN') + '</span></div>';
             if (loan.installments && loan.installments.length > 0) {
                 html += '<div class="mt-1">';
                 loan.installments.forEach(function(inst) {
@@ -922,11 +922,11 @@ $(document).ready(function() {
                     html += '<div class="d-flex justify-content-between align-items-center py-1 installment-row" data-inst-id="' + inst.id + '">';
                     html += '<small>EMI #' + inst.installment_number + ' - Due: ' + inst.due_date;
                     if (isPartial) {
-                        html += ' <span class="badge badge-warning badge-sm ml-1">Partial ₹' + totalPaid.toLocaleString('en-IN') + ' paid</span>';
+                        html += ' <span class="badge badge-warning badge-sm ml-1">Partial ₹' + Math.round(totalPaid).toLocaleString('en-IN') + ' paid</span>';
                     }
                     html += '</small>';
                     html += '<div class="d-flex align-items-center">';
-                    html += '<small class="text-muted mr-1">₹' + pending.toLocaleString('en-IN') + ' due</small>';
+                    html += '<small class="text-muted mr-1">₹' + Math.round(pending).toLocaleString('en-IN') + ' due</small>';
                     html += '<div class="input-group input-group-sm" style="width: 120px;">';
                     html += '<input type="number" class="form-control allocation-input" data-type="emi" data-member="' + memberId + '" data-related="loan_' + inst.id + '" data-label="EMI #' + inst.installment_number + ' (' + loan.loan_number + ')" placeholder="' + CS + '" step="0.01" min="0" max="' + pending + '">';
                     html += '</div></div></div>';
@@ -951,7 +951,7 @@ $(document).ready(function() {
             html += '<div><strong>' + acc.account_number + '</strong>';
             if (typeName) html += ' <small class="text-muted">(' + typeName + ')</small>';
             html += '</div>';
-            html += '<span class="badge badge-success">Bal: ' + CS + parseFloat(acc.current_balance).toLocaleString('en-IN') + '</span>';
+            html += '<span class="badge badge-success">Bal: ' + CS + Math.round(parseFloat(acc.current_balance)).toLocaleString('en-IN') + '</span>';
             html += '</div>';
             html += '<div class="input-group input-group-sm mt-1">';
             html += '<input type="number" class="form-control allocation-input" data-type="savings" data-member="' + memberId + '" data-related="savings_' + acc.id + '" data-label="Savings ' + acc.account_number + '" placeholder="Deposit amount" step="0.01" min="0">';
@@ -969,7 +969,7 @@ $(document).ready(function() {
         var html = '';
         fines.forEach(function(fine) {
             html += '<div class="border rounded p-2 mb-1">';
-            html += '<div class="d-flex justify-content-between"><small>' + fine.fine_type + '</small><span class="badge badge-danger">' + CS + parseFloat(fine.pending_amount).toLocaleString('en-IN') + '</span></div>';
+            html += '<div class="d-flex justify-content-between"><small>' + fine.fine_type + '</small><span class="badge badge-danger">' + CS + Math.round(parseFloat(fine.pending_amount)).toLocaleString('en-IN') + '</span></div>';
             html += '<div class="input-group input-group-sm mt-1">';
             html += '<input type="number" class="form-control allocation-input" data-type="fine" data-member="' + memberId + '" data-related="fine_' + fine.id + '" data-label="Fine: ' + fine.fine_type + '" placeholder="Pay amount" step="0.01" min="0" max="' + fine.pending_amount + '">';
             html += '</div></div>';
@@ -1018,13 +1018,13 @@ $(document).ready(function() {
                     html += '<td><small>' + (m.member_code ? m.member_code + ' - ' : '') + (m.member_name || m.full_name || '-') + '</small></td>';
                     html += '<td><span class="badge badge-' + getTypeBadgeClass(m.mapping_type) + ' badge-sm">' + (m.mapping_type || '').replace(/_/g, ' ').toUpperCase() + '</span></td>';
                     html += '<td><small>' + (m.account_info || m.narration || '-') + '</small></td>';
-                    html += '<td class="text-right"><strong>' + CS + amt.toLocaleString('en-IN', {minimumFractionDigits: 2}) + '</strong></td>';
+                    html += '<td class="text-right"><strong>' + CS + Math.round(amt).toLocaleString('en-IN') + '</strong></td>';
                     html += '<td><small>' + (m.mapped_at || m.created_at || '-') + '</small></td>';
                     html += '</tr>';
                 });
                 if (html) {
                     html += '<tr class="bg-light"><td colspan="3" class="text-right"><strong>Previously Mapped:</strong></td>';
-                    html += '<td class="text-right text-success"><strong>' + CS + mapTotal.toLocaleString('en-IN', {minimumFractionDigits: 2}) + '</strong></td><td></td></tr>';
+                    html += '<td class="text-right text-success"><strong>' + CS + Math.round(mapTotal).toLocaleString('en-IN') + '</strong></td><td></td></tr>';
                     $body.html(html);
                 } else {
                     $section.hide();
@@ -1120,7 +1120,7 @@ $(document).ready(function() {
             row += '<td>' + memberName + '</td>';
             row += '<td><span class="badge badge-' + getTypeBadgeClass(alloc.type) + '">' + alloc.type.toUpperCase() + '</span></td>';
             row += '<td>' + alloc.label + '</td>';
-            row += '<td class="text-right">' + CS + alloc.amount.toLocaleString('en-IN', {minimumFractionDigits: 2}) + '</td>';
+            row += '<td class="text-right">' + CS + Math.round(alloc.amount).toLocaleString('en-IN') + '</td>';
             row += '<td><button type="button" class="btn btn-xs btn-danger remove-allocation-btn" data-index="' + index + '"><i class="fas fa-times"></i></button></td>';
             row += '</tr>';
             $tbody.append(row);
@@ -1163,15 +1163,15 @@ $(document).ready(function() {
         var remaining = parseFloat((transactionAmount - total).toFixed(2));
         var percent = transactionAmount > 0 ? (total / transactionAmount) * 100 : 0;
 
-        $('#total_allocated').text(CS + total.toLocaleString('en-IN', {minimumFractionDigits: 2}));
+        $('#total_allocated').text(CS + Math.round(total).toLocaleString('en-IN'));
         var $remaining = $('#remaining_amount');
-        $remaining.text(CS + Math.abs(remaining).toLocaleString('en-IN', {minimumFractionDigits: 2}));
+        $remaining.text(CS + Math.round(Math.abs(remaining)).toLocaleString('en-IN'));
         if (remaining > 0.01) {
             $remaining.removeClass('text-success text-danger').addClass('text-danger');
         } else {
             $remaining.removeClass('text-success text-danger').addClass('text-success');
         }
-        $('#footer_total').text(CS + total.toLocaleString('en-IN', {minimumFractionDigits: 2}));
+        $('#footer_total').text(CS + Math.round(total).toLocaleString('en-IN'));
         $('#allocation_progress').css('width', Math.min(percent, 100) + '%');
 
         var $error = $('#validation_error');
@@ -1180,7 +1180,7 @@ $(document).ready(function() {
 
         if (total > (transactionAmount + 0.01)) {
             $error.show();
-            $('#validation_msg').text('Total allocated exceeds transaction amount by ' + CS + Math.abs(remaining).toLocaleString('en-IN', {minimumFractionDigits: 2}));
+            $('#validation_msg').text('Total allocated exceeds transaction amount by ' + CS + Math.round(Math.abs(remaining)).toLocaleString('en-IN'));
             $helper.html('<i class="fas fa-exclamation-triangle text-danger"></i> Over-allocated! Please reduce amounts.');
             $btn.prop('disabled', true);
         } else if (allocations.length === 0) {
@@ -1189,7 +1189,7 @@ $(document).ready(function() {
             $btn.prop('disabled', true);
         } else if (remaining > 0.01) {
             $error.hide();
-            $helper.html('<i class="fas fa-check-circle text-warning"></i> Partial mapping: ' + CS + remaining.toLocaleString('en-IN', {minimumFractionDigits: 2}) + ' will remain unmapped');
+            $helper.html('<i class="fas fa-check-circle text-warning"></i> Partial mapping: ' + CS + Math.round(remaining).toLocaleString('en-IN') + ' will remain unmapped');
             $btn.prop('disabled', false);
         } else {
             $error.hide();
@@ -1252,21 +1252,40 @@ $(document).ready(function() {
                     $('#matchModal').modal('hide');
                     setTimeout(function() { location.reload(); }, 800);
                 } else {
-                    var errorMsg = (response && response.message) ? response.message : 'Failed to save mapping';
+                    var errorMsg = (response && response.message) ? response.message : 'Failed to save mapping. Please check the console for details.';
+                    console.error('Mapping failed:', response);
                     toastr.error(errorMsg);
                     $btn.prop('disabled', false).html('<i class="fas fa-check"></i> Save Mapping');
                 }
             },
             error: function(xhr, status, error) {
                 var errorMsg = 'An error occurred while saving.';
+                var httpStatus = xhr.status || 'Unknown';
+                console.error('AJAX Error - Status:', httpStatus, 'Status Text:', xhr.statusText, 'Error:', error);
+                console.error('Response:', xhr.responseText);
+                
                 if (xhr.responseJSON && xhr.responseJSON.message) {
                     errorMsg = xhr.responseJSON.message;
                 } else if (xhr.responseText) {
                     try {
                         var resp = JSON.parse(xhr.responseText);
                         errorMsg = resp.message || errorMsg;
-                    } catch (e) {}
+                    } catch (e) {
+                        if (xhr.responseText.indexOf('<') >= 0) {
+                            errorMsg = 'Server error (HTTP ' + httpStatus + '). Please check browser console.';
+                        } else {
+                            errorMsg = xhr.responseText.substring(0, 200);
+                        }
+                    }
+                } else if (status === 'timeout') {
+                    errorMsg = 'Request timeout. Please try again.';
+                } else if (status === 'error' && httpStatus === 0) {
+                    errorMsg = 'Network error. Check your connection.';
+                } else if (status === 'parsererror') {
+                    errorMsg = 'Invalid response. Please refresh and try again.';
                 }
+                
+                console.error('Final error message:', errorMsg);
                 toastr.error(errorMsg);
                 $btn.prop('disabled', false).html('<i class="fas fa-check"></i> Save Mapping');
             }
@@ -1292,7 +1311,7 @@ $(document).ready(function() {
                 html += '<div class="alert alert-light border py-2">';
                 html += '<div class="d-flex justify-content-between">';
                 html += '<div><strong>Date:</strong> ' + (txn.date || txn.transaction_date || '') + '</div>';
-                html += '<div><strong>Amount:</strong> ' + CS + parseFloat(txn.amount).toLocaleString('en-IN', {minimumFractionDigits:2}) + '</div>';
+                html += '<div><strong>Amount:</strong> ' + CS + Math.round(parseFloat(txn.amount)).toLocaleString('en-IN') + '</div>';
                 html += '<div><strong>Status:</strong> <span class="badge badge-' + (txn.mapping_status === 'mapped' ? 'success' : 'warning') + '">' + (txn.mapping_status || '').toUpperCase() + '</span></div>';
                 html += '</div>';
                 html += '<small class="text-muted">' + (txn.description || '') + '</small>';
@@ -1306,9 +1325,9 @@ $(document).ready(function() {
                 var unmapped_amt = parseFloat(txn.unmapped_amount) || 0;
                 if (mapped_amt > 0 || unmapped_amt > 0) {
                     html += '<div class="d-flex justify-content-between mb-2">';
-                    html += '<span class="text-success"><strong>Mapped:</strong> ' + CS + mapped_amt.toLocaleString('en-IN', {minimumFractionDigits: 2}) + '</span>';
+                    html += '<span class="text-success"><strong>Mapped:</strong> ' + CS + Math.round(mapped_amt).toLocaleString('en-IN') + '</span>';
                     if (unmapped_amt > 0) {
-                        html += '<span class="text-danger"><strong>Unmapped:</strong> ' + CS + unmapped_amt.toLocaleString('en-IN', {minimumFractionDigits: 2}) + '</span>';
+                        html += '<span class="text-danger"><strong>Unmapped:</strong> ' + CS + Math.round(unmapped_amt).toLocaleString('en-IN') + '</span>';
                     }
                     html += '</div>';
                 }
@@ -1384,7 +1403,7 @@ $(document).ready(function() {
         selectedLoanId = null;
 
         $('#disb_transaction_id').val(txnId);
-        $('#disb_amount').text(CS + amount.toLocaleString('en-IN', {minimumFractionDigits: 2}));
+        $('#disb_amount').text(CS + Math.round(amount).toLocaleString('en-IN'));
         $('#disb_amount_input').val(amount);
         
         var $row = $(this).closest('tr');
@@ -1485,7 +1504,7 @@ $(document).ready(function() {
         var $row = $(this).closest('tr');
 
         $('#int_transaction_id').val(txnId);
-        $('#int_amount_display').text(CS + amount.toLocaleString('en-IN', {minimumFractionDigits: 2}));
+        $('#int_amount_display').text(CS + Math.round(amount).toLocaleString('en-IN'));
         $('#int_amount').val(amount);
         $('#int_description').text($row.find('td:eq(2)').text().trim());
         $('#int_desc').val($row.find('td:eq(2)').text().trim());

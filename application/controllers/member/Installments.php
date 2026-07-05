@@ -72,4 +72,68 @@ class Installments extends Member_Controller {
         
         $this->load_member_view('member/installments/index', $data);
     }
+
+    /**
+     * Download / Print EMI Payment Receipt
+     */
+    public function receipt($installment_id) {
+        // Fetch installment and verify it belongs to this member
+        $installment = $this->db
+            ->select('li.*, l.loan_number, l.tenure_months, l.interest_rate, lp.product_name, l.id as loan_id')
+            ->from('loan_installments li')
+            ->join('loans l', 'l.id = li.loan_id')
+            ->join('loan_products lp', 'lp.id = l.loan_product_id')
+            ->where('li.id', $installment_id)
+            ->where('l.member_id', $this->member->id)
+            ->get()
+            ->row();
+
+        if (!$installment) {
+            show_404();
+            return;
+        }
+
+        // Only paid installments can have a receipt
+        if (!in_array($installment->status, ['paid', 'partial', 'interest_only', 'waived'])) {
+            $this->session->set_flashdata('error', 'Receipt is only available for paid installments.');
+            redirect('member/installments');
+            return;
+        }
+
+        // Fetch most recent payment record for this installment
+        $payment = $this->db
+            ->where('installment_id', $installment_id)
+            ->where('is_reversed', 0)
+            ->order_by('payment_date', 'DESC')
+            ->order_by('id', 'DESC')
+            ->limit(1)
+            ->get('loan_payments')
+            ->row();
+
+        // If no payment linked by installment_id, try loan_id + date match
+        if (!$payment) {
+            $payment = $this->db
+                ->where('loan_id', $installment->loan_id)
+                ->where('payment_date', $installment->paid_date)
+                ->where('is_reversed', 0)
+                ->where_in('payment_type', ['emi', 'advance_payment', 'interest_only'])
+                ->order_by('id', 'DESC')
+                ->limit(1)
+                ->get('loan_payments')
+                ->row();
+        }
+
+        $data['installment'] = $installment;
+        $data['loan']        = (object)[
+            'loan_number'  => $installment->loan_number,
+            'product_name' => $installment->product_name,
+            'tenure_months'=> $installment->tenure_months,
+            'interest_rate'=> $installment->interest_rate,
+        ];
+        $data['payment']     = $payment;
+        $data['member']      = $this->member;
+
+        // Output clean HTML receipt (no header/footer wrapper)
+        $this->load->view('member/installments/receipt', $data);
+    }
 }

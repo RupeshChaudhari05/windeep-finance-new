@@ -270,6 +270,7 @@ $route['member/loans/guarantor_consent/(:num)/(:any)'] = 'member/loans/guarantor
 $route['member/loans/guarantor_consent/(:num)'] = 'member/loans/guarantor_consent/$1';
 $route['member/loans/request-foreclosure/(:num)'] = 'member/loans/request_foreclosure/$1';
 $route['member/loans/foreclosure-calculator/(:num)'] = 'member/loans/foreclosure_calculator/$1';
+$route['member/loans/calculate_force_close'] = 'member/loans/calculate_force_close';
 
 // Member Notifications
 $route['member/notifications'] = 'member/notifications/index';
@@ -279,7 +280,10 @@ $route['member/notifications/get_loan_detail/(:num)'] = 'member/notifications/ge
 
 // Member other
 $route['member/savings'] = 'member/savings/index';
+$route['member/savings/view/(:num)'] = 'member/savings/view/$1';
+$route['member/savings/receipt/(:num)'] = 'member/savings/receipt/$1';
 $route['member/installments'] = 'member/installments/index';
+$route['member/installments/receipt/(:num)'] = 'member/installments/receipt/$1';
 $route['member/fines'] = 'member/fines/index';
 $route['member/fines/view/(:num)'] = 'member/fines/view/$1';
 $route['member/fines/request-waiver/(:num)'] = 'member/fines/request_waiver/$1';

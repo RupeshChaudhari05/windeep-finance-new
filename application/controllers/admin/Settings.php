@@ -50,6 +50,9 @@ class Settings extends Admin_Controller {
             'npa_days' => $raw_settings['npa_days'] ?? 90,
             'auto_apply_fines' => $raw_settings['auto_apply_fines'] ?? false,
             'kyc_required' => $raw_settings['kyc_required'] ?? true,
+
+            // Foreclosure settings
+            'foreclosure_interest_charge_pct' => $raw_settings['foreclosure_interest_charge_pct'] ?? 80,
             
             // Email configuration
             'email_protocol' => $raw_settings['email_protocol'] ?? 'smtp',
@@ -202,6 +205,7 @@ class Settings extends Admin_Controller {
                 'currency_symbol', 'date_format',
                 'member_code_prefix', 'loan_prefix', 'savings_prefix', 'receipt_prefix',
                 'max_active_loans', 'max_guarantor', 'npa_days', 'fixed_due_day',
+                'foreclosure_interest_charge_pct',
                 // Email settings
                 'email_protocol', 'email_smtp_host', 'email_smtp_port', 'email_smtp_crypto',
                 'email_smtp_user', 'email_smtp_pass', 'email_from_address', 'email_from_name',

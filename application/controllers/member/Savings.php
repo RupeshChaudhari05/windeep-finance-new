@@ -122,6 +122,81 @@ class Savings extends Member_Controller {
                                     ->get('savings_schedule')
                                     ->result();
         
+        // Enrich schedule with transaction IDs for receipt download
+        foreach ($data['schedule'] as $sch) {
+            if ($sch->status == 'paid' && !empty($sch->paid_date)) {
+                $txn = $this->db->select('id')
+                               ->where('savings_account_id', $account_id)
+                               ->where('transaction_type', 'deposit')
+                               ->where('DATE(transaction_date)', date('Y-m-d', strtotime($sch->paid_date)))
+                               ->order_by('id', 'DESC')
+                               ->limit(1)
+                               ->get('savings_transactions')
+                               ->row();
+                $sch->receipt_transaction_id = $txn ? $txn->id : null;
+            } else {
+                $sch->receipt_transaction_id = null;
+            }
+        }
+        
         $this->load_member_view('member/savings/view', $data);
+    }
+
+    /**
+     * Download / Print Savings Transaction Receipt
+     */
+    public function receipt($transaction_id) {
+        // Fetch transaction and verify it belongs to this member
+        $transaction = $this->db
+            ->select('st.*, sa.account_number, sa.status as account_status, sa.current_balance, sa.monthly_amount, ss.scheme_name')
+            ->from('savings_transactions st')
+            ->join('savings_accounts sa', 'sa.id = st.savings_account_id')
+            ->join('savings_schemes ss', 'ss.id = sa.scheme_id')
+            ->where('st.id', $transaction_id)
+            ->where('sa.member_id', $this->member->id)
+            ->where('st.is_reversed', 0)
+            ->get()
+            ->row();
+
+        if (!$transaction) {
+            show_404();
+            return;
+        }
+
+        // Recompute balance_after by walking all non-reversed transactions
+        $all_txns = $this->db
+            ->where('savings_account_id', $transaction->savings_account_id)
+            ->where('is_reversed', 0)
+            ->order_by('transaction_date', 'DESC')
+            ->order_by('id', 'DESC')
+            ->get('savings_transactions')
+            ->result();
+
+        $running = (float)($transaction->current_balance ?? 0);
+        foreach ($all_txns as $t) {
+            $t->balance_after_computed = $running;
+            if (in_array($t->transaction_type, ['deposit', 'interest', 'interest_credit'])) {
+                $running -= (float)$t->amount;
+            } else {
+                $running += (float)$t->amount;
+            }
+            if ($t->id == $transaction_id) {
+                $transaction->balance_after_computed = $t->balance_after_computed;
+            }
+        }
+
+        $account = (object)[
+            'account_number' => $transaction->account_number,
+            'scheme_name'    => $transaction->scheme_name,
+            'status'         => $transaction->account_status,
+            'current_balance'=> $transaction->current_balance,
+        ];
+
+        $data['transaction'] = $transaction;
+        $data['account']     = $account;
+        $data['member']      = $this->member;
+
+        // Output clean HTML receipt
+        $this->load->view('member/savings/receipt', $data);
     }
 }

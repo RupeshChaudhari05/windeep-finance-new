@@ -577,6 +577,7 @@ class Loans extends Member_Controller {
     /**
      * Calculate Foreclosure Settlement Amount
      * Uses Loan_model::calculate_foreclosure_amount for accurate breakdown
+     * Formula: Settlement = Principal + (Total Interest × Interest Setting %) + Fines
      */
     private function _calculate_foreclosure_amount($loan_id) {
         $calculation = $this->Loan_model->calculate_foreclosure_amount($loan_id);
@@ -584,16 +585,15 @@ class Loans extends Member_Controller {
 
         // Map to view-expected keys
         return [
-            'outstanding_principal' => $calculation['outstanding_principal'],
-            'outstanding_interest'  => $calculation['outstanding_interest'] ?? 0,
-            'accrued_interest'      => $calculation['outstanding_interest'] ?? 0,
-            'prepayment_charge'     => $calculation['prepayment_charge'] ?? 0,
-            'penalty_amount'        => $calculation['prepayment_charge'] ?? 0,
-            'foreclosure_fee'       => 0,
-            'pending_fines'         => $calculation['pending_fines'] ?? 0,
-            'total_settlement'      => $calculation['total_amount'],
-            'total_amount'          => $calculation['total_amount'],
-            'calculated_at'         => date('Y-m-d H:i:s')
+            'outstanding_principal'   => $calculation['outstanding_principal'],
+            'total_interest'          => $calculation['total_interest'] ?? 0,
+            'interest_charge_pct'     => $calculation['interest_charge_pct'] ?? 80,
+            'interest_charge'         => $calculation['interest_charge'] ?? 0,
+            'pending_fines'           => $calculation['pending_fines'] ?? 0,
+            'total_settlement'        => $calculation['total_amount'],
+            'total_amount'            => $calculation['total_amount'],
+            'pending_fines_list'      => $calculation['pending_fines_list'] ?? [],
+            'calculated_at'           => date('Y-m-d H:i:s')
         ];
     }
 
@@ -655,12 +655,13 @@ class Loans extends Member_Controller {
             return;
         }
 
-        // Use Loan_model to save the request to loan_foreclosure_requests table
+        // Always use regular foreclosure
         $result = $this->Loan_model->request_foreclosure(
             $loan_id,
             $this->member->id,
             $reason,
-            $settlement_date
+            $settlement_date,
+            'regular'
         );
 
         if ($result['success']) {
@@ -727,3 +728,4 @@ class Loans extends Member_Controller {
         $this->load->view('member/loans/foreclosure_calculator', $data);
     }
 }
+

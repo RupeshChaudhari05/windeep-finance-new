@@ -113,6 +113,7 @@
                                     <th class="text-right">Amount</th>
                                     <th class="text-right">Balance After</th>
                                     <th>Mode</th>
+                                    <th class="text-center">Receipt</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -165,6 +166,16 @@
                                         ?>
                                         <small><i class="fas fa-<?= $icon ?> mr-1"></i><?= ucfirst(str_replace('_', ' ', $mode)) ?></small>
                                     </td>
+                                    <td class="text-center">
+                                        <?php if (!in_array($t->transaction_type, ['adjustment', 'fine_waiver'])): ?>
+                                        <a href="<?= site_url('member/savings/receipt/' . $t->id) ?>" target="_blank"
+                                           class="btn btn-xs btn-outline-success" title="Download Receipt">
+                                            <i class="fas fa-file-pdf"></i>
+                                        </a>
+                                        <?php else: ?>
+                                        <span class="text-muted">-</span>
+                                        <?php endif; ?>
+                                    </td>
                                 </tr>
                                 <?php endforeach; ?>
                             </tbody>
@@ -193,6 +204,7 @@
                                 <th class="text-right">Paid</th>
                                 <th>Status</th>
                                 <th>Paid Date</th>
+                                <th class="text-center">Receipt</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -208,6 +220,16 @@
                                     <span class="badge badge-<?= $sch_status[$s->status] ?? 'secondary' ?>"><?= ucfirst($s->status) ?></span>
                                 </td>
                                 <td><?= !empty($s->paid_date) ? format_date($s->paid_date) : '-' ?></td>
+                                <td class="text-center">
+                                    <?php if ($s->status == 'paid' && !empty($s->receipt_transaction_id)): ?>
+                                    <a href="<?= site_url('member/savings/receipt/' . $s->receipt_transaction_id) ?>" target="_blank"
+                                       class="btn btn-xs btn-outline-success" title="Download Receipt">
+                                        <i class="fas fa-file-pdf"></i>
+                                    </a>
+                                    <?php else: ?>
+                                    <span class="text-muted">-</span>
+                                    <?php endif; ?>
+                                </td>
                             </tr>
                             <?php endforeach; ?>
                         </tbody>

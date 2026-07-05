@@ -85,8 +85,7 @@
                             <th class="text-right">Balance</th>
                             <th class="text-right">Outstanding</th>
                             <th class="text-center">Status</th>
-                            <th>Paid Date</th>
-                        </tr>
+                            <th>Paid Date</th>                            <th class="text-center">Receipt</th>                        </tr>
                     </thead>
                     <tbody>
                         <?php foreach ($installments as $inst):
@@ -169,6 +168,16 @@
                                     <span class="text-muted">-</span>
                                 <?php endif; ?>
                             </td>
+                            <td class="text-center">
+                                <?php if (in_array($inst->status, ['paid', 'partial', 'interest_only', 'waived'])): ?>
+                                    <a href="<?= site_url('member/installments/receipt/' . $inst->id) ?>" target="_blank"
+                                       class="btn btn-xs btn-outline-success" title="Download Receipt">
+                                        <i class="fas fa-file-pdf"></i> PDF
+                                    </a>
+                                <?php else: ?>
+                                    <span class="text-muted">-</span>
+                                <?php endif; ?>
+                            </td>
                         </tr>
                         <?php endforeach; ?>
                     </tbody>
@@ -181,7 +190,7 @@
                             <td class="text-right text-danger"><?= format_amount($summary['total_fine']) ?></td>
                             <td class="text-right text-success"><?= format_amount($summary['total_paid']) ?></td>
                             <td class="text-right text-danger"><?= format_amount($summary['total_outstanding']) ?></td>
-                            <td colspan="3"></td>
+                            <td colspan="4"></td>
                         </tr>
                     </tfoot>
                 </table>

@@ -1,74 +1,70 @@
+<?php
+$cs             = get_currency_symbol();
+$principal      = (float)($calculation['outstanding_principal']   ?? 0);
+$total_interest = (float)($calculation['total_interest']          ?? 0);
+$interest_pct   = (float)($calculation['interest_charge_pct']     ?? 80);
+$interest_charge = (float)($calculation['interest_charge']         ?? 0);
+$fines          = (float)($calculation['pending_fines']           ?? 0);
+$total          = (float)($calculation['total_amount']            ?? 0);
+?>
+
 <div class="row">
     <div class="col-md-8">
-        <h6>Foreclosure Calculation Breakdown</h6>
-
-        <table class="table table-sm">
+        <h6 class="border-bottom pb-1 mb-2">Foreclosure Settlement Breakdown</h6>
+        <table class="table table-sm table-bordered">
             <tr>
-                <td><strong>Outstanding Principal:</strong></td>
-                <td class="text-right"><?= format_amount($calculation['outstanding_principal']) ?></td>
+                <td>Outstanding Principal</td>
+                <td class="text-right font-weight-bold"><?= $cs.number_format($principal,2) ?></td>
             </tr>
-            <?php if ($calculation['prepayment_charge'] > 0): ?>
             <tr>
-                <td><strong>Prepayment Charge (<?= $calculation['prepayment_percentage'] ?>%):</strong></td>
-                <td class="text-right text-warning"><?= format_amount($calculation['prepayment_charge']) ?></td>
+                <td>Total Pending Interest (Current + Future Months)</td>
+                <td class="text-right"><?= $cs.number_format($total_interest,2) ?></td>
             </tr>
-            <?php endif; ?>
-            <?php if ($calculation['pending_fines'] > 0): ?>
             <tr>
-                <td><strong>Pending Fines:</strong></td>
-                <td class="text-right text-danger"><?= format_amount($calculation['pending_fines']) ?></td>
-            </tr>
-            <?php endif; ?>
-            <tr class="table-active">
-                <td><strong>Total Foreclosure Amount:</strong></td>
-                <td class="text-right font-weight-bold text-primary" id="calculatedAmount">
-                    <?= format_amount($calculation['total_amount']) ?>
+                <td>
+                    Interest Charge (<?= $interest_pct ?>%)
+                    <small class="d-block text-muted">
+                        <?= $interest_pct ?>% of total pending interest (admin configured)
+                    </small>
                 </td>
+                <td class="text-right text-info font-weight-bold"><?= $cs.number_format($interest_charge,2) ?></td>
+            </tr>
+            <?php if ($fines > 0): ?>
+            <tr>
+                <td>Pending Fines / Charges</td>
+                <td class="text-right text-danger"><?= $cs.number_format($fines,2) ?></td>
+            </tr>
+            <?php endif; ?>
+            <tr class="table-primary">
+                <td><strong>Total Foreclosure Amount</strong></td>
+                <td class="text-right font-weight-bold" id="calculatedAmount"><?= $cs.number_format($total,2) ?></td>
             </tr>
         </table>
-
-        <div class="alert alert-info">
+        <div class="alert alert-info py-2 mb-0">
             <small>
-                <strong>Note:</strong> This calculation is an estimate. The final amount may vary based on the exact settlement date and any additional charges that may apply. Please contact administration for the exact amount.
+                <strong>Formula:</strong> Settlement = Principal + (Total Interest × Admin %) + Fines
+                <br><i class="fas fa-info-circle mr-1"></i>
+                Estimate only. Final amount may vary on settlement date. Contact admin for exact figure.
             </small>
         </div>
     </div>
-
     <div class="col-md-4">
-        <div class="card bg-light">
-            <div class="card-body text-center">
-                <h6>Total Amount Due</h6>
-                <h3 class="text-danger font-weight-bold">
-                    <?= format_amount($calculation['total_amount']) ?>
-                </h3>
+        <div class="card border-danger">
+            <div class="card-body text-center py-3">
+                <div class="text-muted small">Total Amount Due</div>
+                <h3 class="text-danger font-weight-bold mb-0"><?= $cs.number_format($total,2) ?></h3>
                 <small class="text-muted">Including all charges</small>
             </div>
         </div>
-
         <?php if (!empty($calculation['pending_fines_list'])): ?>
-        <div class="mt-3">
-            <h6>Pending Fines Details:</h6>
-            <div class="list-group list-group-flush">
-                <?php foreach ($calculation['pending_fines_list'] as $fine): ?>
-                <div class="list-group-item px-0">
-                    <small>
-                        <strong>Fine #<?= $fine->id ?>:</strong> <?= format_amount((float) (isset($fine->amount) ? $fine->amount : 0)) ?>
-                        <br>
-                        <span class="text-muted">
-                            <?php
-                            $fine_types = [
-                                'late_payment' => 'Late Payment',
-                                'missed_installment' => 'Missed Installment',
-                                'loan_default' => 'Loan Default',
-                                'other' => 'Other'
-                            ];
-                            echo $fine_types[$fine->fine_type] ?? $fine->fine_type;
-                            ?>
-                        </span>
-                    </small>
-                </div>
-                <?php endforeach; ?>
+        <div class="mt-2">
+            <small class="text-muted font-weight-bold">Pending Fines:</small>
+            <?php foreach ($calculation['pending_fines_list'] as $fine): ?>
+            <div class="d-flex justify-content-between border-bottom py-1">
+                <small class="text-danger">Fine #<?= $fine->id ?></small>
+                <small class="font-weight-bold"><?= $cs.number_format((float)($fine->fine_amount ?? $fine->amount ?? 0),2) ?></small>
             </div>
+            <?php endforeach; ?>
         </div>
         <?php endif; ?>
     </div>
@@ -76,11 +72,16 @@
 
 <div class="row mt-3">
     <div class="col-12">
-        <div class="alert alert-warning">
-            <h6><i class="fas fa-exclamation-triangle"></i> Important Information</h6>
-            <ul class="mb-0">
-                <li>The prepayment charge is calculated as <?= $calculation['prepayment_percentage'] ?>% of the outstanding principal.</li>
-                <li>All pending fines must be cleared as part of the foreclosure process.</li>
+        <div class="alert alert-warning py-2">
+            <h6 class="mb-1"><i class="fas fa-exclamation-triangle"></i> Important Information</h6>
+            <ul class="mb-0 small">
+                <?php if ($prepay_pct > 0): ?>
+                <li>The prepayment charge is calculated as <?= $prepay_pct ?>% of the outstanding principal.</li>
+                <?php endif; ?>
+                <?php if ($pic_pct > 0): ?>
+                <li>The foreclosure charge of <?= $pic_pct ?>% is applied to the total pending scheduled interest (current month + all remaining months).</li>
+                <?php endif; ?>
+                <li>All pending fines must be cleared as part of the foreclosure.</li>
                 <li>The loan will be marked as closed only after full payment of the foreclosure amount.</li>
                 <li>This request will be reviewed by management before approval.</li>
             </ul>
