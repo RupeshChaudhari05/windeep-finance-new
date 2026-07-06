@@ -41,6 +41,9 @@
     <!-- jQuery (moved to header for immediate availability) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
     
+    <!-- Font Size Adjuster Script -->
+    <script src="<?= base_url('assets/js/font-size-adjuster.js') ?>"></script>
+    
     <style>
         /* Layout safety fixes to align with AdminLTE behavior */
         /* Do NOT force the sidebar to be fixed here; AdminLTE handles positioning.
@@ -225,6 +228,24 @@
                     <i class="far fa-calendar-alt mr-1"></i> 
                     FY: <?= isset($financial_year) ? $financial_year->year_code : date('Y') . '-' . (date('y') + 1) ?>
                 </span>
+            </li>
+
+            <!-- Font Size Adjuster (Desktop Only) -->
+            <li class="nav-item d-none d-lg-inline-block font-size-adjuster">
+                <div class="nav-link font-size-controls" style="padding: 0.5rem 0.75rem;">
+                    <button class="btn btn-sm btn-light font-size-btn" id="fontSize-decrease" title="Decrease Font Size" style="border-radius: 3px 0 0 3px;">
+                        <i class="fas fa-minus"></i>
+                    </button>
+                    <button class="btn btn-sm btn-light font-size-btn font-size-label" id="fontSize-current" style="border-radius: 0; min-width: 45px; cursor: default;" title="Default">
+                        <small>100%</small>
+                    </button>
+                    <button class="btn btn-sm btn-light font-size-btn" id="fontSize-increase" title="Increase Font Size" style="border-radius: 0 3px 3px 0; border-right: 1px solid #dee2e6;">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary font-size-btn" id="fontSize-reset" title="Reset to Default" style="border-radius: 0; margin-left: 3px; font-size: 11px;">
+                        Reset
+                    </button>
+                </div>
             </li>
         </ul>
 
