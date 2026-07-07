@@ -528,6 +528,7 @@ class Bank extends Admin_Controller {
             // Account for already-mapped amount (partial mappings)
             $already_mapped = floatval($txn->mapped_amount ?? 0);
             $available_amount = $txn_amount - $already_mapped;
+            $allowed_amount = ceil($available_amount);
 
             // Calculate total mapped amount
             $total = 0;
@@ -549,12 +550,14 @@ class Bank extends Admin_Controller {
             log_message('debug', '  Transaction Amount: ' . $txn_amount);
             log_message('debug', '  Already Mapped: ' . $already_mapped);
             log_message('debug', '  Available: ' . $available_amount);
+            log_message('debug', '  Allowed Rounded Amount: ' . $allowed_amount);
             log_message('debug', '  Total New Mapped: ' . $total);
             log_message('debug', '  Mappings: ' . json_encode($mapping_details));
             log_message('debug', '  Transaction Object: ' . json_encode($txn));
 
-            // Use a small tolerance for floating point comparison (0.01 = 1 paisa)
-            if ($total > ($available_amount + 0.01)) {
+            // Allow whole-rupee allocation when transaction amount includes paise.
+            // Any overpayment up to the next rupee is handled as savings credit by Loan_model.
+            if ($total > ($allowed_amount + 0.01)) {
                 $this->db->trans_rollback();
                 $cs = get_currency_symbol();
                 $error_msg = sprintf(
@@ -753,7 +756,7 @@ class Bank extends Admin_Controller {
                                     'total_amount' => $amount,
                                     'payment_mode' => 'bank_transfer',
                                     'bank_transaction_id' => $transaction_id,
-                                    'payment_type' => 'regular',
+                                    'payment_type' => 'emi',
                                     // Use the bank statement/passbook date, NOT today
                                     'payment_date' => $txn->transaction_date ?? date('Y-m-d'),
                                     'created_by' => $admin_id

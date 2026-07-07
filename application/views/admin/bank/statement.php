@@ -461,7 +461,7 @@
                                 </select>
                             </div>
                             <div class="col-md-4">
-                                <input type="number" id="manual_amount" class="form-control form-control-sm" placeholder="Amount (optional)" step="0.01" min="0">
+                                <input type="number" id="manual_amount" class="form-control form-control-sm" placeholder="Amount (optional)" step="1" min="0">
                             </div>
                             <div class="col-md-4">
                                 <button type="button" class="btn btn-sm btn-outline-secondary btn-block" id="add_manual_entry">
@@ -606,7 +606,7 @@
 
                 <div class="form-group">
                     <label class="font-weight-bold">Disbursement Amount</label>
-                    <input type="number" id="disb_amount_input" class="form-control" step="0.01" min="0" placeholder="Amount">
+                    <input type="number" id="disb_amount_input" class="form-control" step="1" min="0" placeholder="Amount">
                 </div>
                 
                 <div class="form-group">
@@ -657,7 +657,7 @@
                 
                 <div class="form-group">
                     <label class="font-weight-bold">Amount</label>
-                    <input type="number" id="int_amount" class="form-control" step="0.01" min="0">
+                    <input type="number" id="int_amount" class="form-control" step="1" min="0">
                 </div>
                 
                 <div class="form-group">
@@ -784,7 +784,7 @@ $(document).ready(function() {
     // Match button click - event delegation for DataTable pagination compatibility
     $('#statementTable').on('click', '.btn-match', function() {
         var id = $(this).data('id');
-        var amount = parseFloat($(this).data('amount'));
+        var amount = Math.round(parseFloat($(this).data('amount')) || 0);
         var type = $(this).data('type');
         var $row = $(this).closest('tr');
         var date = $row.find('td:eq(1)').text();
@@ -792,15 +792,15 @@ $(document).ready(function() {
         var mappingStatus = $row.data('mapping-status') || 'unmapped';
 
         // For partial transactions, compute remaining unmapped amount
-        var alreadyMapped = parseFloat($row.data('already-mapped') || 0);
-        var unmappedAmt = parseFloat($row.data('unmapped') || amount);
+        var alreadyMapped = Math.round(parseFloat($row.data('already-mapped') || 0));
+        var unmappedAmt = Math.round(parseFloat($row.data('unmapped') || amount));
         var effectiveAmount = (alreadyMapped > 0) ? unmappedAmt : amount;
 
         // Reset modal
         allocations = [];
-        transactionAmount = effectiveAmount;
+        transactionAmount = Math.round(effectiveAmount);
         $('#match_transaction_id').val(id);
-        $('#match_transaction_amount').val(effectiveAmount);
+        $('#match_transaction_amount').val(transactionAmount);
 
         // Show amount with partial info if applicable
         if (alreadyMapped > 0) {
@@ -928,7 +928,7 @@ $(document).ready(function() {
                     html += '<div class="d-flex align-items-center">';
                     html += '<small class="text-muted mr-1">₹' + Math.round(pending).toLocaleString('en-IN') + ' due</small>';
                     html += '<div class="input-group input-group-sm" style="width: 120px;">';
-                    html += '<input type="number" class="form-control allocation-input" data-type="emi" data-member="' + memberId + '" data-related="loan_' + inst.id + '" data-label="EMI #' + inst.installment_number + ' (' + loan.loan_number + ')" placeholder="' + CS + '" step="0.01" min="0" max="' + pending + '">';
+                    html += '<input type="number" class="form-control allocation-input" data-type="emi" data-member="' + memberId + '" data-related="loan_' + inst.id + '" data-label="EMI #' + inst.installment_number + ' (' + loan.loan_number + ')" placeholder="' + CS + '" step="1" min="0" max="' + transactionAmount + '">';
                     html += '</div></div></div>';
                 });
                 html += '</div>';
@@ -971,7 +971,7 @@ $(document).ready(function() {
             html += '<div class="border rounded p-2 mb-1">';
             html += '<div class="d-flex justify-content-between"><small>' + fine.fine_type + '</small><span class="badge badge-danger">' + CS + Math.round(parseFloat(fine.pending_amount)).toLocaleString('en-IN') + '</span></div>';
             html += '<div class="input-group input-group-sm mt-1">';
-            html += '<input type="number" class="form-control allocation-input" data-type="fine" data-member="' + memberId + '" data-related="fine_' + fine.id + '" data-label="Fine: ' + fine.fine_type + '" placeholder="Pay amount" step="0.01" min="0" max="' + fine.pending_amount + '">';
+            html += '<input type="number" class="form-control allocation-input" data-type="fine" data-member="' + memberId + '" data-related="fine_' + fine.id + '" data-label="Fine: ' + fine.fine_type + '" placeholder="Pay amount" step="1" min="0" max="' + Math.round(fine.pending_amount) + '">';
             html += '</div></div>';
         });
         $container.html(html);
@@ -992,7 +992,7 @@ $(document).ready(function() {
             html += '<div class="border rounded p-1 mb-1">';
             html += '<small class="d-block">' + fee.label + '</small>';
             html += '<div class="input-group input-group-sm">';
-            html += '<input type="number" class="form-control allocation-input" data-type="other_fee_' + fee.value + '" data-member="' + memberId + '" data-related="" data-label="' + fee.label + '" placeholder="' + CS + '" step="0.01" min="0">';
+            html += '<input type="number" class="form-control allocation-input" data-type="other_fee_' + fee.value + '" data-member="' + memberId + '" data-related="" data-label="' + fee.label + '" placeholder="' + CS + '" step="1" min="0">';
             html += '</div></div>';
         });
         $container.html(html);
@@ -1038,22 +1038,22 @@ $(document).ready(function() {
     // Fill remaining button for savings
     $(document).on('click', '.btn-fill-remaining', function() {
         var $input = $(this).closest('.input-group').find('.allocation-input');
-        var remaining = parseFloat((transactionAmount - getTotalAllocated()).toFixed(2));
-        var currentVal = parseFloat($input.val()) || 0;
-        var fillAmount = parseFloat((remaining + currentVal).toFixed(2));
+        var remaining = Math.round(transactionAmount - getTotalAllocated());
+        var currentVal = Math.round(parseFloat($input.val()) || 0);
+        var fillAmount = remaining + currentVal;
         if (fillAmount > 0) {
             $input.val(fillAmount).trigger('input');
         }
     });
 
-    // Handle allocation input changes - with float safety
+    // Handle allocation input changes - round values to whole rupees
     $(document).on('input', '.allocation-input', function() {
         var $input = $(this);
         var rawVal = parseFloat($input.val()) || 0;
-        var amount = parseFloat(rawVal.toFixed(2));
+        var amount = Math.round(rawVal);
         var maxVal = parseFloat($input.attr('max'));
-        if (!isNaN(maxVal) && amount > maxVal) {
-            amount = maxVal;
+        if (!isNaN(maxVal) && amount > Math.round(maxVal)) {
+            amount = Math.round(maxVal);
             $input.val(amount);
         }
         var type = $input.data('type');
@@ -1080,7 +1080,11 @@ $(document).ready(function() {
     // Add manual/internal entry
     $('#add_manual_entry').click(function() {
         var type = $('#manual_match_type').val();
-        var amount = parseFloat($('#manual_amount').val()) || transactionAmount - getTotalAllocated();
+        var amount = parseFloat($('#manual_amount').val());
+        if (isNaN(amount)) {
+            amount = transactionAmount - getTotalAllocated();
+        }
+        amount = Math.round(amount);
         
         if (!type) {
             toastr.warning('Please select an internal entry type');
@@ -1159,8 +1163,8 @@ $(document).ready(function() {
     }
 
     function updateAllocationStatus() {
-        var total = parseFloat(getTotalAllocated().toFixed(2));
-        var remaining = parseFloat((transactionAmount - total).toFixed(2));
+        var total = getTotalAllocated();
+        var remaining = transactionAmount - total;
         var percent = transactionAmount > 0 ? (total / transactionAmount) * 100 : 0;
 
         $('#total_allocated').text(CS + Math.round(total).toLocaleString('en-IN'));
@@ -1178,7 +1182,7 @@ $(document).ready(function() {
         var $btn = $('#confirmMatch');
         var $helper = $('#allocation_helper');
 
-        if (total > (transactionAmount + 0.01)) {
+        if (total > transactionAmount) {
             $error.show();
             $('#validation_msg').text('Total allocated exceeds transaction amount by ' + CS + Math.round(Math.abs(remaining)).toLocaleString('en-IN'));
             $helper.html('<i class="fas fa-exclamation-triangle text-danger"></i> Over-allocated! Please reduce amounts.');
@@ -1187,7 +1191,7 @@ $(document).ready(function() {
             $error.hide();
             $helper.html('<i class="fas fa-info-circle"></i> Add allocations to map this transaction');
             $btn.prop('disabled', true);
-        } else if (remaining > 0.01) {
+        } else if (remaining > 0) {
             $error.hide();
             $helper.html('<i class="fas fa-check-circle text-warning"></i> Partial mapping: ' + CS + Math.round(remaining).toLocaleString('en-IN') + ' will remain unmapped');
             $btn.prop('disabled', false);
@@ -1209,8 +1213,8 @@ $(document).ready(function() {
             return;
         }
 
-        var total = parseFloat(getTotalAllocated().toFixed(2));
-        if (total > (transactionAmount + 0.01)) {
+        var total = getTotalAllocated();
+        if (total > transactionAmount) {
             toastr.error('Total allocated exceeds transaction amount');
             return;
         }
@@ -1226,7 +1230,7 @@ $(document).ready(function() {
                 paid_for_member_id: a.member_id,
                 transaction_type: a.type,
                 related_account: a.related,
-                amount: parseFloat(a.amount.toFixed(2)),
+                amount: Math.round(a.amount),
                 remarks: notes
             };
         });

@@ -704,8 +704,9 @@ class Loan_model extends MY_Model {
                         'amount' => $deduct,
                         'balance_after' => $sa->current_balance - $deduct,
                         'payment_mode' => 'adjustment',
-                        'transaction_date' => date('Y-m-d'),
+                        'transaction_date' => $data['payment_date'] ?? date('Y-m-d'),
                         'narration' => 'Auto-deducted for loan EMI shortfall. Loan: ' . $loan->loan_number . '. EMI due: ' . format_amount($emi_total_due) . ', Paid: ' . format_amount($actual_paid_for_emi) . ', Shortfall covered: ' . format_amount($deduct),
+                        'bank_transaction_id' => $data['bank_transaction_id'] ?? null,
                         'created_by' => $data['created_by'] ?? null,
                         'created_at' => date('Y-m-d H:i:s')
                     ]);
@@ -780,6 +781,7 @@ class Loan_model extends MY_Model {
                         'payment_mode' => 'adjustment',
                         'transaction_date' => date('Y-m-d'),
                         'narration' => 'Negative balance: Loan EMI shortfall (no savings available). Loan: ' . $loan->loan_number . '. Remaining shortfall: ' . format_amount($emi_shortfall) . '. Balance went negative.',
+                        'bank_transaction_id' => $data['bank_transaction_id'] ?? null,
                         'created_by' => $data['created_by'] ?? null,
                         'created_at' => date('Y-m-d H:i:s')
                     ]);
@@ -829,8 +831,9 @@ class Loan_model extends MY_Model {
                         'amount' => $emi_excess,
                         'balance_after' => $new_sav_balance,
                         'payment_mode' => 'adjustment',
-                        'transaction_date' => date('Y-m-d'),
+                        'transaction_date' => $data['payment_date'] ?? date('Y-m-d'),
                         'narration' => 'Overpayment from loan EMI credited to savings. Loan: ' . $loan->loan_number . '. EMI amount: ' . format_amount(isset($target_inst) ? $target_inst->emi_amount : $loan->emi_amount) . ', Total paid: ' . format_amount($data['total_amount']) . ', Excess: ' . format_amount($emi_excess),
+                        'bank_transaction_id' => $data['bank_transaction_id'] ?? null,
                         'created_by' => $data['created_by'] ?? null,
                         'created_at' => date('Y-m-d H:i:s')
                     ]);

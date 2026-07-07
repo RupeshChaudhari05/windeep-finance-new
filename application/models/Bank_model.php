@@ -791,7 +791,7 @@ class Bank_model extends MY_Model {
                             'total_amount' => $amount,
                             'payment_mode' => 'bank_transfer',
                             'bank_transaction_id' => $transaction_id,
-                            'payment_type' => 'regular',
+                            'payment_type' => 'emi',
                             'created_by' => $admin_id
                         ];
                         if ($installment_id) {
@@ -923,7 +923,7 @@ class Bank_model extends MY_Model {
                             'total_amount' => $split['amount'],
                             'payment_mode' => 'bank_transfer',
                             'bank_transaction_id' => $transaction_id,
-                            'payment_type' => 'regular',
+                            'payment_type' => 'emi',
                             'created_by' => $admin_id
                         ];
                         $payment_id = $this->Loan_model->record_payment($payment_data);
@@ -1233,9 +1233,9 @@ class Bank_model extends MY_Model {
 
                             // --- Find and reverse any savings adjustment transactions linked to this payment ---
                             // When a bank payment has a shortfall, savings are deducted via adjustment transactions.
+                            // When a bank payment has an overpayment, excess is credited to savings.
                             // On reversal, those savings adjustments must be reversed too, and the installment
-                            // total_paid must be reduced by the full applied amount (bank amount + savings adjustment).
-                            $savings_adj_total = 0;
+                            // total_paid must be reduced only by the bank payment + savings withdrawals.
                             $loan = $this->db->where('id', $loan_payment->loan_id)->get('loans')->row();
                             if ($loan) {
                                 // Find savings accounts for this member
@@ -1246,24 +1246,32 @@ class Bank_model extends MY_Model {
                                 $savings_account_ids = array_column($member_savings, 'id');
 
                                 if (!empty($savings_account_ids)) {
-                                    // Find adjustment transactions for this loan created within 1 minute of the payment
+                                    // Find adjustment transactions for this loan linked to this bank transaction.
+                                    // Fallback to created_at window when bank_transaction_id is missing.
                                     $payment_created = $loan_payment->created_at;
+                                    $this->db->where_in('savings_account_id', $savings_account_ids)
+                                             ->where('payment_mode', 'adjustment')
+                                             ->where('is_reversed', 0)
+                                             ->like('narration', 'Loan: ' . $loan->loan_number);
+                                    if (!empty($loan_payment->bank_transaction_id)) {
+                                        $this->db->where('bank_transaction_id', $loan_payment->bank_transaction_id);
+                                    } else {
+                                        $this->db->where('created_at >=', date('Y-m-d H:i:s', strtotime($payment_created) - 60))
+                                                 ->where('created_at <=', date('Y-m-d H:i:s', strtotime($payment_created) + 60));
+                                    }
                                     $adj_transactions = $this->db
-                                        ->where_in('savings_account_id', $savings_account_ids)
-                                        ->where('payment_mode', 'adjustment')
-                                        ->where('is_reversed', 0)
-                                        ->like('narration', 'Loan: ' . $loan->loan_number)
-                                        ->where('created_at >=', date('Y-m-d H:i:s', strtotime($payment_created) - 60))
-                                        ->where('created_at <=', date('Y-m-d H:i:s', strtotime($payment_created) + 60))
                                         ->get('savings_transactions')
                                         ->result();
 
+                                    $savings_withdrawal_total = 0;
+
                                     foreach ($adj_transactions as $adj_txn) {
                                         $adj_amount = floatval($adj_txn->amount);
-                                        $savings_adj_total += $adj_amount;
 
-                                        // Restore savings balance
+                                        // Restore savings balance and track type-specific totals
                                         if ($adj_txn->transaction_type === 'withdrawal') {
+                                            $savings_withdrawal_total += $adj_amount;
+
                                             // Shortfall deduction: add back to savings
                                             $this->db->set('current_balance', 'current_balance + ' . $adj_amount, FALSE)
                                                      ->where('id', $adj_txn->savings_account_id)
@@ -1288,19 +1296,22 @@ class Bank_model extends MY_Model {
                                     }
                                 }
                             }
-                            // Total amount to deduct from installment = bank payment + savings adjustment covered
-                            $total_to_deduct_from_inst = $total_reversed + $savings_adj_total;
+                            // Total amount to deduct from installment = bank payment + savings withdrawals that were used to cover the EMI shortfall.
+                            // Do not include overpayment credits that were deposited to savings and did not increase installment total_paid.
+                            $total_to_deduct_from_inst = $total_reversed + $savings_withdrawal_total;
                             // --- End savings adjustment reversal ---
 
                             // Restore loan outstanding balances
                             $loan_update_sql = 'outstanding_principal + ' . $principal_reversed;
                             $this->db->set('outstanding_principal', $loan_update_sql, FALSE)
                                      ->set('outstanding_interest', 'outstanding_interest + ' . $interest_reversed, FALSE)
-                                     ->set('total_principal_paid', 'total_principal_paid - ' . $principal_reversed, FALSE)
-                                     ->set('total_interest_paid', 'total_interest_paid - ' . $interest_reversed, FALSE);
+                                     ->set('total_principal_paid', 'GREATEST(0, total_principal_paid - ' . $principal_reversed . ')', FALSE)
+                                     ->set('total_interest_paid', 'GREATEST(0, total_interest_paid - ' . $interest_reversed . ')', FALSE)
+                                     ->set('total_amount_paid', 'GREATEST(0, total_amount_paid - ' . $total_reversed . ')', FALSE);
                             // Restore outstanding_fine if the column exists
                             if ($this->db->field_exists('outstanding_fine', 'loans') && $fine_reversed > 0) {
-                                $this->db->set('outstanding_fine', 'outstanding_fine + ' . $fine_reversed, FALSE);
+                                $this->db->set('outstanding_fine', 'outstanding_fine + ' . $fine_reversed, FALSE)
+                                         ->set('total_fine_paid', 'GREATEST(0, total_fine_paid - ' . $fine_reversed . ')', FALSE);
                             }
                             $this->db->where('id', $loan_payment->loan_id)
                                      ->update('loans');
