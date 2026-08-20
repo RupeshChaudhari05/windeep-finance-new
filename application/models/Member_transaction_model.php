@@ -97,12 +97,21 @@ class Member_transaction_model extends MY_Model {
     
     /**
      * Record processing fee
+     *
+     * @param int         $member_id
+     * @param float       $amount
+     * @param int|null    $loan_id
+     * @param int|null    $created_by
+     * @param string|null $transaction_date Actual loan disbursement date (Y-m-d).
+     *                    MUST be passed on disbursement so a back-dated loan books
+     *                    its fee on the disbursement date, not today's system date.
      */
-    public function record_processing_fee($member_id, $amount, $loan_id = null, $created_by = null) {
+    public function record_processing_fee($member_id, $amount, $loan_id = null, $created_by = null, $transaction_date = null) {
         return $this->record([
             'member_id'        => $member_id,
             'transaction_type' => 'processing_fee',
             'amount'           => $amount,
+            'transaction_date' => !empty($transaction_date) ? $transaction_date : date('Y-m-d'),
             'description'      => 'Loan processing fee' . ($loan_id ? ' for Loan #' . $loan_id : ''),
             'reference_type'   => 'loan',
             'reference_id'     => $loan_id,

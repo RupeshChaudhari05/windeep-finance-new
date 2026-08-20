@@ -6,19 +6,7 @@
         </div>
     </div>
     <div class="card-body">
-        <?php if ($this->session->flashdata('success')): ?>
-        <div class="alert alert-success alert-dismissible">
-            <button type="button" class="close" data-dismiss="alert">&times;</button>
-            <?= $this->session->flashdata('success') ?>
-        </div>
-        <?php endif; ?>
         
-        <?php if ($this->session->flashdata('error')): ?>
-        <div class="alert alert-danger alert-dismissible">
-            <button type="button" class="close" data-dismiss="alert">&times;</button>
-            <?= $this->session->flashdata('error') ?>
-        </div>
-        <?php endif; ?>
         
         <?php if (empty($applications)): ?>
             <p class="text-muted">You have no loan applications.</p>

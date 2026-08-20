@@ -2,7 +2,7 @@
 $cs              = isset($settings['currency_symbol']) ? $settings['currency_symbol'] : get_currency_symbol();
 $principal       = (float)($settlement['outstanding_principal']   ?? 0);
 $total_interest  = (float)($settlement['total_interest']          ?? 0);
-$interest_pct    = (float)($settlement['interest_charge_pct']     ?? 80);
+$interest_pct    = (float)($settlement['interest_charge_pct']     ?? 30);
 $interest_charge = (float)($settlement['interest_charge']         ?? 0);
 $fines           = (float)($settlement['pending_fines']           ?? 0);
 $total           = (float)($settlement['total_settlement']        ?? 0);
@@ -32,14 +32,6 @@ $annual_rate     = (float)($loan->interest_rate ?? 0);
 <section class="content" style="background:#f4f6f9;">
 <div class="container-fluid py-4">
 
-<?php if ($this->session->flashdata('error')): ?>
-<div class="alert alert-danger alert-dismissible shadow-sm"><button type="button" class="close" data-dismiss="alert">&times;</button>
-    <i class="fas fa-exclamation-triangle mr-2"></i><?= $this->session->flashdata('error') ?></div>
-<?php endif; ?>
-<?php if ($this->session->flashdata('success')): ?>
-<div class="alert alert-success alert-dismissible shadow-sm"><button type="button" class="close" data-dismiss="alert">&times;</button>
-    <i class="fas fa-check-circle mr-2"></i><?= $this->session->flashdata('success') ?></div>
-<?php endif; ?>
 
 <!-- Loan Info Bar -->
 <div class="card shadow-sm mb-3" style="border-left:4px solid #1a3c6e;">
@@ -180,29 +172,23 @@ $annual_rate     = (float)($loan->interest_rate ?? 0);
                             </div>
                             <hr class="my-2">
                             <div class="d-flex justify-content-between mb-1" style="font-size:13px;">
-                                <span class="text-muted">Principal</span>
-                                <span><?= $cs.number_format($prin,2) ?></span>
+                                <span class="text-muted">Outstanding Principal</span>
+                                <span><?= $cs.number_format($principal,2) ?></span>
                             </div>
                             <div class="d-flex justify-content-between mb-1" style="font-size:13px;">
-                                <span class="text-muted">Accrued Interest</span>
-                                <span><?= $cs.number_format($acc,2) ?></span>
+                                <span class="text-muted">Remaining Interest</span>
+                                <span><?= $cs.number_format($total_interest,2) ?></span>
                             </div>
-                            <?php if ($pen > 0): ?>
+                            <?php if ($interest_charge > 0): ?>
                             <div class="d-flex justify-content-between mb-1" style="font-size:13px;">
-                                <span class="text-muted">Prepayment Charge</span>
-                                <span><?= $cs.number_format($pen,2) ?></span>
+                                <span class="text-muted">Interest Charged (<?= $interest_pct ?>%)</span>
+                                <span class="text-danger"><?= $cs.number_format($interest_charge,2) ?></span>
                             </div>
                             <?php endif; ?>
-                            <?php if ($fine > 0): ?>
+                            <?php if ($fines > 0): ?>
                             <div class="d-flex justify-content-between mb-1" style="font-size:13px;">
                                 <span class="text-muted">Pending Fines</span>
-                                <span class="text-danger"><?= $cs.number_format($fine,2) ?></span>
-                            </div>
-                            <?php endif; ?>
-                            <?php if ($pic > 0): ?>
-                            <div class="d-flex justify-content-between mb-1" style="font-size:13px;">
-                                <span class="text-muted">Foreclosure Charge (<?= $pic_pct ?>%)</span>
-                                <span class="text-danger"><?= $cs.number_format($pic,2) ?></span>
+                                <span class="text-danger"><?= $cs.number_format($fines,2) ?></span>
                             </div>
                             <?php endif; ?>
                             <hr class="my-2">

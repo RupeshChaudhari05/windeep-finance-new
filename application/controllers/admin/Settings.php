@@ -52,7 +52,7 @@ class Settings extends Admin_Controller {
             'kyc_required' => $raw_settings['kyc_required'] ?? true,
 
             // Foreclosure settings
-            'foreclosure_interest_charge_pct' => $raw_settings['foreclosure_interest_charge_pct'] ?? 80,
+            'foreclosure_interest_charge_pct' => $raw_settings['foreclosure_interest_charge_pct'] ?? 30,
             
             // Email configuration
             'email_protocol' => $raw_settings['email_protocol'] ?? 'smtp',

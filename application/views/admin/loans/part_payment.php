@@ -129,12 +129,6 @@
                 <h3 class="card-title"><i class="fas fa-hand-holding-usd mr-1"></i> Part Payment (Partial Prepayment)</h3>
             </div>
             <div class="card-body">
-                <?php if ($this->session->flashdata('error')): ?>
-                <div class="alert alert-danger alert-dismissible">
-                    <button type="button" class="close" data-dismiss="alert">&times;</button>
-                    <i class="fas fa-exclamation-triangle mr-1"></i> <?= $this->session->flashdata('error') ?>
-                </div>
-                <?php endif; ?>
 
                 <form id="partPaymentForm" method="post" action="<?= site_url('admin/loans/process_part_payment') ?>">
                     <input type="hidden" name="loan_id" value="<?= $loan->id ?>">

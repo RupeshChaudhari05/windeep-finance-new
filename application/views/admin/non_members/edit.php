@@ -1,12 +1,6 @@
 <!-- Edit Non-Member Fund Provider -->
 <div class="row">
     <div class="col-md-8 offset-md-2">
-        <?php if ($this->session->flashdata('error')): ?>
-            <div class="alert alert-danger alert-dismissible">
-                <button type="button" class="close" data-dismiss="alert">&times;</button>
-                <i class="fas fa-exclamation-triangle mr-1"></i> <?= $this->session->flashdata('error') ?>
-            </div>
-        <?php endif; ?>
 
         <div class="card card-warning">
             <div class="card-header">

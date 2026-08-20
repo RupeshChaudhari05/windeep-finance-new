@@ -557,35 +557,5 @@
         <section class="content">
             <div class="container-fluid">
                 
-                <!-- Flash Messages (toastr only) -->
-                <?php if ($this->session->flashdata('success')): ?>
-                    <script>
-                        $(document).ready(function() {
-                            toastr.success('<?= addslashes($this->session->flashdata('success')) ?>');
-                        });
-                    </script>
-                <?php endif; ?>
-                
-                <?php if ($this->session->flashdata('error')): ?>
-                    <script>
-                        $(document).ready(function() {
-                            toastr.error('<?= addslashes($this->session->flashdata('error')) ?>');
-                        });
-                    </script>
-                <?php endif; ?>
-                
-                <?php if ($this->session->flashdata('warning')): ?>
-                    <script>
-                        $(document).ready(function() {
-                            toastr.warning('<?= addslashes($this->session->flashdata('warning')) ?>');
-                        });
-                    </script>
-                <?php endif; ?>
-                
-                <?php if ($this->session->flashdata('info')): ?>
-                    <script>
-                        $(document).ready(function() {
-                            toastr.info('<?= addslashes($this->session->flashdata('info')) ?>');
-                        });
-                    </script>
-                <?php endif; ?>
+                <!-- Flash messages are rendered once, in admin/layouts/footer.php.
+                     Do not re-render them here or every toast appears twice. -->

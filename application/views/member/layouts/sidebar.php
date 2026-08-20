@@ -125,28 +125,5 @@
         <!-- Main content -->
         <section class="content">
             <div class="container-fluid">
-                <!-- Flash Messages -->
-                <?php if ($this->session->flashdata('success')): ?>
-                    <div class="alert alert-success alert-dismissible">
-                        <button type="button" class="close" data-dismiss="alert" aria-hidden="true">&times;</button>
-                        <i class="icon fas fa-check"></i> <?= html_escape($this->session->flashdata('success')) ?>
-                    </div>
-                <?php endif; ?>
-                <?php if ($this->session->flashdata('error')): ?>
-                    <div class="alert alert-danger alert-dismissible">
-                        <button type="button" class="close" data-dismiss="alert" aria-hidden="true">&times;</button>
-                        <i class="icon fas fa-ban"></i> <?= html_escape($this->session->flashdata('error')) ?>
-                    </div>
-                <?php endif; ?>
-                <?php if ($this->session->flashdata('warning')): ?>
-                    <div class="alert alert-warning alert-dismissible">
-                        <button type="button" class="close" data-dismiss="alert" aria-hidden="true">&times;</button>
-                        <i class="icon fas fa-exclamation-triangle"></i> <?= html_escape($this->session->flashdata('warning')) ?>
-                    </div>
-                <?php endif; ?>
-                <?php if ($this->session->flashdata('info')): ?>
-                    <div class="alert alert-info alert-dismissible">
-                        <button type="button" class="close" data-dismiss="alert" aria-hidden="true">&times;</button>
-                        <i class="icon fas fa-info"></i> <?= html_escape($this->session->flashdata('info')) ?>
-                    </div>
-                <?php endif; ?>
+                <!-- Flash messages are rendered once, as toasts, in member/layouts/footer.php.
+                     Do not re-render them here or every message appears twice. -->

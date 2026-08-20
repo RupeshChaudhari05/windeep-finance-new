@@ -275,15 +275,21 @@ class Savings_model extends MY_Model {
             // Calculate new balance using the locked row's current value
             $new_balance = $account->current_balance;
             
+            // A one-time / extra deposit is an ad-hoc contribution: it is NOT an
+            // advance on the recurring schedule, so the 24-month advance cap does
+            // not apply and it is not consumed by the monthly schedule below.
+            $is_onetime = (($data['deposit_type'] ?? 'regular') === 'onetime');
+
             if ($data['transaction_type'] === 'deposit') {
                 // SAV-6 FIX (updated): Cap deposits at 24x monthly amount to allow up to 2-year advance payment
                 // Skip this cap for bank_transfer (admin-mapped bank statement entries are already verified)
+                // and for one-time/extra deposits, which are not advance payments at all.
                 $payment_mode = $data['payment_mode'] ?? 'cash';
-                if ($payment_mode !== 'bank_transfer') {
+                if ($payment_mode !== 'bank_transfer' && !$is_onetime) {
                     $max_deposit = $account->monthly_amount * 24;
                     if ($max_deposit > 0 && $data['amount'] > $max_deposit) {
                         $months = floor($data['amount'] / $account->monthly_amount);
-                        throw new Exception('Deposit amount (' . number_format($data['amount'], 2) . ') would cover ' . $months . ' months, which exceeds the maximum 24-month advance limit. Use bank_transfer mode for exceptional cases.');
+                        throw new Exception('Deposit amount (' . number_format($data['amount'], 2) . ') would cover ' . $months . ' months, which exceeds the maximum 24-month advance limit. Use a One-time / Extra deposit, or bank_transfer mode, for exceptional cases.');
                     }
                 }
                 $new_balance += $data['amount'];
@@ -301,6 +307,10 @@ class Savings_model extends MY_Model {
             if (isset($data['remarks'])) {
                 $data['narration'] = $data['remarks'];
                 unset($data['remarks']);
+            }
+            if ($is_onetime && $data['transaction_type'] === 'deposit') {
+                $data['schedule_id'] = null;   // never tie an extra deposit to a due month
+                $data['narration'] = trim('One-time / extra deposit. ' . ($data['narration'] ?? ''));
             }
             if (isset($data['received_by'])) {
                 $data['created_by'] = $data['received_by'];
@@ -346,7 +356,9 @@ class Savings_model extends MY_Model {
             // ── Schedule update (FIFO – Indian banking standard) ──────────────────
             // If a specific schedule entry was targeted, apply to it (with overflow carry-forward).
             // Otherwise auto-apply against the oldest pending/overdue entries first.
-            if ($data['transaction_type'] === 'deposit') {
+            // A one-time / extra deposit is deliberately left out of the schedule:
+            // it tops up the balance without settling monthly dues.
+            if ($data['transaction_type'] === 'deposit' && !$is_onetime) {
                 $payment_date = $data['transaction_date'] ?? date('Y-m-d');
                 if (!empty($data['schedule_id'])) {
                     $this->update_schedule_payment($data['schedule_id'], $data['amount'], $payment_date);

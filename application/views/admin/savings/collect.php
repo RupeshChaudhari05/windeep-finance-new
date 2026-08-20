@@ -223,6 +223,26 @@ $(document).ready(function() {
                 <input type="hidden" name="savings_account_id" value="<?= $account->id ?>">
                 
                 <div class="card-body">
+                    <!-- Deposit Type: regular schedule collection vs one-time extra -->
+                    <div class="form-group">
+                        <label class="d-block">Deposit Type <span class="text-danger">*</span></label>
+                        <div class="btn-group btn-group-toggle w-100" data-toggle="buttons">
+                            <label class="btn btn-outline-primary active" id="lblRegular">
+                                <input type="radio" name="deposit_type" value="regular" checked>
+                                <i class="fas fa-calendar-check mr-1"></i> Regular (Monthly)
+                                <small class="d-block text-muted">Settles pending monthly dues</small>
+                            </label>
+                            <label class="btn btn-outline-success" id="lblOnetime">
+                                <input type="radio" name="deposit_type" value="onetime">
+                                <i class="fas fa-plus-circle mr-1"></i> One-time / Extra
+                                <small class="d-block text-muted">Any amount, kept outside the schedule</small>
+                            </label>
+                        </div>
+                        <small class="form-text text-muted" id="depositTypeHelp">
+                            Regular deposits are applied to the oldest pending months first.
+                        </small>
+                    </div>
+
                     <div class="row">
                         <div class="col-md-6">
                             <div class="form-group">
@@ -368,6 +388,19 @@ $(document).ready(function() {
 $(document).ready(function() {
     var currentBalance = <?= (float)$account->current_balance ?>;
     var CS             = '<?= get_currency_symbol() ?>';
+
+    // Deposit type: regular schedule collection vs one-time extra contribution
+    $('input[name="deposit_type"]').on('change', function() {
+        var onetime = $('input[name="deposit_type"]:checked').val() === 'onetime';
+        $('#depositTypeHelp').html(onetime
+            ? '<span class="text-success"><i class="fas fa-info-circle mr-1"></i>One-time deposit: any amount is allowed and pending monthly dues stay untouched.</span>'
+            : 'Regular deposits are applied to the oldest pending months first.');
+        // A one-time amount is free-form, so clear the pre-filled monthly figure once
+        if (onetime && $('#amount').val() == <?= (float)$account->monthly_amount ?>) {
+            $('#amount').val('').focus();
+        }
+        updateSummary();
+    });
 
     // Quick amount button
     $('.quick-amount').on('click', function() {

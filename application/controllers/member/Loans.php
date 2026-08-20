@@ -587,7 +587,7 @@ class Loans extends Member_Controller {
         return [
             'outstanding_principal'   => $calculation['outstanding_principal'],
             'total_interest'          => $calculation['total_interest'] ?? 0,
-            'interest_charge_pct'     => $calculation['interest_charge_pct'] ?? 80,
+            'interest_charge_pct'     => $calculation['interest_charge_pct'] ?? 30,
             'interest_charge'         => $calculation['interest_charge'] ?? 0,
             'pending_fines'           => $calculation['pending_fines'] ?? 0,
             'total_settlement'        => $calculation['total_amount'],

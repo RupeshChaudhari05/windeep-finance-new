@@ -8,7 +8,23 @@ class Loan_model extends MY_Model {
     
     protected $table = 'loans';
     protected $primary_key = 'id';
-    
+
+    /**
+     * Fallback percentage of the remaining (current + future) interest charged on
+     * foreclosure when the `foreclosure_interest_charge_pct` setting is missing.
+     */
+    const FORECLOSURE_INTEREST_PCT_DEFAULT = 30;
+
+    /**
+     * Smallest amount that counts as real money (half a paisa).
+     *
+     * Money is stored as DECIMAL(15,2) but computed in PHP floats, so an exactly
+     * settled EMI can leave a residue like 3.6e-12. Comparing such a residue with
+     * `> 0` used to make the system believe there was a shortfall/excess and post
+     * a 0.00 savings entry. Always compare money against this epsilon, not zero.
+     */
+    const MONEY_EPSILON = 0.005;
+
     /**
      * Generate Loan Number
      * LOAN-8 FIX: Generate from actual loan_id (post-insert) to prevent race condition
@@ -141,11 +157,15 @@ class Loan_model extends MY_Model {
     
     /**
      * Admin Approve/Revise Application
-     * Bug #2 Fix: Validate loan-to-savings ratio
-     * @param bool $force_savings  When true, admin-overrides all savings checks
+     *
+     * Savings balance and loan-to-savings ratio are ADVISORY only — they are
+     * reported and audited but never block approval. The admin's approved
+     * amount is always accepted.
+     *
+     * @param bool $force_savings Deprecated/unused. Kept so existing callers
+     *                            keep working; savings never blocks approval.
      */
     public function admin_approve($application_id, $data, $admin_id, $force_savings = false) {
-        // Bug #2 Fix: Get member savings balance and enforce ratio
         $application = $this->db->where('id', $application_id)
                                 ->get('loan_applications')
                                 ->row();
@@ -165,31 +185,46 @@ class Loan_model extends MY_Model {
                                 ->row();
         }
         
-        // Savings checks — skipped when admin explicitly overrides
-        if (!$force_savings) {
-            if ($product && !empty($product->min_savings_balance)) {
-                // Get member's current savings balance
-                $this->load->model('Member_model');
-                $member = $this->Member_model->get_member_details($application->member_id);
-                $savings_balance = $member->savings_summary->current_balance ?? 0;
-                
-                if ($savings_balance < $product->min_savings_balance) {
-                    throw new Exception('Member savings balance (' . format_amount($savings_balance) . ') is below minimum requirement (' . format_amount($product->min_savings_balance) . ')');
-                }
+        // ── Savings position: ADVISORY ONLY ───────────────────────────────
+        // Savings balance / loan-to-savings ratio no longer block approval.
+        // The figures are still computed and recorded so the decision stays
+        // auditable, but the admin's approved amount is always honoured.
+        // ($force_savings is retained for signature compatibility and is unused.)
+        $savings_notes = [];
+
+        if ($product && (!empty($product->min_savings_balance) || !empty($product->max_loan_to_savings_ratio))) {
+            $this->load->model('Member_model');
+            $member = $this->Member_model->get_member_details($application->member_id);
+            $savings_balance = $member->savings_summary->current_balance ?? 0;
+
+            if (!empty($product->min_savings_balance) && $savings_balance < $product->min_savings_balance) {
+                $savings_notes[] = 'Savings balance ' . format_amount($savings_balance)
+                                 . ' is below the product minimum ' . format_amount($product->min_savings_balance);
             }
-            
-            // Check loan-to-savings ratio (if configured)
-            if ($product && !empty($product->max_loan_to_savings_ratio)) {
-                $this->load->model('Member_model');
-                $member = $this->Member_model->get_member_details($application->member_id);
-                $savings_balance = $member->savings_summary->current_balance ?? 0;
-                
+
+            if (!empty($product->max_loan_to_savings_ratio)) {
                 $max_loan = $savings_balance * $product->max_loan_to_savings_ratio;
-                
                 if ($data['approved_amount'] > $max_loan) {
-                    throw new Exception('Approved amount (' . format_amount($data['approved_amount']) . ') exceeds maximum based on savings ratio (' . format_amount($max_loan) . ')');
+                    $savings_notes[] = 'Approved amount ' . format_amount($data['approved_amount'])
+                                     . ' exceeds the savings-ratio guideline of ' . format_amount($max_loan)
+                                     . ' (' . $product->max_loan_to_savings_ratio . 'x savings)';
                 }
             }
+        }
+
+        if (!empty($savings_notes)) {
+            log_message('info', '[admin_approve] Application #' . $application_id
+                              . ' approved outside savings guidelines: ' . implode('; ', $savings_notes));
+            $this->load->model('Audit_model');
+            $this->Audit_model->create([
+                'user_type'  => 'admin',
+                'user_id'    => $admin_id,
+                'action'     => 'loan_approved_outside_savings_guideline',
+                'module'     => 'loans',
+                'table_name' => 'loan_applications',
+                'record_id'  => $application_id,
+                'remarks'    => implode('; ', $savings_notes),
+            ]);
         }
         
         $update = [
@@ -655,23 +690,25 @@ class Loan_model extends MY_Model {
             $savings_adjustment_log = null;
             
             if (!empty($data['installment_id']) && isset($target_inst)) {
-                $emi_total_due = $target_inst->emi_amount - ($target_inst->total_paid ?? 0);
-                $actual_paid_for_emi = $interest_paid + $principal_paid;
-                
-                if ($actual_paid_for_emi < $emi_total_due && $emi_total_due > 0) {
+                // Round to paisa first: an exactly-settled EMI otherwise leaves a
+                // float residue (e.g. 3.6e-12) that reads as a shortfall.
+                $emi_total_due = round($target_inst->emi_amount - ($target_inst->total_paid ?? 0), 2);
+                $actual_paid_for_emi = round($interest_paid + $principal_paid, 2);
+
+                if (($emi_total_due - $actual_paid_for_emi) >= self::MONEY_EPSILON && $emi_total_due > 0) {
                     // UNDERPAYMENT: Member paid less than EMI
-                    $emi_shortfall = $emi_total_due - $actual_paid_for_emi;
-                } elseif ($amount > 0) {
+                    $emi_shortfall = round($emi_total_due - $actual_paid_for_emi, 2);
+                } elseif ($amount >= self::MONEY_EPSILON) {
                     // OVERPAYMENT: Excess money after covering EMI + fines
-                    $emi_excess = $amount;
+                    $emi_excess = round($amount, 2);
                 }
-            } elseif ($amount > 0) {
+            } elseif ($amount >= self::MONEY_EPSILON) {
                 // Excess after loan-level allocation (no specific installment)
-                $emi_excess = $amount;
+                $emi_excess = round($amount, 2);
             }
-            
+
             // Handle UNDERPAYMENT: deduct shortfall from savings or go negative
-            if ($emi_shortfall > 0) {
+            if ($emi_shortfall >= self::MONEY_EPSILON) {
                 $this->load->model('Savings_model');
                 $savings_accounts = $this->db->where('member_id', $loan->member_id)
                                              ->where('status', 'active')
@@ -683,13 +720,15 @@ class Loan_model extends MY_Model {
                 $savings_details = [];
                 
                 foreach ($savings_accounts as $sa) {
-                    if ($emi_shortfall <= 0) break;
-                    
+                    if ($emi_shortfall < self::MONEY_EPSILON) break;
+
                     $available = max(0, $sa->current_balance);
-                    if ($available <= 0) continue;
-                    
-                    $deduct = min($available, $emi_shortfall);
-                    
+                    if ($available < self::MONEY_EPSILON) continue;
+
+                    // Never post a savings entry for less than a paisa
+                    $deduct = round(min($available, $emi_shortfall), 2);
+                    if ($deduct < self::MONEY_EPSILON) continue;
+
                     // Withdraw from savings
                     $this->db->query(
                         "UPDATE savings_accounts SET current_balance = current_balance - ?, updated_at = NOW() WHERE id = ?",
@@ -712,7 +751,7 @@ class Loan_model extends MY_Model {
                     ]);
                     
                     $covered_from_savings += $deduct;
-                    $emi_shortfall -= $deduct;
+                    $emi_shortfall = round($emi_shortfall - $deduct, 2);
                     $savings_details[] = [
                         'account_id' => $sa->id,
                         'account_number' => $sa->account_number,
@@ -723,7 +762,7 @@ class Loan_model extends MY_Model {
                 // If still shortfall after exhausting savings, apply remaining as additional loan payment from savings
                 // The remaining shortfall means member's loan remains partially unpaid
                 // Record the savings contributions as additional loan payment components
-                if ($covered_from_savings > 0) {
+                if ($covered_from_savings >= self::MONEY_EPSILON) {
                     // Distribute savings contribution to loan: interest first, then principal
                     $savings_to_interest = 0;
                     $savings_to_principal = 0;
@@ -762,7 +801,7 @@ class Loan_model extends MY_Model {
                 }
                 
                 // If shortfall still remains, go negative on primary savings account
-                if ($emi_shortfall > 0 && !empty($savings_accounts)) {
+                if ($emi_shortfall >= self::MONEY_EPSILON && !empty($savings_accounts)) {
                     $primary_sa = $savings_accounts[0];
                     
                     $this->db->query(
@@ -807,7 +846,7 @@ class Loan_model extends MY_Model {
             }
             
             // Handle OVERPAYMENT: add excess to savings account
-            if ($emi_excess > 0) {
+            if ($emi_excess >= self::MONEY_EPSILON) {
                 $this->load->model('Savings_model');
                 $savings_account = $this->db->where('member_id', $loan->member_id)
                                             ->where('status', 'active')
@@ -1017,14 +1056,10 @@ class Loan_model extends MY_Model {
             throw new Exception('Installment is not eligible for interest-only payment (status: ' . $installment->status . ')');
         }
         
-        // Check tenure extension limits
+        // Interest-only payments are UNLIMITED — no cap on tenure extensions.
+        // The counter below is kept for reporting/history only, never to block.
         $extensions_used = $loan->tenure_extensions ?? 0;
-        $max_extensions = $this->get_max_tenure_extensions($loan);
-        
-        if ($extensions_used >= $max_extensions) {
-            throw new Exception("Maximum tenure extensions ({$max_extensions}) reached. Interest-only payment not allowed.");
-        }
-        
+
         // Calculate interest portion for this installment
         $interest_due = max(0, (float) $installment->interest_amount - (float) ($installment->interest_paid ?? 0));
         $amount = $data['total_amount'];
@@ -1265,44 +1300,17 @@ class Loan_model extends MY_Model {
     }
     
     /**
-     * Get Maximum Tenure Extensions Allowed for a Loan
-     * 
-     * Checks loan product setting first, then falls back to system setting.
-     * 
-     * @param object $loan The loan object
-     * @return int Maximum extensions allowed
-     */
-    private function get_max_tenure_extensions($loan) {
-        // Check loan product level override
-        $product = $this->db->where('id', $loan->loan_product_id)
-                            ->get('loan_products')
-                            ->row();
-        
-        if ($product && isset($product->max_interest_only_months) && $product->max_interest_only_months > 0) {
-            return (int)$product->max_interest_only_months;
-        }
-        
-        // Fall back to loan level setting
-        if (isset($loan->max_tenure_extensions) && $loan->max_tenure_extensions > 0) {
-            return (int)$loan->max_tenure_extensions;
-        }
-        
-        // Fall back to system setting
-        $this->load->model('Setting_model');
-        $max = $this->Setting_model->get_setting('max_tenure_extensions', 6);
-        return (int)$max;
-    }
-    
-    /**
      * Check if Interest-Only Payment is Allowed for a Loan
-     * 
+     *
      * Validates:
      * 1. Loan product allows it
-     * 2. Extension limit not reached
-     * 3. Loan is active
-     * 
+     * 2. Loan is active
+     *
+     * NOTE: There is deliberately NO cap on how many interest-only payments a
+     * loan may take. `tenure_extensions` is counted for reporting only.
+     *
      * @param int $loan_id Loan ID
-     * @return array ['allowed' => bool, 'reason' => string, 'extensions_used' => int, 'max_extensions' => int, 'interest_amount' => float]
+     * @return array ['allowed' => bool, 'reason' => string, 'extensions_used' => int, 'interest_amount' => float]
      */
     public function check_interest_only_eligibility($loan_id) {
         $loan = $this->get_by_id($loan_id);
@@ -1320,19 +1328,10 @@ class Loan_model extends MY_Model {
             return ['allowed' => false, 'reason' => 'Interest-only payments not allowed for this loan product'];
         }
         
-        // Check extension limits
+        // Interest-only payments are UNLIMITED — the extension counter is
+        // informational only and never blocks a payment.
         $extensions_used = $loan->tenure_extensions ?? 0;
-        $max_extensions = $this->get_max_tenure_extensions($loan);
-        
-        if ($extensions_used >= $max_extensions) {
-            return [
-                'allowed' => false, 
-                'reason' => "Maximum tenure extensions ({$max_extensions}) already used",
-                'extensions_used' => $extensions_used,
-                'max_extensions' => $max_extensions
-            ];
-        }
-        
+
         // Get next pending installment for interest amount info
         $next_installment = $this->db->where('loan_id', $loan_id)
                                      ->where_in('status', ['pending', 'overdue'])
@@ -1357,8 +1356,9 @@ class Loan_model extends MY_Model {
             'allowed' => true,
             'reason' => 'Eligible for interest-only payment',
             'extensions_used' => $extensions_used,
-            'max_extensions' => $max_extensions,
-            'remaining_extensions' => $max_extensions - $extensions_used,
+            'max_extensions' => 0,          // 0 = unlimited
+            'remaining_extensions' => null, // null = unlimited
+            'unlimited_extensions' => true,
             'interest_amount' => round($interest_due, 2),
             'principal_deferred' => round($principal_deferred, 2),
             'emi_amount' => round($emi_amount, 2),
@@ -1910,14 +1910,19 @@ class Loan_model extends MY_Model {
      *
      * Formula:
      *   Total = Outstanding Principal
-     *         + (Total Interest × Admin Setting %)
+     *         + (Total Remaining Interest × Charge %)
      *         + Pending Fines
-     * 
+     *
      * Where:
-     *   Total Interest = Current Month Interest + All Remaining Months' Interest
-     *   Admin Setting % = foreclosure_interest_charge_pct from settings (e.g., 80%)
+     *   Total Remaining Interest = Current Month Interest + All Remaining Months' Interest
+     *   Charge % = foreclosure_interest_charge_pct from settings (default 30%)
+     *
+     * @param int        $loan_id
+     * @param float|null $override_pct Admin-supplied percentage that replaces the
+     *                                 configured setting for this calculation only
+     *                                 (used when approving a request).
      */
-    public function calculate_foreclosure_amount($loan_id) {
+    public function calculate_foreclosure_amount($loan_id, $override_pct = null) {
         $loan = $this->db->where('id', $loan_id)->get('loans')->row();
         if (!$loan) {
             return false;
@@ -1933,13 +1938,22 @@ class Loan_model extends MY_Model {
                                        ->row();
         $total_interest = $total_interest_row ? (float)$total_interest_row->interest_amount : 0;
 
-        // Get admin setting for interest charge percentage (e.g., 80%)
+        // Get admin setting for interest charge percentage (default 30%)
         $interest_pct_row = $this->db->where('setting_key', 'foreclosure_interest_charge_pct')
                                      ->get('system_settings')
                                      ->row();
-        $interest_charge_pct = $interest_pct_row ? (float)$interest_pct_row->setting_value : 80; // Default 80%
-        
-        // Calculate interest amount to charge = Total Interest × Setting %
+        $default_pct = $interest_pct_row ? (float)$interest_pct_row->setting_value : self::FORECLOSURE_INTEREST_PCT_DEFAULT;
+
+        // Admin override (approval screen) takes precedence over the stored setting
+        $interest_charge_pct = ($override_pct === null || $override_pct === '')
+                             ? $default_pct
+                             : (float)$override_pct;
+
+        // Keep the percentage within a sane range
+        if ($interest_charge_pct < 0)   { $interest_charge_pct = 0; }
+        if ($interest_charge_pct > 100) { $interest_charge_pct = 100; }
+
+        // Calculate interest amount to charge = Total Interest × Charge %
         $interest_charge = round(($total_interest * $interest_charge_pct) / 100, 2);
 
         // Get pending fines (joined through installments)
@@ -1961,6 +1975,7 @@ class Loan_model extends MY_Model {
             'outstanding_principal'   => $outstanding_principal,
             'total_interest'          => $total_interest,
             'interest_charge_pct'     => $interest_charge_pct,
+            'default_interest_pct'    => $default_pct,
             'interest_charge'         => $interest_charge,
             'pending_fines'           => $pending_fines,
             'total_amount'            => $total_amount,
@@ -2041,11 +2056,20 @@ class Loan_model extends MY_Model {
 
     /**
      * Process Foreclosure Request (Admin only)
+     *
+     * On approval the admin may override the settlement figures:
+     *   $payment_details['interest_charge_pct'] — recalculates the interest charge
+     *   $payment_details['final_amount']        — the exact amount collected
+     * Both are optional; when omitted the freshly recalculated amount is used.
      */
     public function process_foreclosure_request($request_id, $admin_id, $action, $comments = null, $payment_details = []) {
         $request = $this->db->where('id', $request_id)->get('loan_foreclosure_requests')->row();
         if (!$request) {
             return ['success' => false, 'message' => 'Foreclosure request not found'];
+        }
+
+        if ($request->status !== 'pending') {
+            return ['success' => false, 'message' => 'This request has already been ' . $request->status];
         }
 
         $update_data = [
@@ -2063,9 +2087,52 @@ class Loan_model extends MY_Model {
                 return ['success' => false, 'message' => 'Loan not found'];
             }
 
-            // Get breakdown using regular foreclosure calculation
-            $breakdown = $this->calculate_foreclosure_amount($request->loan_id);
-            $settlement_note = 'Regular Foreclosure Settlement';
+            // ── Admin overrides (optional) ────────────────────────────────
+            $override_pct = isset($payment_details['interest_charge_pct']) && $payment_details['interest_charge_pct'] !== ''
+                          ? (float)$payment_details['interest_charge_pct']
+                          : null;
+
+            if ($override_pct !== null && ($override_pct < 0 || $override_pct > 100)) {
+                return ['success' => false, 'message' => 'Interest charge % must be between 0 and 100'];
+            }
+
+            // Recalculate the breakdown at approval time, honouring the admin's %
+            $breakdown = $this->calculate_foreclosure_amount($request->loan_id, $override_pct);
+            if (!$breakdown) {
+                return ['success' => false, 'message' => 'Unable to calculate settlement amount'];
+            }
+
+            $calculated_total = round((float)$breakdown['total_amount'], 2);
+
+            // Admin may also type an exact settlement amount
+            $final_amount = isset($payment_details['final_amount']) && $payment_details['final_amount'] !== ''
+                          ? round((float)$payment_details['final_amount'], 2)
+                          : $calculated_total;
+
+            if ($final_amount <= 0) {
+                return ['success' => false, 'message' => 'Settlement amount must be greater than zero'];
+            }
+
+            // ── Split the collected amount into components ────────────────
+            // Principal is settled first, then pending fines, remainder is interest.
+            $principal_component = min(round((float)$breakdown['outstanding_principal'], 2), $final_amount);
+            $remaining           = round($final_amount - $principal_component, 2);
+            $fine_component      = min(round((float)$breakdown['pending_fines'], 2), $remaining);
+            $interest_component  = round($remaining - $fine_component, 2);
+
+            $settlement_note = 'Foreclosure Settlement (Interest charged @ '
+                             . rtrim(rtrim(number_format((float)$breakdown['interest_charge_pct'], 2, '.', ''), '0'), '.')
+                             . '% of remaining interest)';
+
+            if (abs($final_amount - $calculated_total) >= 0.01) {
+                $settlement_note .= ' [Admin adjusted: calculated '
+                                  . number_format($calculated_total, 2) . ' → collected '
+                                  . number_format($final_amount, 2) . ']';
+            }
+
+            // Store what was actually approved on the request itself
+            $update_data['approved_amount']       = $final_amount;
+            $update_data['approved_interest_pct'] = (float)$breakdown['interest_charge_pct'];
 
             // Normalize payment_mode to valid ENUM values
             $payment_mode_input = strtolower($payment_details['payment_mode'] ?? 'cash');
@@ -2090,16 +2157,16 @@ class Loan_model extends MY_Model {
             // Create payment record with complete details
             $payment_data = [
                 'loan_id' => $request->loan_id,
-                'payment_date' => isset($payment_details['payment_date']) && !empty($payment_details['payment_date']) 
-                                 ? $payment_details['payment_date'] 
+                'payment_date' => isset($payment_details['payment_date']) && !empty($payment_details['payment_date'])
+                                 ? $payment_details['payment_date']
                                  : date('Y-m-d'),
                 'payment_type' => 'foreclosure',
                 'payment_mode' => $payment_mode,
                 'reference_number' => $payment_details['transaction_id'] ?? 'Foreclosure-Req#' . $request_id,
-                'total_amount' => $request->foreclosure_amount,
-                'principal_component' => floatval($breakdown['outstanding_principal'] ?? $loan->outstanding_principal ?? 0),
-                'interest_component' => floatval($breakdown['outstanding_interest'] ?? 0),
-                'fine_component' => floatval($breakdown['pending_fines'] ?? 0),
+                'total_amount' => $final_amount,
+                'principal_component' => $principal_component,
+                'interest_component' => $interest_component,
+                'fine_component' => $fine_component,
                 'outstanding_principal_after' => 0,
                 'outstanding_interest_after' => 0,
                 'payment_code' => 'FEC' . date('YmdHis'),
@@ -2129,7 +2196,7 @@ class Loan_model extends MY_Model {
                         'status' => 'foreclosed',
                         'closure_date' => date('Y-m-d'),
                         'closure_type' => 'foreclosure',
-                        'closure_remarks' => $comments,
+                        'closure_remarks' => $settlement_note . ($comments ? ' — ' . $comments : ''),
                         'closed_by' => $admin_id,
                         'outstanding_principal' => 0,
                         'outstanding_interest' => 0,
@@ -2171,10 +2238,20 @@ class Loan_model extends MY_Model {
                 'module'     => 'loans',
                 'table_name' => 'loan_foreclosure_requests',
                 'record_id'  => $request_id,
-                'remarks'    => "Foreclosure request {$action}d for loan #{$request->loan_id}",
+                'remarks'    => "Foreclosure request {$action}d for loan #{$request->loan_id}"
+                              . ($action === 'approve'
+                                 ? ". Requested: " . number_format((float)$request->foreclosure_amount, 2)
+                                 . ", Calculated: " . number_format($calculated_total, 2)
+                                 . ", Collected: " . number_format($final_amount, 2)
+                                 . " @ " . $breakdown['interest_charge_pct'] . "% interest charge"
+                                 : ''),
             ]);
 
-            return ['success' => true, 'message' => "Foreclosure request {$action}d successfully"];
+            return [
+                'success' => true,
+                'message' => "Foreclosure request {$action}d successfully",
+                'settlement_amount' => $action === 'approve' ? $final_amount : null,
+            ];
         }
 
         return ['success' => false, 'message' => 'Failed to process foreclosure request'];

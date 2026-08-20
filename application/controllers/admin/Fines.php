@@ -294,6 +294,7 @@ class Fines extends Admin_Controller {
             $amount = (float) $this->input->post('amount');
             $payment_mode = $this->input->post('payment_mode');
             $reference = $this->input->post('reference_number');
+            $payment_date = $this->input->post('payment_date');
 
             // FINE-1 FIX: Validate payment amount
             if ($amount <= 0) {
@@ -305,17 +306,37 @@ class Fines extends Admin_Controller {
                 redirect('admin/fines/collect/' . $id);
             }
 
+            // Payment date: admin enters the date the member actually paid,
+            // which is usually later than the date the fine was charged.
+            $payment_date = $payment_date ?: date('Y-m-d');
+            $pd_ts = strtotime($payment_date);
+            if (!$pd_ts) {
+                $this->session->set_flashdata('error', 'Please enter a valid payment date.');
+                redirect('admin/fines/collect/' . $id);
+            }
+            $payment_date = date('Y-m-d', $pd_ts);
+
+            if ($payment_date > date('Y-m-d')) {
+                $this->session->set_flashdata('error', 'Payment date cannot be in the future.');
+                redirect('admin/fines/collect/' . $id);
+            }
+            if (!empty($fine->fine_date) && $payment_date < date('Y-m-d', strtotime($fine->fine_date))) {
+                $this->session->set_flashdata('error', 'Payment date cannot be before the fine date (' . format_date($fine->fine_date) . ').');
+                redirect('admin/fines/collect/' . $id);
+            }
+
             // FINE-3 FIX: Wrap payment + GL posting in a single transaction
             $this->db->trans_begin();
 
             $result = $this->Fine_model->record_payment(
-                $id, 
-                $amount, 
-                $payment_mode, 
-                $reference, 
-                $this->session->userdata('admin_id')
+                $id,
+                $amount,
+                $payment_mode,
+                $reference,
+                $this->session->userdata('admin_id'),
+                $payment_date
             );
-            
+
             if ($result) {
                 // Post to ledger — now inside the same transaction
                 $this->load->model('Ledger_model');
@@ -325,7 +346,8 @@ class Fines extends Admin_Controller {
                     $amount,
                     $fine->member_id,
                     'Fine payment: ' . $fine->fine_code,
-                    $this->session->userdata('admin_id')
+                    $this->session->userdata('admin_id'),
+                    $payment_date
                 );
                 
                 if ($this->db->trans_status() === FALSE) {
@@ -333,8 +355,8 @@ class Fines extends Admin_Controller {
                     $this->session->set_flashdata('error', 'Fine payment or ledger posting failed. Transaction rolled back.');
                 } else {
                     $this->db->trans_commit();
-                    $this->log_audit('payment', 'fines', 'fines', $id, null, ['amount' => $amount]);
-                    $this->session->set_flashdata('success', 'Payment recorded successfully.');
+                    $this->log_audit('payment', 'fines', 'fines', $id, null, ['amount' => $amount, 'payment_date' => $payment_date]);
+                    $this->session->set_flashdata('success', 'Payment of ' . format_amount($amount) . ' recorded on ' . format_date($payment_date) . '.');
                 }
             } else {
                 $this->db->trans_rollback();

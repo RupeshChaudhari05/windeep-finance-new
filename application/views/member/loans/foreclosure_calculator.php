@@ -2,7 +2,7 @@
 $cs             = get_currency_symbol();
 $principal      = (float)($calculation['outstanding_principal']   ?? 0);
 $total_interest = (float)($calculation['total_interest']          ?? 0);
-$interest_pct   = (float)($calculation['interest_charge_pct']     ?? 80);
+$interest_pct   = (float)($calculation['interest_charge_pct']     ?? 30);
 $interest_charge = (float)($calculation['interest_charge']         ?? 0);
 $fines          = (float)($calculation['pending_fines']           ?? 0);
 $total          = (float)($calculation['total_amount']            ?? 0);
@@ -75,11 +75,8 @@ $total          = (float)($calculation['total_amount']            ?? 0);
         <div class="alert alert-warning py-2">
             <h6 class="mb-1"><i class="fas fa-exclamation-triangle"></i> Important Information</h6>
             <ul class="mb-0 small">
-                <?php if ($prepay_pct > 0): ?>
-                <li>The prepayment charge is calculated as <?= $prepay_pct ?>% of the outstanding principal.</li>
-                <?php endif; ?>
-                <?php if ($pic_pct > 0): ?>
-                <li>The foreclosure charge of <?= $pic_pct ?>% is applied to the total pending scheduled interest (current month + all remaining months).</li>
+                <?php if ($interest_pct > 0): ?>
+                <li>The foreclosure charge of <?= $interest_pct ?>% is applied to the total remaining scheduled interest (current month + all remaining months).</li>
                 <?php endif; ?>
                 <li>All pending fines must be cleared as part of the foreclosure.</li>
                 <li>The loan will be marked as closed only after full payment of the foreclosure amount.</li>

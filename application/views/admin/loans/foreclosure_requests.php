@@ -95,7 +95,17 @@ defined('BASEPATH') OR exit('No direct script access allowed');
                                             <?php endif; ?>
                                         </td>
                                         <td class="text-right">
-                                            <strong>₹<?= number_format((float)$req->foreclosure_amount, 2) ?></strong>
+                                            <?php if (!empty($req->approved_amount)): ?>
+                                                <strong class="text-success">₹<?= number_format((float)$req->approved_amount, 2) ?></strong>
+                                                <small class="d-block text-muted">
+                                                    requested ₹<?= number_format((float)$req->foreclosure_amount, 2) ?>
+                                                    <?php if (!empty($req->approved_interest_pct)): ?>
+                                                        &middot; @<?= (float)$req->approved_interest_pct ?>%
+                                                    <?php endif; ?>
+                                                </small>
+                                            <?php else: ?>
+                                                <strong>₹<?= number_format((float)$req->foreclosure_amount, 2) ?></strong>
+                                            <?php endif; ?>
                                         </td>
                                         <td>
                                             <small><?= date('d-M-Y H:i', strtotime($req->requested_at)) ?></small>

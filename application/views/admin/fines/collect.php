@@ -104,6 +104,18 @@
                     </div>
                     
                     <div class="form-group">
+                        <label>Payment Date <span class="text-danger">*</span></label>
+                        <input type="date" name="payment_date" id="payment_date" class="form-control"
+                               value="<?= date('Y-m-d') ?>"
+                               min="<?= date('Y-m-d', strtotime($fine->fine_date)) ?>"
+                               max="<?= date('Y-m-d') ?>" required>
+                        <small class="text-muted">
+                            Date the member actually paid. Fine charged on
+                            <strong><?= format_date($fine->fine_date) ?></strong>.
+                        </small>
+                    </div>
+
+                    <div class="form-group">
                         <label>Payment Mode <span class="text-danger">*</span></label>
                         <select name="payment_mode" class="form-control" required>
                             <option value="cash">Cash</option>

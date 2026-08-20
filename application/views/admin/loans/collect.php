@@ -259,19 +259,12 @@
                             <div class="d-flex align-items-center justify-content-between">
                                 <small class="text-muted">
                                     <i class="fas fa-history mr-1"></i>
-                                    Extensions used: <strong><span id="extensionsUsed"><?= $loan->tenure_extensions ?? 0 ?></span></strong> of <strong><span id="maxExtensions"><?= $loan->max_tenure_extensions ?? 6 ?></span></strong> allowed
+                                    Interest-only payments made so far:
+                                    <strong><span id="extensionsUsed"><?= $loan->tenure_extensions ?? 0 ?></span></strong>
                                 </small>
-                                <?php 
-                                    $ext_used = $loan->tenure_extensions ?? 0;
-                                    $ext_max = $loan->max_tenure_extensions ?? 6;
-                                    $ext_pct = $ext_max > 0 ? round(($ext_used / $ext_max) * 100) : 0;
-                                    $ext_color = $ext_pct >= 80 ? 'danger' : ($ext_pct >= 50 ? 'warning' : 'success');
-                                ?>
-                                <div style="width:120px">
-                                    <div class="progress progress-sm">
-                                        <div class="progress-bar bg-<?= $ext_color ?>" style="width:<?= $ext_pct ?>%"></div>
-                                    </div>
-                                </div>
+                                <small class="text-success">
+                                    <i class="fas fa-infinity mr-1"></i>No limit — can be used any number of times
+                                </small>
                             </div>
                         </div>
                     </div>

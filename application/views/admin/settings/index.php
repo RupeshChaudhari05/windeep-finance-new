@@ -235,20 +235,21 @@
                                         <label>
                                             Foreclosure Interest Charge (%)
                                             <i class="fas fa-info-circle text-info" data-toggle="tooltip"
-                                               title="Percentage of total pending interest to charge as foreclosure settlement amount."></i>
+                                               title="Percentage of the remaining (current + future) scheduled interest charged on foreclosure."></i>
                                         </label>
                                         <div class="input-group">
                                             <input type="number" class="form-control"
                                                    name="foreclosure_interest_charge_pct"
-                                                   value="<?= $settings['foreclosure_interest_charge_pct'] ?? 80 ?>"
+                                                   value="<?= $settings['foreclosure_interest_charge_pct'] ?? 30 ?>"
                                                    min="0" max="100" step="0.01">
                                             <div class="input-group-append">
                                                 <span class="input-group-text">%</span>
                                             </div>
                                         </div>
                                         <small class="form-text text-muted">
-                                            Formula: Settlement = Principal + (Total Interest × This %) + Fines
-                                            <br>E.g. set 80 to charge 80% of total pending interest. Default is 80%.
+                                            Formula: Settlement = Principal + (Remaining Interest × This %) + Fines
+                                            <br>Default is <strong>30%</strong> of the remaining interest.
+                                            Admins can still adjust this % and the final amount while approving an individual request.
                                         </small>
                                     </div>
                                 </div>

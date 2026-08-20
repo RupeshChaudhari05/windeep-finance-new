@@ -1,5 +1,13 @@
 <?php
 defined('BASEPATH') OR exit('No direct script access allowed');
+
+// Live figures used by the approval form (recalculated on this page load)
+$fc_principal     = (float)($breakdown['outstanding_principal'] ?? 0);
+$fc_total_int     = (float)($breakdown['total_interest'] ?? 0);
+$fc_pct           = (float)($breakdown['interest_charge_pct'] ?? 30);
+$fc_int_charge    = (float)($breakdown['interest_charge'] ?? 0);
+$fc_fines         = (float)($breakdown['pending_fines'] ?? 0);
+$fc_total         = (float)($breakdown['total_amount'] ?? 0);
 ?>
 
 <div class="container-fluid">
@@ -10,7 +18,7 @@ defined('BASEPATH') OR exit('No direct script access allowed');
             <div class="card card-primary mb-3">
                 <div class="card-header bg-primary text-white">
                     <h3 class="card-title">
-                        <i class="fas fa-file-contract mr-2"></i>Foreclosure Request #<?= $request->id ?>
+                        <i class="fas fa-file-contract mr-2"></i>Foreclosure Request #<?= $request->request_id ?>
                     </h3>
                 </div>
                 <div class="card-body">
@@ -29,12 +37,12 @@ defined('BASEPATH') OR exit('No direct script access allowed');
                                 <strong>Status:</strong>
                                 <?php
                                 $badge = 'badge-secondary';
-                                if ($request->status === 'pending') $badge = 'badge-warning';
-                                elseif ($request->status === 'approved') $badge = 'badge-success';
-                                elseif ($request->status === 'rejected') $badge = 'badge-danger';
+                                if ($request->request_status === 'pending') $badge = 'badge-warning';
+                                elseif ($request->request_status === 'approved') $badge = 'badge-success';
+                                elseif ($request->request_status === 'rejected') $badge = 'badge-danger';
                                 ?>
                                 <span class="badge <?= $badge ?> text-uppercase" style="font-size: 14px;">
-                                    <?= $request->status ?>
+                                    <?= $request->request_status ?>
                                 </span>
                             </p>
                             <?php if ($request->processed_at): ?>
@@ -82,34 +90,52 @@ defined('BASEPATH') OR exit('No direct script access allowed');
                         </tr>
                         <tr>
                             <td>
-                                <strong>Interest Charge (<?= $breakdown['interest_charge_pct'] ?? 80 ?>%):</strong>
+                                <strong>Interest Charge (<?= $fc_pct ?>%):</strong>
                                 <small class="text-muted d-block">
-                                    <?= $breakdown['interest_charge_pct'] ?? 80 ?>% of total pending interest
-                                    (admin configured)
+                                    <?= $fc_pct ?>% of total remaining interest
+                                    (admin configured — editable on approval)
                                 </small>
                             </td>
-                            <td class="text-right">₹<?= number_format($breakdown['interest_charge'] ?? 0, 2) ?></td>
+                            <td class="text-right">₹<?= number_format($fc_int_charge, 2) ?></td>
                         </tr>
                         <tr>
                             <td><strong>Pending Fines:</strong></td>
-                            <td class="text-right">₹<?= number_format($breakdown['pending_fines'] ?? 0, 2) ?></td>
+                            <td class="text-right">₹<?= number_format($fc_fines, 2) ?></td>
                         </tr>
                         <tr class="border-top bg-light">
                             <td><strong style="font-size:16px;">Total Settlement Amount:</strong></td>
-                            <td class="text-right"><strong style="font-size:16px;">₹<?= number_format($breakdown['total_amount'] ?? 0, 2) ?></strong></td>
+                            <td class="text-right"><strong style="font-size:16px;">₹<?= number_format($fc_total, 2) ?></strong></td>
                         </tr>
                     </table>
 
                     <div class="mt-2 p-2 rounded" style="background:#f8f9fa;border:1px solid #dee2e6;">
                         <strong>Formula:</strong>
                         <small class="d-block text-muted">
-                            Settlement = Principal + (Total Interest × Admin %) + Fines
+                            Settlement = Principal + (Remaining Interest × Charge %) + Fines
                         </small>
-                        <strong class="mt-2 d-block">Amount to Collect from Member:</strong>
-                        <span class="float-right font-weight-bold text-primary" style="font-size:1.2em;">
-                            ₹<?= number_format((float)$request->foreclosure_amount, 2) ?>
-                        </span>
-                        <small class="text-muted d-block">(As requested and stored — recalculated at approval time)</small>
+                        <div class="mt-2 d-flex justify-content-between">
+                            <strong>Amount requested by member:</strong>
+                            <span class="text-muted">₹<?= number_format((float)$request->foreclosure_amount, 2) ?></span>
+                        </div>
+                        <div class="d-flex justify-content-between">
+                            <strong>Amount to collect (recalculated now):</strong>
+                            <span class="font-weight-bold text-primary" style="font-size:1.2em;">
+                                ₹<?= number_format($fc_total, 2) ?>
+                            </span>
+                        </div>
+                        <?php if (!empty($request->approved_amount)): ?>
+                        <div class="d-flex justify-content-between mt-1 pt-1 border-top">
+                            <strong>Approved &amp; collected:</strong>
+                            <span class="font-weight-bold text-success" style="font-size:1.2em;">
+                                ₹<?= number_format((float)$request->approved_amount, 2) ?>
+                                <?php if (!empty($request->approved_interest_pct)): ?>
+                                <small class="text-muted">(@ <?= (float)$request->approved_interest_pct ?>%)</small>
+                                <?php endif; ?>
+                            </span>
+                        </div>
+                        <?php else: ?>
+                        <small class="text-muted d-block mt-1">The admin can adjust the % and the final amount while approving.</small>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
@@ -159,7 +185,7 @@ defined('BASEPATH') OR exit('No direct script access allowed');
             </div>
 
             <!-- Action Buttons -->
-            <?php if ($request->status === 'pending'): ?>
+            <?php if ($request->request_status === 'pending'): ?>
             <div class="card card-outline card-warning">
                 <div class="card-header bg-warning">
                     <h3 class="card-title">Take Action</h3>
@@ -167,10 +193,10 @@ defined('BASEPATH') OR exit('No direct script access allowed');
                 <div class="card-body">
                     <p class="text-muted small mb-3">Choose to approve or reject this foreclosure request:</p>
 
-                    <button class="btn btn-success btn-block mb-2 process-btn" data-action="approve" data-id="<?= $request->id ?>">
+                    <button class="btn btn-success btn-block mb-2 process-btn" data-action="approve" data-id="<?= $request->request_id ?>">
                         <i class="fas fa-check mr-2"></i>Approve Foreclosure
                     </button>
-                    <button class="btn btn-danger btn-block process-btn" data-action="reject" data-id="<?= $request->id ?>">
+                    <button class="btn btn-danger btn-block process-btn" data-action="reject" data-id="<?= $request->request_id ?>">
                         <i class="fas fa-times mr-2"></i>Reject Request
                     </button>
                 </div>
@@ -181,7 +207,7 @@ defined('BASEPATH') OR exit('No direct script access allowed');
                     <h3 class="card-title">Request Status</h3>
                 </div>
                 <div class="card-body text-center">
-                    <p class="text-muted">This request has already been <strong><?= $request->status ?></strong></p>
+                    <p class="text-muted">This request has already been <strong><?= $request->request_status ?></strong></p>
                     <a href="<?= site_url('admin/loans/foreclosure_requests') ?>" class="btn btn-primary btn-sm">
                         <i class="fas fa-arrow-left mr-2"></i>Back to Requests
                     </a>
@@ -276,7 +302,7 @@ defined('BASEPATH') OR exit('No direct script access allowed');
             </div>
             <div class="modal-body">
                 <form id="processForm">
-                    <input type="hidden" id="requestId" name="request_id" value="<?= $request->id ?>">
+                    <input type="hidden" id="requestId" name="request_id" value="<?= $request->request_id ?>">
                     <input type="hidden" id="actionField" name="action">
 
                     <div class="form-group">
@@ -286,11 +312,89 @@ defined('BASEPATH') OR exit('No direct script access allowed');
                         <small class="form-text text-muted">This will be recorded in the audit log</small>
                     </div>
 
+                    <!-- Settlement Amount (Only for Approve) -->
+                    <div id="settlementDetails" style="display: none;">
+                        <hr>
+                        <h6 class="text-primary">
+                            <i class="fas fa-sliders-h mr-2"></i>Settlement Amount
+                            <small class="text-muted">(editable — adjust before approving)</small>
+                        </h6>
+
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <label for="interestPct"><strong>Interest Charge %</strong></label>
+                                    <div class="input-group">
+                                        <input type="number" class="form-control" id="interestPct"
+                                               name="interest_charge_pct"
+                                               value="<?= $fc_pct ?>" min="0" max="100" step="0.01">
+                                        <div class="input-group-append"><span class="input-group-text">%</span></div>
+                                    </div>
+                                    <small class="form-text text-muted">
+                                        % of remaining interest (₹<?= number_format($fc_total_int, 2) ?>)
+                                    </small>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <label><strong>Interest Charged</strong></label>
+                                    <div class="input-group">
+                                        <div class="input-group-prepend"><span class="input-group-text">₹</span></div>
+                                        <input type="text" class="form-control bg-light" id="interestCharge" readonly>
+                                    </div>
+                                    <small class="form-text text-muted">Remaining Interest × %</small>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <label for="finalAmount"><strong>Final Amount to Collect</strong></label>
+                                    <div class="input-group">
+                                        <div class="input-group-prepend"><span class="input-group-text">₹</span></div>
+                                        <input type="number" class="form-control font-weight-bold" id="finalAmount"
+                                               name="final_amount" step="0.01" min="0.01"
+                                               value="<?= number_format($fc_total, 2, '.', '') ?>">
+                                        <div class="input-group-append">
+                                            <button class="btn btn-outline-secondary" type="button" id="resetAmount"
+                                                    title="Reset to calculated amount">
+                                                <i class="fas fa-undo"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <small class="form-text text-muted" id="amountHint">Auto-calculated. Type to override.</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <table class="table table-sm table-borderless mb-0" style="font-size:13px;background:#f8f9fa;">
+                            <tr>
+                                <td>Outstanding Principal</td>
+                                <td class="text-right">₹<?= number_format($fc_principal, 2) ?></td>
+                            </tr>
+                            <tr>
+                                <td>Interest Charge (<span id="pctEcho"><?= $fc_pct ?></span>% of ₹<?= number_format($fc_total_int, 2) ?>)</td>
+                                <td class="text-right">₹<span id="intEcho">0.00</span></td>
+                            </tr>
+                            <tr>
+                                <td>Pending Fines</td>
+                                <td class="text-right">₹<?= number_format($fc_fines, 2) ?></td>
+                            </tr>
+                            <tr class="border-top">
+                                <td><strong>Calculated Total</strong></td>
+                                <td class="text-right"><strong>₹<span id="calcTotalEcho">0.00</span></strong></td>
+                            </tr>
+                        </table>
+                        <div class="alert alert-warning py-2 mb-0 mt-2" id="overrideWarning" style="display:none;font-size:13px;">
+                            <i class="fas fa-exclamation-triangle mr-1"></i>
+                            The final amount differs from the calculated total by
+                            <strong>₹<span id="diffEcho">0.00</span></strong>. This adjustment will be recorded in the audit log.
+                        </div>
+                    </div>
+
                     <!-- Payment Details (Only for Approve) -->
                     <div id="paymentDetails" style="display: none;">
                         <hr>
                         <h6 class="text-primary"><i class="fas fa-money-check mr-2"></i>Payment Details</h6>
-                        
+
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="form-group">
@@ -338,6 +442,59 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 
 <script>
 $(document).ready(function() {
+    // ── Live settlement figures ────────────────────────────────────────
+    var FC_PRINCIPAL = <?= json_encode(round($fc_principal, 2)) ?>;
+    var FC_TOTAL_INT = <?= json_encode(round($fc_total_int, 2)) ?>;
+    var FC_FINES     = <?= json_encode(round($fc_fines, 2)) ?>;
+    var FC_PCT       = <?= json_encode(round($fc_pct, 2)) ?>;
+
+    var amountTouched = false;
+
+    function money(n) {
+        return (Math.round(n * 100) / 100).toFixed(2)
+               .replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    }
+
+    function calcTotal() {
+        var pct = parseFloat($('#interestPct').val());
+        if (isNaN(pct) || pct < 0) { pct = 0; }
+        if (pct > 100) { pct = 100; }
+        var intCharge = Math.round(FC_TOTAL_INT * pct) / 100;
+        return {
+            pct: pct,
+            interest: intCharge,
+            total: Math.round((FC_PRINCIPAL + intCharge + FC_FINES) * 100) / 100
+        };
+    }
+
+    function refresh(syncAmount) {
+        var c = calcTotal();
+        $('#pctEcho').text(c.pct);
+        $('#intEcho').text(money(c.interest));
+        $('#interestCharge').val(money(c.interest));
+        $('#calcTotalEcho').text(money(c.total));
+
+        if (syncAmount) {
+            $('#finalAmount').val(c.total.toFixed(2));
+        }
+
+        var entered = parseFloat($('#finalAmount').val());
+        var diff = (isNaN(entered) ? 0 : entered) - c.total;
+        if (Math.abs(diff) >= 0.01) {
+            $('#diffEcho').text(money(Math.abs(diff)) + (diff > 0 ? ' more' : ' less'));
+            $('#overrideWarning').show();
+            $('#amountHint').text('Manually overridden.');
+        } else {
+            $('#overrideWarning').hide();
+            $('#amountHint').text(amountTouched ? 'Matches calculated total.' : 'Auto-calculated. Type to override.');
+        }
+    }
+
+    // Changing the % recalculates the amount unless the admin typed one manually
+    $('#interestPct').on('input change', function() { refresh(!amountTouched); });
+    $('#finalAmount').on('input', function() { amountTouched = true; refresh(false); });
+    $('#resetAmount').click(function() { amountTouched = false; $('#interestPct').val(FC_PCT); refresh(true); });
+
     // Set today's date as default payment date
     $('#paymentDate').val(new Date().toISOString().split('T')[0]);
 
@@ -349,15 +506,20 @@ $(document).ready(function() {
         $('#actionField').val(action);
         $('#actionText').text(action.charAt(0).toUpperCase() + action.slice(1));
         $('#modalTitle').text('Process Foreclosure - ' + (action === 'approve' ? 'Approve' : 'Reject'));
-        
+
         // Show payment fields only for approve
         if (action === 'approve') {
+            $('#settlementDetails').show();
             $('#paymentDetails').show();
             $('#paymentMode').prop('required', true);
             $('#transactionId').prop('required', true);
             $('#paymentDate').prop('required', true);
             $('#confirmBtn').removeClass('btn-danger').addClass('btn-success').text('Approve');
+            amountTouched = false;
+            $('#interestPct').val(FC_PCT);
+            refresh(true);
         } else {
+            $('#settlementDetails').hide();
             $('#paymentDetails').hide();
             $('#paymentMode').prop('required', false);
             $('#transactionId').prop('required', false);
@@ -378,12 +540,22 @@ $(document).ready(function() {
             return;
         }
 
-        // For approval, validate payment fields
+        // For approval, validate settlement + payment fields
         if (action === 'approve') {
             var paymentMode = $('#paymentMode').val().trim();
             var transactionId = $('#transactionId').val().trim();
             var paymentDate = $('#paymentDate').val();
+            var pct = parseFloat($('#interestPct').val());
+            var amount = parseFloat($('#finalAmount').val());
 
+            if (isNaN(pct) || pct < 0 || pct > 100) {
+                alert('Interest charge % must be between 0 and 100');
+                return;
+            }
+            if (isNaN(amount) || amount <= 0) {
+                alert('Please enter a valid final settlement amount');
+                return;
+            }
             if (!paymentMode) {
                 alert('Please select payment mode');
                 return;
@@ -395,6 +567,14 @@ $(document).ready(function() {
             if (!paymentDate) {
                 alert('Please select payment date');
                 return;
+            }
+
+            var calculated = calcTotal().total;
+            if (Math.abs(amount - calculated) >= 0.01) {
+                if (!confirm('The final amount (' + money(amount) + ') differs from the calculated total ('
+                             + money(calculated) + ').\n\nApprove with the adjusted amount?')) {
+                    return;
+                }
             }
         }
 

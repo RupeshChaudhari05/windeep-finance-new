@@ -5,19 +5,7 @@ $min_guarantors = isset($min_guarantors) ? (int)$min_guarantors : 0;
     <div class="card-header"><h3 class="card-title">Apply for Loan</h3></div>
     <form method="post" action="<?= site_url('member/loans/apply') ?>" id="loanApplyForm">
         <div class="card-body">
-            <?php if ($this->session->flashdata('error')): ?>
-            <div class="alert alert-danger alert-dismissible">
-                <button type="button" class="close" data-dismiss="alert">&times;</button>
-                <?= $this->session->flashdata('error') ?>
-            </div>
-            <?php endif; ?>
             
-            <?php if ($this->session->flashdata('success')): ?>
-            <div class="alert alert-success alert-dismissible">
-                <button type="button" class="close" data-dismiss="alert">&times;</button>
-                <?= $this->session->flashdata('success') ?>
-            </div>
-            <?php endif; ?>
 
             <div class="alert alert-info py-2">
                 <i class="fas fa-info-circle mr-1"></i>

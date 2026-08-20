@@ -233,30 +233,26 @@
                     ?>
 
                     <?php if (!$savings_ok): ?>
-                    <div class="card card-warning mb-3" id="savingsWarningCard">
-                        <div class="card-header bg-warning">
-                            <h3 class="card-title"><i class="fas fa-exclamation-triangle mr-1"></i> Savings Constraint Warning</h3>
+                    <div class="card card-info mb-3" id="savingsWarningCard">
+                        <div class="card-header bg-info">
+                            <h3 class="card-title"><i class="fas fa-info-circle mr-1"></i> Savings Position (for your information)</h3>
                         </div>
                         <div class="card-body pb-1">
                             <?php foreach ($savings_msgs as $msg): ?>
-                            <p class="mb-1"><i class="fas fa-times-circle text-danger mr-1"></i> <?= $msg ?></p>
+                            <p class="mb-1"><i class="fas fa-piggy-bank text-info mr-1"></i> <?= $msg ?></p>
                             <?php endforeach; ?>
                             <hr class="my-2">
-                            <p class="mb-1 font-weight-bold">What would you like to do?</p>
+                            <p class="mb-2 text-muted">
+                                <i class="fas fa-check-circle text-success mr-1"></i>
+                                This does <strong>not</strong> block approval &mdash; approve any amount you decide.
+                                The note above is recorded in the audit log for reference.
+                            </p>
 
                             <?php if ($max_loan_by_savings !== null && $max_loan_by_savings > 0): ?>
                             <button type="button" class="btn btn-sm btn-outline-primary mb-2" id="btnUseMaxAllowed">
-                                <i class="fas fa-arrow-down mr-1"></i> Set Approved Amount to Max Allowed (<?= format_amount($max_loan_by_savings, 0) ?>)
-                            </button><br>
+                                <i class="fas fa-arrow-down mr-1"></i> Optional: set amount to savings-ratio guideline (<?= format_amount($max_loan_by_savings, 0) ?>)
+                            </button>
                             <?php endif; ?>
-
-                            <div class="form-check mb-2">
-                                <input class="form-check-input" type="checkbox" name="force_savings" id="force_savings" value="1">
-                                <label class="form-check-label text-danger" for="force_savings">
-                                    <strong>Force Approve — Override savings check</strong><br>
-                                    <small class="text-muted">Approve the amount as entered, ignoring savings balance / ratio limits. This will be logged.</small>
-                                </label>
-                            </div>
                         </div>
                     </div>
                     <?php elseif ($max_loan_by_savings !== null): ?>
@@ -421,7 +417,7 @@ $(document).ready(function() {
         toastr.info('Approved amount set to <?= get_currency_symbol() ?>' + Math.floor(maxAllowed).toLocaleString('en-IN'));
     });
 
-    // Confirm Force Approve (guarantors + savings)
+    // Confirm Force Approve (guarantors)
     $('#approveForm').submit(function(e) {
         // Ensure scheme is selected
         if (!$('#loan_product_id').val()) {
@@ -434,9 +430,6 @@ $(document).ready(function() {
         var msgs = [];
         if ($('#force_approve').is(':checked')) {
             msgs.push('Force Approve will mark all pending guarantors as accepted by admin.');
-        }
-        if ($('#force_savings').is(':checked')) {
-            msgs.push('Force Savings Override will bypass the savings balance / ratio check. This action will be logged.');
         }
         if (msgs.length > 0) {
             if (!confirm(msgs.join('\n\n') + '\n\nProceed?')) {

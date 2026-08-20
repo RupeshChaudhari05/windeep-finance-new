@@ -470,16 +470,12 @@ class Loans extends Admin_Controller {
                 $this->log_audit('force_approve', 'loan_applications', 'loan_applications', $id, null, ['admin_id' => $this->session->userdata('admin_id')]);
             }
 
-            // Force-savings override (admin explicitly bypasses savings checks)
-            $force_savings = ($this->input->post('force_savings') == '1');
-            log_message('debug', '[Loans::approve] force_savings POST value: ' . var_export($this->input->post('force_savings'), true) . ' | cast bool: ' . var_export($force_savings, true));
-            if ($force_savings) {
-                $this->log_audit('force_savings_override', 'loan_applications', 'loan_applications', $id, null, ['admin_id' => $this->session->userdata('admin_id'), 'approved_amount' => $approval_data['approved_amount']]);
-            }
+            // Savings balance / loan-to-savings ratio no longer gate approval.
+            // Any deviation is recorded by the model in the audit log.
 
             // Proceed with admin approval
             try {
-                $res = $this->Loan_model->admin_approve($id, $approval_data, $this->session->userdata('admin_id'), $force_savings);
+                $res = $this->Loan_model->admin_approve($id, $approval_data, $this->session->userdata('admin_id'));
 
                 if ($res) {
                     $this->log_audit('admin_approved', 'loan_applications', 'loan_applications', $id, null, $approval_data);
@@ -513,7 +509,7 @@ class Loans extends Admin_Controller {
                         send_email($applicant->email, $n_title, $html);
                     }
 
-                    $this->session->set_flashdata('success', 'Application approved. Member has been notified to review and accept the terms.' . ($force_savings ? ' (Savings check overridden by admin.)' : ''));
+                    $this->session->set_flashdata('success', 'Application approved. Member has been notified to review and accept the terms.');
                     redirect('admin/loans/view_application/' . $id);
                     return;
                 } else {
@@ -645,6 +641,11 @@ class Loans extends Admin_Controller {
                 if ($loan_id) {
                     // Post to ledger
                     $loan = $this->Loan_model->get_by_id($loan_id);
+
+                    // Book everything on the ACTUAL disbursement date (which may be
+                    // back-dated by the admin), never on today's system date.
+                    $disb_date = $loan->disbursement_date ?: date('Y-m-d');
+
                     $this->load->model('Ledger_model');
                     $this->Ledger_model->post_transaction(
                         'loan_disbursement',
@@ -652,9 +653,10 @@ class Loans extends Admin_Controller {
                         $loan->principal_amount,
                         $loan->member_id,
                         'Loan disbursement: ' . $loan->loan_number,
-                        $this->session->userdata('admin_id')
+                        $this->session->userdata('admin_id'),
+                        $disb_date
                     );
-                    
+
                     // Processing fee entry
                     if ($loan->processing_fee > 0) {
                         $this->Ledger_model->post_transaction(
@@ -663,7 +665,8 @@ class Loans extends Admin_Controller {
                             $loan->processing_fee,
                             $loan->member_id,
                             'Processing fee for loan: ' . $loan->loan_number,
-                            $this->session->userdata('admin_id')
+                            $this->session->userdata('admin_id'),
+                            $disb_date
                         );
 
                         // Auto-record in member other transactions
@@ -672,7 +675,8 @@ class Loans extends Admin_Controller {
                             $loan->member_id,
                             $loan->processing_fee,
                             $loan_id,
-                            $this->session->userdata('admin_id')
+                            $this->session->userdata('admin_id'),
+                            $disb_date
                         );
                     }
                     
@@ -2219,6 +2223,9 @@ class Loans extends Admin_Controller {
                 if ($new_loan_id) {
                     $new_loan = $this->Loan_model->get_by_id($new_loan_id);
 
+                    // Book on the ACTUAL disbursement date, not today's system date.
+                    $disb_date = $new_loan->disbursement_date ?: date('Y-m-d');
+
                     // Post ledger entries
                     $this->load->model('Ledger_model');
 
@@ -2230,7 +2237,8 @@ class Loans extends Admin_Controller {
                             $new_loan->net_disbursement,
                             $new_loan->member_id,
                             'Top-up disbursement (additional amount): ' . $new_loan->loan_number . ' (parent: ' . ($app->parent_loan_id ?? '') . ')',
-                            $this->session->userdata('admin_id')
+                            $this->session->userdata('admin_id'),
+                            $disb_date
                         );
                     }
 
@@ -2242,7 +2250,8 @@ class Loans extends Admin_Controller {
                             $new_loan->processing_fee,
                             $new_loan->member_id,
                             'Top-up processing fee: ' . $new_loan->loan_number,
-                            $this->session->userdata('admin_id')
+                            $this->session->userdata('admin_id'),
+                            $disb_date
                         );
 
                         $this->load->model('Member_transaction_model');
@@ -2250,7 +2259,8 @@ class Loans extends Admin_Controller {
                             $new_loan->member_id,
                             $new_loan->processing_fee,
                             $new_loan_id,
-                            $this->session->userdata('admin_id')
+                            $this->session->userdata('admin_id'),
+                            $disb_date
                         );
                     }
 
@@ -2333,6 +2343,7 @@ class Loans extends Admin_Controller {
         $requests = $this->db->select('
             fr.id, fr.loan_id, fr.member_id, 
             fr.foreclosure_amount, fr.closure_type, fr.reason, fr.settlement_date,
+            fr.approved_amount, fr.approved_interest_pct,
             fr.status, fr.requested_at, fr.processed_by, fr.processed_at, fr.admin_comments,
             l.loan_number, l.principal_amount, l.outstanding_principal, l.outstanding_interest,
             m.member_code, m.first_name, m.last_name, m.phone, m.email
@@ -2363,12 +2374,18 @@ class Loans extends Admin_Controller {
     public function view_foreclosure_request($request_id) {
         $this->check_permission('loans_approve');
 
+        // NOTE: `l.*` shares column names with the request table (id, status,
+        // closure_type, member_id, created_at...). The request columns are
+        // selected LAST so they win the name collision, and the two ambiguous
+        // ones are also exposed under explicit aliases.
         $request = $this->db->select('
-            fr.id, fr.loan_id, fr.member_id, 
-            fr.foreclosure_amount, fr.closure_type, fr.reason, fr.settlement_date,
-            fr.status, fr.requested_at, fr.processed_by, fr.processed_at, fr.admin_comments,
             l.*, lp.product_name,
-            m.member_code, m.first_name, m.last_name, m.phone, m.email, m.pan_number, m.aadhaar_number
+            m.member_code, m.first_name, m.last_name, m.phone, m.email, m.pan_number, m.aadhaar_number,
+            fr.id, fr.id AS request_id, fr.loan_id, fr.member_id,
+            fr.foreclosure_amount, fr.closure_type, fr.reason, fr.settlement_date,
+            fr.approved_amount, fr.approved_interest_pct,
+            fr.status, fr.status AS request_status,
+            fr.requested_at, fr.processed_by, fr.processed_at, fr.admin_comments
         ')
         ->from('loan_foreclosure_requests fr')
         ->join('loans l', 'l.id = fr.loan_id')
@@ -2437,14 +2454,37 @@ class Loans extends Admin_Controller {
         $transaction_id = $this->input->post('transaction_id');
         $payment_date = $this->input->post('payment_date');
 
+        // Admin-adjustable settlement figures (only for approve)
+        $interest_charge_pct = $this->input->post('interest_charge_pct');
+        $final_amount        = $this->input->post('final_amount');
+
         if (!in_array($action, ['approve', 'reject'])) {
             echo json_encode(['success' => false, 'message' => 'Invalid action']);
             return;
         }
 
+        if ($action === 'approve') {
+            if ($interest_charge_pct !== null && $interest_charge_pct !== ''
+                && (!is_numeric($interest_charge_pct) || $interest_charge_pct < 0 || $interest_charge_pct > 100)) {
+                echo json_encode(['success' => false, 'message' => 'Interest charge % must be a number between 0 and 100']);
+                return;
+            }
+            if ($final_amount !== null && $final_amount !== ''
+                && (!is_numeric($final_amount) || $final_amount <= 0)) {
+                echo json_encode(['success' => false, 'message' => 'Final settlement amount must be greater than zero']);
+                return;
+            }
+        }
+
         $result = $this->Loan_model->process_foreclosure_request(
             $request_id, $admin_id, $action, $remarks,
-            ['payment_mode' => $payment_mode, 'transaction_id' => $transaction_id, 'payment_date' => $payment_date]
+            [
+                'payment_mode'        => $payment_mode,
+                'transaction_id'      => $transaction_id,
+                'payment_date'        => $payment_date,
+                'interest_charge_pct' => $interest_charge_pct,
+                'final_amount'        => $final_amount,
+            ]
         );
 
         if ($result['success']) {
@@ -2458,11 +2498,18 @@ class Loans extends Admin_Controller {
                 'table_name' => 'loan_foreclosure_requests',
                 'record_id'  => $request_id,
                 'remarks'    => "Foreclosure request $action. Remarks: $remarks. Payment: $payment_mode / $transaction_id"
+                              . ($action === 'approve' && isset($result['settlement_amount'])
+                                 ? ". Settled: " . number_format((float)$result['settlement_amount'], 2)
+                                 . " @ " . ($interest_charge_pct !== '' ? $interest_charge_pct . '%' : 'default %')
+                                 : '')
             ]);
 
             echo json_encode([
                 'success' => true,
-                'message' => 'Foreclosure request ' . $action . 'd successfully',
+                'message' => 'Foreclosure request ' . $action . 'd successfully'
+                           . ($action === 'approve' && isset($result['settlement_amount'])
+                              ? '. Settlement collected: ' . number_format((float)$result['settlement_amount'], 2)
+                              : ''),
                 'redirect' => site_url('admin/loans/foreclosure_requests')
             ]);
         } else {

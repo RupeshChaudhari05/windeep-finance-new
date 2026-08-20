@@ -438,14 +438,15 @@ class Import_model extends MY_Model {
             if ($processing_fee > 0) {
                 $this->load->model(['Ledger_model', 'Member_transaction_model']);
 
-                // Post to general ledger
+                // Post to general ledger — dated on the imported disbursement date
                 $this->Ledger_model->post_transaction(
                     'processing_fee',
                     $loan_id,
                     $processing_fee,
                     $member->id,
                     'Processing fee for loan: ' . $loan_number,
-                    $admin_id
+                    $admin_id,
+                    $disbursement_date
                 );
 
                 // Record in member other transactions
@@ -453,7 +454,8 @@ class Import_model extends MY_Model {
                     $member->id,
                     $processing_fee,
                     $loan_id,
-                    $admin_id
+                    $admin_id,
+                    $disbursement_date
                 );
             }
 

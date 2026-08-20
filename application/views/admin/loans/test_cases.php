@@ -14,7 +14,6 @@ $outstanding_i = (float) $loan->outstanding_interest;
 $outstanding_f = (float) ($loan->outstanding_fine ?? 0);
 $total_due = $outstanding_p + $outstanding_i + $outstanding_f;
 $ext_used = (int) ($loan->tenure_extensions ?? 0);
-$ext_max  = (int) ($loan->max_tenure_extensions ?? 6);
 
 // Helper: pass/fail badge
 function tc_badge($pass) {
@@ -119,7 +118,7 @@ $tests[] = [
     'warn'   => !$tc5_pass ? ($io_reason ?: 'Not eligible.') : '',
     'detail' => $tc5_pass
         ? 'Interest for next EMI: <strong>' . format_amount($io_interest, 2) . '</strong>. '
-          . 'Extensions used: <strong>' . $ext_used . '/' . $ext_max . '</strong>. '
+          . 'Interest-only payments so far: <strong>' . $ext_used . '</strong> (no limit). '
           . 'Tenure will extend to <strong>' . ($loan->tenure_months + 1) . ' months</strong>.'
         : 'Interest-only not available: ' . ($io_reason ?: 'see eligibility check.'),
     'amount'       => $io_interest,

@@ -93,22 +93,35 @@ class Ledger_model extends MY_Model {
     
     /**
      * Create Double Entry from Transaction
+     *
+     * @param string      $transaction_type
+     * @param int         $transaction_id
+     * @param float       $amount
+     * @param int|null    $member_id
+     * @param string|null $narration
+     * @param int|null    $created_by
+     * @param string|null $voucher_date Actual event date (Y-m-d). Pass the loan's
+     *                    disbursement / payment date for back-dated entries so the
+     *                    GL reflects when it happened, not when it was keyed in.
+     *                    Defaults to today when omitted.
      */
-    public function post_transaction($transaction_type, $transaction_id, $amount, $member_id = null, $narration = null, $created_by = null) {
+    public function post_transaction($transaction_type, $transaction_id, $amount, $member_id = null, $narration = null, $created_by = null, $voucher_date = null) {
         // Get account mappings based on transaction type
         $accounts = $this->get_transaction_accounts($transaction_type);
-        
+
         if (!$accounts) {
             return false;
         }
-        
+
+        $voucher_date = !empty($voucher_date) ? $voucher_date : date('Y-m-d');
+
         // Get financial year
         $this->load->model('Financial_year_model');
         $fy = $this->Financial_year_model->get_active();
-        
+
         $data = [
             'voucher_type'      => $this->get_voucher_type($transaction_type),
-            'voucher_date'      => date('Y-m-d'),
+            'voucher_date'      => $voucher_date,
             'financial_year_id' => $fy ? $fy->id : null,
             'debit_account_id'  => $accounts['debit'],
             'credit_account_id' => $accounts['credit'],
@@ -125,7 +138,7 @@ class Ledger_model extends MY_Model {
         
         // Create member ledger entry if applicable
         if ($member_id && $entry_id) {
-            $this->create_member_ledger_entry($member_id, $transaction_type, $transaction_id, $amount, $entry_id);
+            $this->create_member_ledger_entry($member_id, $transaction_type, $transaction_id, $amount, $entry_id, $voucher_date);
         }
         
         return $entry_id;
@@ -291,7 +304,7 @@ class Ledger_model extends MY_Model {
      * Create Member Ledger Entry
      * Bug #13 Fix: Use database locking to prevent race conditions
      */
-    private function create_member_ledger_entry($member_id, $transaction_type, $transaction_id, $amount, $gl_entry_id) {
+    private function create_member_ledger_entry($member_id, $transaction_type, $transaction_id, $amount, $gl_entry_id, $transaction_date = null) {
         // Get current balance
         $last_entry = $this->db->where('member_id', $member_id)
                                ->order_by('id', 'DESC')
@@ -317,7 +330,7 @@ class Ledger_model extends MY_Model {
         
         return $this->db->insert('member_ledger', [
             'member_id'        => $member_id,
-            'transaction_date' => date('Y-m-d'),
+            'transaction_date' => !empty($transaction_date) ? $transaction_date : date('Y-m-d'),
             'transaction_type' => $transaction_type,
             'reference_type'   => $transaction_type,
             'reference_id'     => $transaction_id,
