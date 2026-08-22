@@ -163,6 +163,12 @@ class Profile extends Member_Controller {
             'notes' => $this->input->post('notes')
         ];
 
+        // Mirror onto the duplicate columns the admin screens read, so a member's
+        // own edit stays visible in the admin member profile (and vice versa).
+        $update_data['bank_account_number']  = $update_data['account_number'];
+        $update_data['bank_ifsc']            = $update_data['ifsc_code'];
+        $update_data['nominee_relationship'] = $update_data['nominee_relation'];
+
         // Handle document uploads
         $upload_base = './members/uploads/' . $this->member->id . '/';
         if (!is_dir($upload_base)) mkdir($upload_base, 0755, TRUE);

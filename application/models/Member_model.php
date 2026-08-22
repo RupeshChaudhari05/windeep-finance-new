@@ -9,17 +9,28 @@ class Member_model extends MY_Model {
     protected $table = 'members';
     protected $primary_key = 'id';
     protected $soft_delete = true;
+    /**
+     * Mass-assignable columns.
+     *
+     * MY_Model::update()/create() silently DROP anything not listed here, so a
+     * field missing from this list looks like it saved but never does. Keep it
+     * in sync with the members table whenever a profile field is added.
+     */
     protected $fillable = [
-        'member_code', 'first_name', 'last_name', 'father_name', 'date_of_birth',
-        'gender', 'email', 'phone', 'alternate_phone', 'address_line1', 'address_line2',
-        'city', 'state', 'pincode', 'photo', 'aadhaar_number', 'pan_number', 'voter_id',
+        'member_code', 'first_name', 'middle_name', 'last_name', 'father_name', 'date_of_birth',
+        'gender', 'marital_status', 'email', 'phone', 'alternate_phone',
+        'address_line1', 'address_line2', 'city', 'state', 'pincode',
+        'occupation', 'monthly_income', 'employer_name',
+        'photo', 'profile_image', 'aadhaar_number', 'pan_number', 'voter_id',
+        'id_proof_type', 'id_proof_number',
         'aadhaar_doc', 'pan_doc', 'address_proof_doc', 'kyc_verified', 'kyc_verified_at',
-        'kyc_verified_by', 'bank_name', 'bank_branch', 'account_number', 'ifsc_code',
+        'kyc_verified_by', 'bank_name', 'bank_branch',
+        'account_number', 'bank_account_number', 'ifsc_code', 'bank_ifsc',
         'account_holder_name', 'join_date', 'membership_type', 'member_level', 'opening_balance',
         'opening_balance_type', 'status', 'status_reason', 'status_changed_at',
-        'status_changed_by', 'nominee_name', 'nominee_relation', 'nominee_phone',
-        'nominee_aadhaar', 'max_guarantee_amount', 'max_guarantee_count', 'password',
-        'notes', 'created_by'
+        'status_changed_by', 'nominee_name', 'nominee_relation', 'nominee_relationship',
+        'nominee_phone', 'nominee_aadhaar', 'max_guarantee_amount', 'max_guarantee_count',
+        'password', 'notes', 'created_by'
     ];
     
     /**
@@ -101,20 +112,24 @@ class Member_model extends MY_Model {
             $data['_needs_default_password'] = true;
         }
         
-        // Remap alternate field names used by controller to actual DB column names
+        // The members table holds two columns for each of these. Admin screens read
+        // the left-hand name, member screens read the right-hand one, so COPY the
+        // value into its twin and keep both. (Previously the source was unset,
+        // which left the admin-facing columns empty on every newly created member.)
         $field_map = [
-            'bank_account_number' => 'account_number',
-            'bank_ifsc'           => 'ifsc_code',
+            'bank_account_number'  => 'account_number',
+            'bank_ifsc'            => 'ifsc_code',
             'nominee_relationship' => 'nominee_relation',
-            'profile_image'       => 'photo',
+            'profile_image'        => 'photo',
         ];
         foreach ($field_map as $from => $to) {
-            if (array_key_exists($from, $data)) {
-                // Only overwrite the target if it wasn't already set separately
-                if (!isset($data[$to]) || $data[$to] === '' || $data[$to] === null) {
-                    $data[$to] = $data[$from];
-                }
-                unset($data[$from]);
+            $has_from = array_key_exists($from, $data) && $data[$from] !== '' && $data[$from] !== null;
+            $has_to   = array_key_exists($to, $data)   && $data[$to]   !== '' && $data[$to]   !== null;
+
+            if ($has_from && !$has_to) {
+                $data[$to] = $data[$from];
+            } elseif ($has_to && !$has_from) {
+                $data[$from] = $data[$to];
             }
         }
 

@@ -175,9 +175,14 @@ class Members extends Admin_Controller {
             'nominee_phone' => normalize_phone($this->input->post('nominee_phone', TRUE)),
             'join_date' => $this->input->post('join_date') ?: date('Y-m-d'),
             'member_level' => $this->input->post('member_level') ?: NULL,
+            'employer_name' => $this->input->post('employer_name', TRUE),
+            // The form field is "remarks"; the column is "notes".
+            'notes' => $this->input->post('remarks', TRUE),
             'created_by' => $this->session->userdata('admin_id')
         ];
-        
+
+        // create_member() mirrors the duplicate columns for us.
+
         // Handle profile image upload
         if (!empty($_FILES['profile_image']['name'])) {
             $upload_path = './uploads/profile_images/';
@@ -366,8 +371,19 @@ class Members extends Admin_Controller {
             'nominee_name' => $this->input->post('nominee_name', TRUE),
             'nominee_relationship' => $this->input->post('nominee_relationship', TRUE),
             'nominee_phone' => $this->input->post('nominee_phone', TRUE),
+            'employer_name' => $this->input->post('employer_name', TRUE),
+            // The form field is "remarks"; the column is "notes".
+            'notes' => $this->input->post('remarks', TRUE),
             'member_level' => $this->input->post('member_level') ?: NULL
         ];
+
+        // The members table carries two columns for the same data (admin screens
+        // read bank_account_number / bank_ifsc / nominee_relationship, member
+        // screens read account_number / ifsc_code / nominee_relation). Write both
+        // so an edit on either side is visible on the other.
+        $member_data['account_number']    = $member_data['bank_account_number'];
+        $member_data['ifsc_code']         = $member_data['bank_ifsc'];
+        $member_data['nominee_relation']  = $member_data['nominee_relationship'];
         
         // Handle profile image upload
         if (!empty($_FILES['profile_image']['name'])) {
