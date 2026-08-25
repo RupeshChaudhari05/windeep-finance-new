@@ -152,6 +152,7 @@
                                     'overdue' => ['danger', 'exclamation-circle'],
                                     'upcoming' => ['secondary', 'calendar'],
                                     'skipped' => ['dark', 'forward'],
+                                    'cancelled' => ['dark', 'ban'],
                                     'waived' => ['primary', 'hand-holding-heart'],
                                     'interest_only' => ['info', 'percentage'],
                                 ];

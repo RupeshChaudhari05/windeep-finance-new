@@ -935,21 +935,37 @@ class Loan_model extends MY_Model {
             ];
             
             // Check if loan is closed
-            if ($new_outstanding_principal <= 0) {
+            $loan_is_closing = ($new_outstanding_principal <= 0);
+            if ($loan_is_closing) {
                 $loan_update['status'] = 'closed';
                 $loan_update['closure_date'] = date('Y-m-d');
                 $loan_update['closure_type'] = $data['payment_type'] === 'foreclosure' ? 'foreclosure' : 'regular';
-                
+
                 // Release guarantors
                 $this->release_guarantors($loan->id);
             }
-            
+
             $this->db->where('id', $loan->id)
                      ->update($this->table, $loan_update);
-            
+
             // Update installment if provided
             if (!empty($data['installment_id'])) {
                 $this->update_installment_payment($data['installment_id'], $principal_paid, $interest_paid, $fine_paid, $data['payment_date'] ?? null);
+            }
+
+            // Close out the schedule once the loan is settled. Runs AFTER the
+            // installment above is posted so the EMI just paid keeps its own
+            // paid/partial status. Anything still open is no longer receivable.
+            if ($loan_is_closing) {
+                $this->db->where('loan_id', $loan->id)
+                         ->where_in('status', ['upcoming', 'pending', 'overdue', 'partial'])
+                         ->update('loan_installments', [
+                             'status'      => 'cancelled',
+                             'remarks'     => 'Cancelled on loan closure (settled ' . date('Y-m-d') . ')',
+                             'is_skipped'  => 1,
+                             'skip_reason' => ($data['payment_type'] === 'foreclosure' ? 'Foreclosure settlement' : 'Loan fully settled'),
+                             'updated_at'  => date('Y-m-d H:i:s')
+                         ]);
             }
             
             if ($this->db->trans_status() === FALSE) {
@@ -1933,7 +1949,7 @@ class Loan_model extends MY_Model {
         // Get total interest: current month + all remaining unpaid months
         $total_interest_row = $this->db->select_sum('interest_amount')
                                        ->where('loan_id', $loan_id)
-                                       ->where_not_in('status', ['paid', 'waived'])
+                                       ->where_not_in('status', ['paid', 'waived', 'cancelled'])
                                        ->get('loan_installments')
                                        ->row();
         $total_interest = $total_interest_row ? (float)$total_interest_row->interest_amount : 0;
@@ -2205,6 +2221,21 @@ class Loan_model extends MY_Model {
 
             // Release guarantors on foreclosure
             $this->release_guarantors($request->loan_id);
+
+            // ── Close out the repayment schedule ──────────────────────────
+            // Industry standard: on pre-closure the unrealised future EMIs are
+            // cancelled, not left open. Records are retained (never deleted) so
+            // the history stays auditable, but they are no longer receivable and
+            // must not appear as due/overdue anywhere.
+            $this->db->where('loan_id', $request->loan_id)
+                     ->where_in('status', ['upcoming', 'pending', 'overdue', 'partial'])
+                     ->update('loan_installments', [
+                         'status'      => 'cancelled',
+                         'remarks'     => 'Cancelled on loan foreclosure (settled ' . date('Y-m-d') . ')',
+                         'is_skipped'  => 1,
+                         'skip_reason' => 'Foreclosure settlement',
+                         'updated_at'  => date('Y-m-d H:i:s')
+                     ]);
 
             // Mark associated fines as paid (join through installments since fines has no loan_id)
             $installment_ids = $this->db->select('id')

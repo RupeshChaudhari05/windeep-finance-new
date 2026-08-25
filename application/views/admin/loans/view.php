@@ -232,7 +232,7 @@
                                         <td class="text-right font-weight-bold"><?= format_amount($emi->outstanding_after, 0) ?></td>
                                         <td>
                                             <?php
-                                            $emi_status = ['pending' => 'warning', 'paid' => 'success', 'partial' => 'info', 'skipped' => 'secondary'];
+                                            $emi_status = ['pending' => 'warning', 'paid' => 'success', 'partial' => 'info', 'skipped' => 'secondary', 'cancelled' => 'dark', 'overdue' => 'danger', 'waived' => 'secondary', 'interest_only' => 'info'];
                                             ?>
                                             <span class="badge badge-<?= $emi_status[$emi->status] ?? 'secondary' ?>">
                                                 <?= ucfirst($emi->status) ?>
