@@ -22,7 +22,10 @@ class Installments extends Member_Controller {
         $this->db->join('loans l', 'l.id = li.loan_id');
         $this->db->join('loan_products lp', 'lp.id = l.loan_product_id');
         $this->db->where('l.member_id', $this->member->id);
-        
+        // Installments cancelled when a loan was closed early are not payable
+        // and must not appear in the member's schedule.
+        $this->db->where('li.status !=', 'cancelled');
+
         if ($loan_id) {
             $this->db->where('l.id', $loan_id);
         }

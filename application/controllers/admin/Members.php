@@ -573,15 +573,24 @@ class Members extends Admin_Controller {
             $this->load->model('Ledger_model');
             $txn_type = $txn_data['transaction_type'];
             
-            if (in_array($txn_type, ['membership_fee', 'processing_fee', 'admission_fee', 'late_fee'])) {
-                // Income: Debit Cash/Bank, Credit appropriate income
+            // Route each fee to its own income account rather than lumping
+            // everything into Processing Fee Income.
+            $ledger_type_map = [
+                'membership_fee' => 'membership_fee',
+                'admission_fee'  => 'membership_fee',
+                'processing_fee' => 'processing_fee',
+                'late_fee'       => 'fine_income',
+            ];
+            if (isset($ledger_type_map[$txn_type])) {
                 $this->Ledger_model->post_transaction(
-                    'processing_fee', // uses cash_bank debit and processing_fee_income credit
+                    $ledger_type_map[$txn_type],
                     $txn_id,
                     $txn_data['amount'],
                     $id,
                     ucwords(str_replace('_', ' ', $txn_type)) . ' from ' . $member->member_code,
-                    $this->session->userdata('admin_id')
+                    $this->session->userdata('admin_id'),
+                    $txn_data['transaction_date'] ?? null,
+                    $txn_data['payment_mode'] ?? null
                 );
             }
             

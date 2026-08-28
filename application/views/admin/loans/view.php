@@ -221,7 +221,17 @@
                                     </tr>
                                 </thead>
                                 <tbody>
+                                    <?php
+                                    // Installments cancelled when the loan was closed early are not
+                                    // payable, so they are left out of the schedule. The count is
+                                    // noted under the table so the numbering gap is explained.
+                                    $cancelled_emis = 0;
+                                    foreach ($installments as $emi) {
+                                        if ($emi->status === 'cancelled') { $cancelled_emis++; }
+                                    }
+                                    ?>
                                     <?php foreach ($installments as $emi): ?>
+                                    <?php if ($emi->status === 'cancelled') { continue; } ?>
                                     <tr class="<?= $emi->status == 'pending' && (!empty($emi->due_date) && safe_timestamp($emi->due_date) < time()) ? 'table-danger' : '' ?>
                                                <?= $emi->status == 'paid' ? 'table-success' : '' ?>">
                                         <td><?= $emi->installment_number ?></td>
@@ -257,6 +267,13 @@
                                     <?php endforeach; ?>
                                 </tbody>
                             </table>
+                            <?php if ($cancelled_emis > 0): ?>
+                            <p class="text-muted small mb-0 px-2 py-1">
+                                <i class="fas fa-info-circle mr-1"></i>
+                                <?= $cancelled_emis ?> remaining installment<?= $cancelled_emis > 1 ? 's' : '' ?>
+                                cancelled when this loan was closed &mdash; not payable, so not listed.
+                            </p>
+                            <?php endif; ?>
                         </div>
                     </div>
                     

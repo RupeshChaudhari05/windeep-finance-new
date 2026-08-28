@@ -850,10 +850,9 @@ class Loans extends Admin_Controller {
                 // Post to ledger
                 $loan = $this->Loan_model->get_by_id($payment_data['loan_id']);
                 $this->load->model('Ledger_model');
-                $this->Ledger_model->post_transaction(
-                    'loan_payment',
+                // Split across principal / interest / fine (see post_loan_payment)
+                $this->Ledger_model->post_loan_payment(
                     $payment_id,
-                    $payment_data['total_amount'],
                     $loan->member_id,
                     'Loan payment for ' . $loan->loan_number,
                     $this->session->userdata('admin_id')
@@ -937,10 +936,8 @@ class Loans extends Admin_Controller {
                         $loan_obj = $this->Loan_model->get_by_id($loan_id);
                         $this->load->model('Ledger_model');
                     }
-                    $this->Ledger_model->post_transaction(
-                        'loan_payment',
+                    $this->Ledger_model->post_loan_payment(
                         $payment_id,
-                        $inst->emi_amount,
                         $loan_obj->member_id,
                         'Overdue EMI #' . $inst->installment_number . ' for ' . $loan_obj->loan_number,
                         $admin_id
@@ -1037,10 +1034,8 @@ class Loans extends Admin_Controller {
                         $loan_obj = $this->Loan_model->get_by_id($loan_id);
                         $this->load->model('Ledger_model');
                     }
-                    $this->Ledger_model->post_transaction(
-                        'loan_payment',
+                    $this->Ledger_model->post_loan_payment(
                         $payment_id,
-                        $inst->emi_amount,
                         $loan_obj->member_id,
                         'Multi-EMI #' . $inst->installment_number . ' for ' . $loan_obj->loan_number,
                         $admin_id
@@ -1148,10 +1143,8 @@ class Loans extends Admin_Controller {
 
                 // Post to ledger
                 $this->load->model('Ledger_model');
-                $this->Ledger_model->post_transaction(
-                    'loan_payment',
+                $this->Ledger_model->post_loan_payment(
                     $payment_id,
-                    $payment_data['total_amount'],
                     $loan->member_id,
                     'Interest-only payment for ' . $loan->loan_number . ' (tenure extended)',
                     $this->session->userdata('admin_id')
@@ -2488,6 +2481,24 @@ class Loans extends Admin_Controller {
         );
 
         if ($result['success']) {
+            // Post the settlement receipt to the general ledger, split across
+            // principal / interest / fine. Approval used to create the payment
+            // row without any ledger entry at all.
+            if ($action === 'approve' && !empty($result['payment_id'])) {
+                $this->load->model('Ledger_model');
+                $fc_loan = $this->db->select('l.member_id, l.loan_number')
+                                    ->from('loan_foreclosure_requests fr')
+                                    ->join('loans l', 'l.id = fr.loan_id')
+                                    ->where('fr.id', $request_id)
+                                    ->get()->row();
+                $this->Ledger_model->post_loan_payment(
+                    $result['payment_id'],
+                    $fc_loan->member_id ?? null,
+                    'Foreclosure settlement for ' . ($fc_loan->loan_number ?? ('request #' . $request_id)),
+                    $admin_id
+                );
+            }
+
             // Log activity
             $this->load->model('Audit_model');
             $this->Audit_model->create([

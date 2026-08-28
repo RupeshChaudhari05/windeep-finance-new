@@ -2282,6 +2282,7 @@ class Loan_model extends MY_Model {
                 'success' => true,
                 'message' => "Foreclosure request {$action}d successfully",
                 'settlement_amount' => $action === 'approve' ? $final_amount : null,
+                'payment_id' => $action === 'approve' ? ($payment_id ?? null) : null,
             ];
         }
 

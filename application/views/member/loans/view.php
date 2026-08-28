@@ -15,6 +15,7 @@
                 <thead><tr><th>#</th><th>Due Date</th><th class="text-right">EMI</th><th>Status</th></tr></thead>
                 <tbody>
                     <?php foreach ($installments as $inst): ?>
+                    <?php if ($inst->status === 'cancelled') { continue; } // cancelled on early closure - not payable ?>
                     <tr>
                         <td><?= $inst->installment_number ?></td>
                         <td><?= format_date($inst->due_date) ?></td>
