@@ -34,6 +34,69 @@ class Member_model extends MY_Model {
     ];
     
     /**
+     * Columns that must hold NULL rather than an empty string.
+     *
+     * The forms submit "" for anything left unchosen. MySQL rejects "" for an
+     * ENUM (error 1265, "Data truncated"), which fails the WHOLE update and
+     * loses every other field the user typed. Dates and decimals have the same
+     * problem, and "" on a UNIQUE column collides between members.
+     */
+    private $nullable_when_blank = [
+        // enums
+        'gender', 'marital_status', 'membership_type', 'status', 'opening_balance_type',
+        // dates ('join_date' is NOT NULL — see $preserve_when_blank)
+        'date_of_birth',
+        // numerics
+        'monthly_income', 'opening_balance', 'max_guarantee_amount', 'max_guarantee_count',
+        // unique keys — "" would clash between members, NULL does not
+        'aadhaar_number', 'pan_number',
+        // optional identifiers / free text
+        'middle_name', 'father_name', 'alternate_phone', 'email', 'voter_id',
+        'id_proof_type', 'id_proof_number', 'employer_name', 'occupation',
+        'member_level', 'nominee_name', 'nominee_relation', 'nominee_relationship',
+        'nominee_phone', 'nominee_aadhaar', 'bank_name', 'bank_branch',
+        'account_number', 'bank_account_number', 'ifsc_code', 'bank_ifsc',
+        'account_holder_name', 'notes',
+    ];
+
+    /**
+     * NOT NULL columns. A blank submission must not overwrite these with NULL,
+     * so the key is dropped and the stored value is left as it is.
+     */
+    private $preserve_when_blank = ['join_date'];
+
+    /**
+     * Turn blank submissions into NULL so an optional field left empty cannot
+     * abort the save, and never null out a NOT NULL column.
+     */
+    public function normalize_blanks(array $data) {
+        foreach ($this->nullable_when_blank as $field) {
+            if (array_key_exists($field, $data)) {
+                $value = is_string($data[$field]) ? trim($data[$field]) : $data[$field];
+                $data[$field] = ($value === '' || $value === null) ? null : $value;
+            }
+        }
+
+        foreach ($this->preserve_when_blank as $field) {
+            if (array_key_exists($field, $data)) {
+                $value = is_string($data[$field]) ? trim($data[$field]) : $data[$field];
+                if ($value === '' || $value === null) {
+                    unset($data[$field]);   // keep whatever is already stored
+                }
+            }
+        }
+
+        return $data;
+    }
+
+    /**
+     * Update a member, normalising blanks first.
+     */
+    public function update($id, $data) {
+        return parent::update($id, $this->normalize_blanks($data));
+    }
+
+    /**
      * Generate New Member Code - Format: MEMB000001, MEMB000002, etc.
      */
     /**
@@ -132,6 +195,9 @@ class Member_model extends MY_Model {
                 $data[$from] = $data[$to];
             }
         }
+
+        // Blank optional values must be NULL, never "" (see normalize_blanks)
+        $data = $this->normalize_blanks($data);
 
         // Convert empty strings to NULL for optional fields
         $nullable_fields = ['pan_number', 'aadhaar_number', 'id_proof_type', 'id_proof_number',
@@ -387,8 +453,12 @@ class Member_model extends MY_Model {
             $this->db->group_start();
             $this->db->like('member_code', $filters['search']);
             $this->db->or_like('first_name', $filters['search']);
+            $this->db->or_like('middle_name', $filters['search']);
             $this->db->or_like('last_name', $filters['search']);
             $this->db->or_like('phone', $filters['search']);
+            // Match against the assembled name too, so "Sandeep Ramesh" finds a
+            // member whose first and middle names are stored separately.
+            $this->db->or_like("CONCAT_WS(' ', first_name, middle_name, last_name)", $filters['search']);
             $this->db->group_end();
         }
         

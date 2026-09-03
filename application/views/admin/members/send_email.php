@@ -6,7 +6,7 @@
                 <h3 class="card-title mb-0">
                     <i class="fas fa-envelope mr-1"></i>
                     <?php if (!$bulk): ?>
-                        Send Email to <?= $member->first_name . ' ' . $member->last_name ?> (<?= $member->member_code ?>)
+                        Send Email to <?= member_full_name($member) ?> (<?= $member->member_code ?>)
                     <?php else: ?>
                         Send Bulk Email to Members
                     <?php endif; ?>

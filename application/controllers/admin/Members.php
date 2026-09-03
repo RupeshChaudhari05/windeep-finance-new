@@ -443,7 +443,12 @@ class Members extends Admin_Controller {
             $this->log_audit('update', 'members', 'members', $id, $old_data, $member_data);
             $this->session->set_flashdata('success', 'Member updated successfully.');
         } else {
-            $this->session->set_flashdata('error', 'Member details could not be saved. Please verify the information and try again.');
+            // Tell the admin WHAT failed instead of a generic message.
+            $db_error = $this->db->error();
+            $reason = !empty($db_error['message']) ? ' (' . $db_error['message'] . ')' : '';
+            log_message('error', 'Member update failed for ID ' . $id . $reason);
+            $this->session->set_flashdata('error',
+                'Member details could not be saved.' . $reason . ' Please correct the highlighted field and try again.');
         }
         
         redirect('admin/members/view/' . $id);

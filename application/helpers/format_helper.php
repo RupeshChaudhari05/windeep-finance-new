@@ -229,3 +229,39 @@ if (!function_exists('validate_phone')) {
         return $v !== null && preg_match('/^[0-9]{10}$/', $v) === 1;
     }
 }
+
+/**
+ * Build a member's display name: First Middle Last.
+ *
+ * The middle name is optional and several queries do not select it, so both a
+ * missing property and an empty value are treated the same — the name simply
+ * collapses to "First Last" rather than showing a double space.
+ *
+ * @param object|array $member  A members row (or anything with the name fields)
+ * @return string
+ */
+if (!function_exists('member_full_name')) {
+    function member_full_name($member)
+    {
+        if (empty($member)) {
+            return '';
+        }
+
+        $get = function ($key) use ($member) {
+            if (is_array($member)) {
+                return isset($member[$key]) ? trim((string) $member[$key]) : '';
+            }
+            return isset($member->$key) ? trim((string) $member->$key) : '';
+        };
+
+        $parts = array_filter([
+            $get('first_name'),
+            $get('middle_name'),
+            $get('last_name'),
+        ], function ($p) {
+            return $p !== '';
+        });
+
+        return implode(' ', $parts);
+    }
+}

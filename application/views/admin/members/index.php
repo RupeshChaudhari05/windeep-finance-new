@@ -70,7 +70,7 @@
                                 <div class="d-flex align-items-center">
                                     <?= member_avatar_html($member, 32, 'mr-2') ?>
                                     <div>
-                                        <strong><?= $member->first_name ?> <?= $member->last_name ?></strong>
+                                        <strong><?= member_full_name($member) ?></strong>
                                         <?php if ($member->email): ?>
                                             <br><small class="text-muted"><?= $member->email ?></small>
                                         <?php endif; ?>

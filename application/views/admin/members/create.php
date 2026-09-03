@@ -469,3 +469,13 @@ $(document).ready(function() {
     });
 });
 </script>
+
+<!-- Real-time form validation: mirrors the server rules so nothing is a surprise on save -->
+<script src="<?= base_url('assets/js/member-form-validation.js') ?>"></script>
+<script>
+$(function () {
+    if (window.MemberFormValidation) {
+        MemberFormValidation.init('#memberForm');
+    }
+});
+</script>

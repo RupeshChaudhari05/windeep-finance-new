@@ -622,16 +622,11 @@
             }
         });
 
-        // Sidebar menu active state
-        const currentUrl = window.location.href;
-        $('.nav-sidebar .nav-link').each(function () {
-            const href = $(this).attr('href');
-            if (href && currentUrl.indexOf(href) !== -1) {
-                $(this).addClass('active');
-                $(this).closest('.nav-treeview').parent().addClass('menu-open');
-                $(this).closest('.nav-treeview').show();
-            }
-        });
+        // Sidebar active state is rendered server-side in admin/layouts/sidebar.php.
+        // The previous code here guessed it from the URL with a substring match,
+        // which lit up every link whose href was a prefix of the current page
+        // (e.g. "All Members" stayed active on Add New Member) and opened the
+        // wrong section entirely for links pointing at another controller.
 
         // Card collapse toggle
         $(document).on('click', '.card-header .btn-tool[data-card-widget="collapse"]', function () {

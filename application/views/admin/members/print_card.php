@@ -226,7 +226,7 @@
             </div>
             
             <div class="card-body">
-                <div class="member-name"><?= $member->first_name ?> <?= $member->last_name ?></div>
+                <div class="member-name"><?= member_full_name($member) ?></div>
                 <div class="member-code">ID: <?= $member->member_code ?></div>
                 
                 <div class="member-details">
