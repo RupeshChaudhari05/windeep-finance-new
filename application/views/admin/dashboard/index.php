@@ -681,7 +681,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     $title.html('<i class="fas fa-users mr-2 text-info"></i>Active Members (' + res.total + ')');
                     html = '<div class="table-responsive"><table class="table table-hover table-sm"><thead class="thead-light"><tr><th>Code</th><th>Name</th><th>Phone</th><th>Joined</th><th></th></tr></thead><tbody>';
                     $.each(res.data, function(i, m) {
-                        html += '<tr><td><span class="badge badge-primary">' + m.member_code + '</span></td><td>' + m.first_name + ' ' + m.last_name + '</td><td>' + (m.phone || '-') + '</td><td>' + formatDate(m.created_at) + '</td><td><a href="<?= site_url("admin/members/view/") ?>' + m.id + '" class="btn btn-xs btn-outline-primary"><i class="fas fa-eye"></i></a></td></tr>';
+                        html += '<tr><td><span class="badge badge-primary">' + m.member_code + '</span></td><td>' + m.first_name + ' ' + m.last_name + '</td><td>' + (m.phone || '-') + '</td><td>' + formatDate(m.joined_on || m.created_at) + '</td><td><a href="<?= site_url("admin/members/view/") ?>' + m.id + '" class="btn btn-xs btn-outline-primary"><i class="fas fa-eye"></i></a></td></tr>';
                     });
                     html += '</tbody></table></div>';
                     break;

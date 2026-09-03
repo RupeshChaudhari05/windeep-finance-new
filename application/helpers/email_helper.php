@@ -48,6 +48,19 @@ function send_email($to, $subject, $message, $from_email = null, $from_name = nu
         $mail->SMTPSecure = strtolower($mail_encryption) === 'ssl' ? PHPMailer::ENCRYPTION_SMTPS : PHPMailer::ENCRYPTION_STARTTLS;
         $mail->Port = $mail_port;
 
+        // Never let an unreachable mail server hang a user-facing request.
+        // PHPMailer defaults to a 300s SMTP timeout; on a host that blocks
+        // outbound SMTP that becomes a browser-level connection timeout.
+        $mail->Timeout    = (int) get_setting('mail_timeout', 10);   // seconds
+        $mail->SMTPAutoTLS = true;
+        if (defined('PHPMailer\PHPMailer\PHPMailer::STOP_MESSAGE')) {
+            $mail->SMTPKeepAlive = false;
+        }
+        // Socket-level guard for DNS/connect stalls
+        $mail->SMTPOptions = [
+            'ssl' => ['verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true],
+        ];
+
         // Recipients
         $mail->setFrom($from_email, $from_name);
 
@@ -83,6 +96,46 @@ function send_email($to, $subject, $message, $from_email = null, $from_name = nu
         log_message('error', 'Email sending failed: ' . $mail->ErrorInfo);
         return ['success' => false, 'message' => $mail->ErrorInfo];
     }
+}
+
+/**
+ * Queue an email instead of sending it inline.
+ *
+ * Outbound SMTP must never sit inside a user-facing request: if the mail host
+ * is unreachable the socket blocks until the SMTP timeout and the browser dies
+ * with a connection timeout, even though the record was already saved. Queued
+ * rows are drained by `php index.php cli/cron process_email_queue`.
+ *
+ * @return array ['success'=>bool, 'queued'=>bool, 'message'=>string]
+ */
+function queue_email($to, $subject, $message, $to_name = null, $priority = 5, $created_by = null)
+{
+    $CI =& get_instance();
+
+    if (empty($to)) {
+        return ['success' => false, 'queued' => false, 'message' => 'No recipient'];
+    }
+
+    // Fall back to sending inline if the queue table is unavailable, so mail is
+    // never silently dropped on an installation that has not been migrated.
+    if (!$CI->db->table_exists('email_queue')) {
+        return send_email($to, $subject, $message);
+    }
+
+    $CI->db->insert('email_queue', [
+        'to_email'     => is_array($to) ? implode(',', $to) : $to,
+        'to_name'      => $to_name,
+        'subject'      => $subject,
+        'body'         => $message,
+        'priority'     => (int) $priority,
+        'status'       => 'pending',
+        'attempts'     => 0,
+        'scheduled_at' => date('Y-m-d H:i:s'),
+        'created_at'   => date('Y-m-d H:i:s'),
+        'created_by'   => $created_by,
+    ]);
+
+    return ['success' => true, 'queued' => true, 'message' => 'Email queued for delivery'];
 }
 
 /**
@@ -413,7 +466,8 @@ function send_welcome_email($member_code, $member_name, $email, $password = null
 </body>
 </html>';
 
-    return send_email($email, $subject, $message);
+    // Queued, not sent inline: member creation must not wait on SMTP.
+    return queue_email($email, $subject, $message, $member_name);
 }
 
 /**

@@ -90,7 +90,16 @@ class Auth extends MY_Controller {
         
         // Log activity
         $this->log_activity('Admin login', 'IP: ' . $this->input->ip_address());
-        
+
+        // A temporary password issued by an administrator is single-use: the
+        // account must choose its own password before it can go anywhere else.
+        if (!empty($admin->must_change_password)) {
+            $this->session->set_userdata('admin_must_change_password', TRUE);
+            $this->session->set_flashdata('warning',
+                'You are using a temporary password. Please set a new password to continue.');
+            redirect('admin/auth/change_password');
+        }
+
         redirect('admin/dashboard');
     }
     
@@ -257,10 +266,24 @@ class Auth extends MY_Controller {
             redirect('admin/auth/change_password');
         }
         
+        // Reject reusing the temporary password that was just issued
+        if (password_verify($new, $admin->password)) {
+            $this->session->set_flashdata('error', 'The new password must be different from the current one.');
+            redirect('admin/auth/change_password');
+        }
+
         // Update
         $this->Admin_model->update_password($admin_id, $new);
+
+        // Clear the forced-change flag now that they have chosen their own password
+        $this->db->where('id', $admin_id)->update('admin_users', [
+            'must_change_password' => 0,
+            'password_changed_at'  => date('Y-m-d H:i:s'),
+        ]);
+        $this->session->unset_userdata('admin_must_change_password');
+
         $this->log_activity('admin', $admin_id, 'Password changed');
-        
+
         $this->session->set_flashdata('success', 'Password changed successfully.');
         redirect('admin/dashboard');
     }

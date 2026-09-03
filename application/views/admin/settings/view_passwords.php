@@ -11,7 +11,9 @@ defined('BASEPATH') OR exit('No direct script access allowed');
             <small class="text-muted">Last refreshed: <?= date('d M Y H:i:s') ?></small>
             <div class="mt-2">
                 <span class="badge badge-info">Note:</span>
-                This page shows whether a password is set or not. Existing passwords are stored as bcrypt hashes and cannot be decrypted back to plain text.
+                Passwords are stored as one-way <strong>bcrypt</strong> hashes, so an existing password can never be displayed or exported &mdash; only replaced.
+                Use <strong>Reset</strong> (one member) or <strong>Reset All Passwords</strong> to issue new ones: those are shown here with the
+                <i class="fas fa-eye"></i> icon and are included in the <strong>Export CSV</strong> until you leave the page.
             </div>
         </div>
     </div>
@@ -201,17 +203,27 @@ defined('BASEPATH') OR exit('No direct script access allowed');
                             </td>
                             <td>
                                 <?php if ($member['plain_password']): ?>
-                                    <!-- Recently generated password - show plaintext -->
-                                    <code class="bg-dark text-white p-2 rounded" style="font-size: 0.85rem; cursor: pointer;" title="Click to copy" onclick="copyPassword('<?= $member['plain_password'] ?>')">
-                                        <?= $member['plain_password'] ?>
-                                    </code>
+                                    <!-- Issued in this session: we hold the plain text, so it can be revealed -->
+                                    <span class="d-inline-flex align-items-center">
+                                        <code class="bg-dark text-white p-2 rounded pw-value" style="font-size:0.85rem;cursor:pointer;"
+                                              data-pw="<?= html_escape($member['plain_password']) ?>"
+                                              data-revealed="0"
+                                              title="Click to copy">••••••••••••</code>
+                                        <button type="button" class="btn btn-sm btn-outline-dark ml-1 pw-eye" title="Show / hide">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                    </span>
                                 <?php elseif ($member['has_password']): ?>
-                                    <!-- Password exists but hashed - show masked version -->
-                                    <code class="bg-secondary text-white p-2 rounded" style="font-size: 0.85rem;">
-                                        ••••••••••••
-                                    </code>
+                                    <!-- Stored as a one-way bcrypt hash: nothing to reveal -->
+                                    <span class="d-inline-flex align-items-center">
+                                        <code class="bg-secondary text-white p-2 rounded" style="font-size:0.85rem;">••••••••••••</code>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary ml-1 pw-eye-locked"
+                                                data-code="<?= html_escape($member['member_code']) ?>"
+                                                title="This password cannot be shown">
+                                            <i class="fas fa-lock"></i>
+                                        </button>
+                                    </span>
                                 <?php else: ?>
-                                    <!-- No password - show alert -->
                                     <code class="bg-danger text-white p-2 rounded" style="font-size: 0.85rem;">
                                         NOT SET
                                     </code>
@@ -437,6 +449,54 @@ $(document).on('keyup', '#searchMembers', function() {
 });
 
 // Export to CSV
+// ── Password reveal ──────────────────────────────────────────────────────
+// The eye only works for passwords this session issued, because that is the
+// only moment the plain text exists. Anything already stored is a one-way
+// bcrypt hash and can be replaced but never read back.
+$(document).on('click', '.pw-eye', function () {
+    var $wrap = $(this).closest('span');
+    var $code = $wrap.find('.pw-value');
+    var shown = $code.attr('data-revealed') === '1';
+
+    if (shown) {
+        $code.text('••••••••••••').attr('data-revealed', '0');
+        $(this).find('i').removeClass('fa-eye-slash').addClass('fa-eye');
+    } else {
+        $code.text($code.attr('data-pw')).attr('data-revealed', '1');
+        $(this).find('i').removeClass('fa-eye').addClass('fa-eye-slash');
+    }
+});
+
+// Click the revealed value to copy it
+$(document).on('click', '.pw-value', function () {
+    if ($(this).attr('data-revealed') === '1') {
+        copyPassword($(this).attr('data-pw'));
+    }
+});
+
+// Explain, once, why a stored password cannot be shown — and offer the fix.
+$(document).on('click', '.pw-eye-locked', function () {
+    var code = $(this).data('code');
+    var $row = $(this).closest('tr');
+    Swal.fire({
+        icon: 'info',
+        title: 'This password cannot be shown',
+        html: '<p class="mb-2">Passwords are stored as one-way <strong>bcrypt</strong> hashes. '
+            + 'There is no way to turn a hash back into the original text &mdash; not for this system, '
+            + 'and not for anyone who steals the database.</p>'
+            + '<p class="mb-0">To give <strong>' + code + '</strong> a password you can share, '
+            + 'reset it. The new password is shown here and included in the CSV export.</p>',
+        showCancelButton: true,
+        confirmButtonText: '<i class="fas fa-key"></i> Reset this password',
+        cancelButtonText: 'Close',
+        confirmButtonColor: '#f0ad4e'
+    }).then(function (r) {
+        if (r.isConfirmed) {
+            $row.find('button[onclick*="resetPasswordConfirm"]').trigger('click');
+        }
+    });
+});
+
 function exportToCSV() {
     <?php if (!empty($generated_credentials)): ?>
     const csvContent = [
@@ -466,7 +526,7 @@ function exportToCSV() {
         '<?= addslashes($member['phone']) ?>',
         '<?= addslashes($member['email'] ?? '') ?>',
         '<?= addslashes($member['username']) ?>',
-        '<?= $member['plain_password'] ? addslashes($member['plain_password']) : ($member['has_password'] ? '••••••••••••' : 'NOT SET') ?>',
+        '<?= $member['plain_password'] ? addslashes($member['plain_password']) : ($member['has_password'] ? 'Not recoverable - use Reset to issue a new one' : 'NOT SET') ?>',
         '<?= $member['status'] ?>'
     ]);
     <?php endforeach; ?>

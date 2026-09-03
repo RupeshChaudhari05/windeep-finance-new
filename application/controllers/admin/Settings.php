@@ -425,6 +425,224 @@ class Settings extends Admin_Controller {
         $this->load_view('admin/settings/admin_users', $data);
     }
 
+    // ================================================================
+    // ADMIN PASSWORD MANAGEMENT
+    //
+    // Passwords are stored as one-way bcrypt hashes, so an existing
+    // password can never be displayed or recovered — only replaced. A
+    // reset therefore issues a temporary password which is shown ONCE
+    // to the administrator performing the reset, and the account is
+    // forced to choose its own password at next login.
+    // ================================================================
+
+    /**
+     * Generate a readable but strong temporary password.
+     * Ambiguous characters (O/0, l/1) are left out so it can be read aloud.
+     */
+    private function generate_temp_password($length = 12) {
+        $sets = [
+            'ABCDEFGHJKLMNPQRSTUVWXYZ',
+            'abcdefghijkmnopqrstuvwxyz',
+            '23456789',
+            '@#$%&*?',
+        ];
+        $password = '';
+        foreach ($sets as $set) {
+            $password .= $set[random_int(0, strlen($set) - 1)];
+        }
+        $all = implode('', $sets);
+        for ($i = strlen($password); $i < $length; $i++) {
+            $password .= $all[random_int(0, strlen($all) - 1)];
+        }
+        return str_shuffle($password);
+    }
+
+    /**
+     * Reset ONE admin's password.
+     * Accepts a typed password, or generates a temporary one when none is given.
+     */
+    public function reset_admin_password() {
+        $this->check_permission('settings_manage');
+
+        if ($this->input->method() !== 'post') {
+            redirect('admin/settings/admin_users');
+        }
+
+        $id       = (int) $this->input->post('id');
+        $new      = (string) $this->input->post('new_password');
+        $confirm  = (string) $this->input->post('confirm_password');
+        $generate = ($this->input->post('generate') == '1');
+
+        $user = $this->db->where('id', $id)->get('admin_users')->row();
+        if (!$user) {
+            $this->session->set_flashdata('error', 'Admin user not found.');
+            redirect('admin/settings/admin_users');
+        }
+
+        if ($generate) {
+            $new = $this->generate_temp_password();
+        } else {
+            if (strlen($new) < 8) {
+                $this->session->set_flashdata('error', 'Password must be at least 8 characters.');
+                redirect('admin/settings/admin_users');
+            }
+            if ($new !== $confirm) {
+                $this->session->set_flashdata('error', 'The two passwords do not match.');
+                redirect('admin/settings/admin_users');
+            }
+        }
+
+        $this->db->where('id', $id)->update('admin_users', [
+            'password'             => password_hash($new, PASSWORD_DEFAULT),
+            'must_change_password' => 1,
+            'password_changed_at'  => date('Y-m-d H:i:s'),
+            'password_reset_by'    => $this->session->userdata('admin_id'),
+            'reset_token'          => null,
+            'reset_token_expiry'   => null,
+            'updated_at'           => date('Y-m-d H:i:s'),
+        ]);
+
+        $this->log_audit('reset_password', 'admin_users', 'admin_users', $id, null,
+            ['username' => $user->username, 'generated' => $generate ? 'yes' : 'no']);
+
+        // Shown once, never stored in plain text anywhere.
+        $this->session->set_flashdata('reset_result', [
+            'single'   => true,
+            'username' => $user->username,
+            'name'     => $user->full_name,
+            'password' => $new,
+        ]);
+        $this->session->set_flashdata('success',
+            'Password reset for ' . $user->username . '. They must change it at next login.');
+
+        redirect('admin/settings/admin_users');
+    }
+
+    /**
+     * Reset EVERY admin password in one action.
+     *
+     * Restricted to super_admin and guarded by a typed confirmation, because
+     * it locks every administrator out until they use their new password.
+     * The account performing the reset is included but is NOT logged out.
+     */
+    public function reset_all_admin_passwords() {
+        $this->check_permission('settings_manage');
+
+        if ($this->input->method() !== 'post') {
+            redirect('admin/settings/admin_users');
+        }
+
+        if ($this->session->userdata('admin_role') !== 'super_admin') {
+            $this->session->set_flashdata('error', 'Only a super admin can reset all passwords.');
+            redirect('admin/settings/admin_users');
+        }
+
+        if (strtoupper(trim((string) $this->input->post('confirm_text'))) !== 'RESET ALL') {
+            $this->session->set_flashdata('error', 'Type RESET ALL to confirm this action.');
+            redirect('admin/settings/admin_users');
+        }
+
+        $include_self = ($this->input->post('include_self') == '1');
+        $me = (int) $this->session->userdata('admin_id');
+
+        $this->db->where('is_active', 1);
+        if (!$include_self) {
+            $this->db->where('id !=', $me);
+        }
+        $users = $this->db->get('admin_users')->result();
+
+        if (empty($users)) {
+            $this->session->set_flashdata('error', 'No active admin users to reset.');
+            redirect('admin/settings/admin_users');
+        }
+
+        $issued = [];
+        foreach ($users as $u) {
+            $temp = $this->generate_temp_password();
+            $this->db->where('id', $u->id)->update('admin_users', [
+                'password'             => password_hash($temp, PASSWORD_DEFAULT),
+                'must_change_password' => 1,
+                'password_changed_at'  => date('Y-m-d H:i:s'),
+                'password_reset_by'    => $me,
+                'reset_token'          => null,
+                'reset_token_expiry'   => null,
+                'updated_at'           => date('Y-m-d H:i:s'),
+            ]);
+            $issued[] = [
+                'username' => $u->username,
+                'name'     => $u->full_name,
+                'email'    => $u->email,
+                'password' => $temp,
+            ];
+        }
+
+        $this->log_audit('reset_all_passwords', 'admin_users', 'admin_users', 0, null,
+            ['count' => count($issued), 'included_self' => $include_self ? 'yes' : 'no']);
+
+        $this->session->set_flashdata('reset_result', [
+            'single' => false,
+            'list'   => $issued,
+        ]);
+        $this->session->set_flashdata('success',
+            count($issued) . ' admin password(s) reset. Copy the list now — it is shown only once.');
+
+        redirect('admin/settings/admin_users');
+    }
+
+    /**
+     * Activate / deactivate an admin user.
+     */
+    public function toggle_admin_status() {
+        $this->check_permission('settings_manage');
+
+        if ($this->input->method() !== 'post') {
+            redirect('admin/settings/admin_users');
+        }
+
+        $id = (int) $this->input->post('id');
+        $me = (int) $this->session->userdata('admin_id');
+
+        if ($id === $me) {
+            return $this->toggle_response(false, 'You cannot deactivate your own account.');
+        }
+
+        $user = $this->db->where('id', $id)->get('admin_users')->row();
+        if (!$user) {
+            return $this->toggle_response(false, 'Admin user not found.');
+        }
+
+        // Never leave the system without an active super admin
+        if ($user->is_active && $user->role === 'super_admin') {
+            $others = $this->db->where('role', 'super_admin')->where('is_active', 1)
+                               ->where('id !=', $id)->count_all_results('admin_users');
+            if ($others === 0) {
+                return $this->toggle_response(false, 'This is the only active super admin - it cannot be deactivated.');
+            }
+        }
+
+        $new_state = $user->is_active ? 0 : 1;
+        $this->db->where('id', $id)->update('admin_users', [
+            'is_active'  => $new_state,
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+
+        $this->log_audit($new_state ? 'activate' : 'deactivate', 'admin_users', 'admin_users', $id, null,
+            ['username' => $user->username]);
+
+        return $this->toggle_response(true,
+            $user->username . ($new_state ? ' activated.' : ' deactivated.'));
+    }
+
+    /** Respond as JSON to AJAX, or redirect for a normal form post. */
+    private function toggle_response($success, $message) {
+        if ($this->input->is_ajax_request()) {
+            return $this->output->set_content_type('application/json')
+                                ->set_output(json_encode(['success' => $success, 'message' => $message]));
+        }
+        $this->session->set_flashdata($success ? 'success' : 'error', $message);
+        redirect('admin/settings/admin_users');
+    }
+
     /**
      * Save Savings Scheme (create/update)
      */

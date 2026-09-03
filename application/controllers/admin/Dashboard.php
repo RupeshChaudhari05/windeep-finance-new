@@ -247,9 +247,13 @@ class Dashboard extends Admin_Controller {
      * Active Members Detail (for modal)
      */
     public function card_members() {
-        $members = $this->db->select('id, member_code, first_name, last_name, phone, email, status, created_at')
+        // "Joined" must be the membership join date from the form, not the row's
+        // created_at (which is merely when the record was keyed in).
+        $members = $this->db->select("id, member_code, first_name, last_name, phone, email, status,
+                                      created_at, join_date,
+                                      COALESCE(join_date, DATE(created_at)) AS joined_on", false)
                             ->where('status', 'active')
-                            ->order_by('created_at', 'DESC')
+                            ->order_by('joined_on', 'DESC')   // alias; a raw expression here gets mangled by order_by()
                             ->limit(50)
                             ->get('members')
                             ->result();
