@@ -28,14 +28,37 @@ class Loans extends Admin_Controller {
         
         // Get loans with filters
         $status = $this->input->get('status') ?: 'active';
+        $search = trim((string) $this->input->get('search'));
+        $product = $this->input->get('product');
+
+        $data['filters'] = [
+            'search' => $search,
+            'product' => $product,
+            'status' => $status,
+        ];
         
         $this->db->select('l.*, lp.product_name, m.member_code, m.first_name, m.last_name, m.phone');
         $this->db->from('loans l');
-        $this->db->join('loan_products lp', 'lp.id = l.loan_product_id');
-        $this->db->join('members m', 'm.id = l.member_id');
+        $this->db->join('loan_products lp', 'lp.id = l.loan_product_id', 'left');
+        $this->db->join('members m', 'm.id = l.member_id', 'left');
         
-        if ($status !== 'all') {
+        if ($status !== 'all' && !empty($status)) {
             $this->db->where('l.status', $status);
+        }
+
+        if (!empty($product)) {
+            $this->db->where('l.loan_product_id', $product);
+        }
+
+        if (!empty($search)) {
+            $like = '%' . $search . '%';
+            $this->db->group_start();
+            $this->db->like('l.loan_number', $search, 'both');
+            $this->db->or_like('m.member_code', $search, 'both');
+            $this->db->or_like('m.first_name', $search, 'both');
+            $this->db->or_like('m.last_name', $search, 'both');
+            $this->db->or_like('CONCAT(m.first_name, " ", m.last_name)', $search, 'both');
+            $this->db->group_end();
         }
         
         $this->db->order_by('l.disbursement_date', 'ASC');
@@ -250,20 +273,44 @@ class Loans extends Admin_Controller {
         ];
         
         $status = $this->input->get('status') ?: 'pending';
+        $search = trim((string) $this->input->get('search'));
+        $product = $this->input->get('product');
+
+        $data['filters'] = [
+            'search' => $search,
+            'product' => $product,
+            'status' => $status,
+        ];
         
         $this->db->select('la.*, lp.product_name, m.member_code, m.first_name, m.last_name, m.phone');
         $this->db->from('loan_applications la');
         $this->db->join('loan_products lp', 'lp.id = la.loan_product_id', 'left');
-        $this->db->join('members m', 'm.id = la.member_id');
+        $this->db->join('members m', 'm.id = la.member_id', 'left');
         
-        if ($status !== 'all') {
+        if ($status !== 'all' && !empty($status)) {
             $this->db->where('la.status', $status);
+        }
+
+        if (!empty($product)) {
+            $this->db->where('la.loan_product_id', $product);
+        }
+
+        if (!empty($search)) {
+            $this->db->group_start();
+            $this->db->like('la.application_number', $search, 'both');
+            $this->db->or_like('m.member_code', $search, 'both');
+            $this->db->or_like('m.first_name', $search, 'both');
+            $this->db->or_like('m.last_name', $search, 'both');
+            $this->db->or_like('CONCAT(m.first_name, " ", m.last_name)', $search, 'both');
+            $this->db->or_like('m.phone', $search, 'both');
+            $this->db->group_end();
         }
         
         $this->db->order_by('la.application_date', 'DESC');
         
         $data['applications'] = $this->db->get()->result();
         $data['status'] = $status;
+        $data['products'] = $this->Loan_model->get_products();
 
         // Normalize applications: compute member display name
         foreach ($data['applications'] as &$app) {
@@ -774,6 +821,39 @@ class Loans extends Admin_Controller {
         $result = $this->Loan_model->request_modification($id, $remarks, $this->session->userdata('admin_id'), $proposed);
 
         if ($result) {
+            $this->load->model('Notification_model');
+            $this->load->model('Member_model');
+
+            $application = $this->Loan_model->get_application($id);
+            $member = $application ? $this->Member_model->get_by_id($application->member_id) : null;
+
+            if ($member) {
+                $details = [];
+                if (!empty($proposed['approved_amount'])) {
+                    $details[] = 'Amount: ' . format_amount($proposed['approved_amount']);
+                }
+                if (!empty($proposed['approved_tenure_months'])) {
+                    $details[] = 'Tenure: ' . (int)$proposed['approved_tenure_months'] . ' months';
+                }
+                if (!empty($proposed['approved_interest_rate'])) {
+                    $details[] = 'Interest: ' . $proposed['approved_interest_rate'] . '%';
+                }
+
+                $message = 'Your loan application requires revision. ' . $remarks;
+                if (!empty($details)) {
+                    $message .= ' Proposed terms: ' . implode(' | ', $details) . '.';
+                }
+
+                $this->Notification_model->create(
+                    'member',
+                    $member->id,
+                    'loan_modification_requested',
+                    'Loan requires revision',
+                    $message,
+                    ['application_id' => $id, 'url' => site_url('member/loans/application/' . $id)]
+                );
+            }
+
             $this->log_audit('modification_requested', 'loan_applications', 'loan_applications', $id, null, ['remarks' => $remarks, 'proposed' => $proposed]);
             $this->json_response(['success' => true, 'message' => 'Member notified to modify application.']);
         } else {
@@ -1464,8 +1544,37 @@ class Loans extends Admin_Controller {
             ['title' => 'Loans', 'url' => 'admin/loans'],
             ['title' => 'Pending Approval', 'url' => '']
         ];
+
+        $search = trim((string) $this->input->get('search'));
+        $status = $this->input->get('status') ?: 'all';
+        $data['filters'] = [
+            'search' => $search,
+            'status' => $status,
+        ];
         
-        $data['applications'] = $this->Loan_model->get_pending_applications();
+        $this->db->select('la.*, m.member_code, m.first_name, m.last_name, m.phone, lp.product_name');
+        $this->db->from('loan_applications la');
+        $this->db->join('members m', 'm.id = la.member_id', 'left');
+        $this->db->join('loan_products lp', 'lp.id = la.loan_product_id', 'left');
+        $this->db->where_in('la.status', ['pending', 'under_review', 'guarantor_pending']);
+
+        if ($status !== 'all' && !empty($status)) {
+            $this->db->where('la.status', $status);
+        }
+
+        if (!empty($search)) {
+            $this->db->group_start();
+            $this->db->like('la.application_number', $search, 'both');
+            $this->db->or_like('m.member_code', $search, 'both');
+            $this->db->or_like('m.first_name', $search, 'both');
+            $this->db->or_like('m.last_name', $search, 'both');
+            $this->db->or_like('CONCAT(m.first_name, " ", m.last_name)', $search, 'both');
+            $this->db->or_like('m.phone', $search, 'both');
+            $this->db->group_end();
+        }
+
+        $this->db->order_by('la.application_date', 'ASC');
+        $data['applications'] = $this->db->get()->result();
         
         // Get status counts for the cards
         $data['stats'] = [];

@@ -462,25 +462,22 @@ class Dashboard extends Admin_Controller {
      *     NOT on bank_transactions itself)
      */
     public function card_other_fees() {
+        $page = max(1, (int) $this->input->get('page', true));
+        $per_page = 20;
         $fees = [];
 
-        // -- Source 1: member_other_transactions (direct fee records) --
         if ($this->db->table_exists('member_other_transactions')) {
             $query = $this->db->select('mot.id, mot.transaction_date, mot.amount, mot.transaction_type, mot.description, m.member_code, m.first_name, m.last_name')
                               ->from('member_other_transactions mot')
                               ->join('members m', 'm.id = mot.member_id', 'left')
                               ->where('mot.transaction_type !=', 'membership_fee')
                               ->order_by('mot.transaction_date', 'DESC')
-                              ->limit(100)
                               ->get();
             if ($query !== FALSE) {
-                $fees = $query->result();
+                $fees = array_merge($fees, $query->result());
             }
         }
 
-        // -- Source 2: bank_transactions mapped as "other" --
-        // mapping_type is a column on transaction_mappings, NOT on bank_transactions.
-        // Must join through transaction_mappings to filter correctly.
         if ($this->db->table_exists('transaction_mappings')) {
             $query = $this->db->select('bt.id, bt.transaction_date, bt.amount, bt.description, bt.reference_number,
                                         m.member_code, m.first_name, m.last_name,
@@ -491,14 +488,31 @@ class Dashboard extends Admin_Controller {
                               ->where('tm.mapping_type', 'other')
                               ->where('tm.is_reversed', 0)
                               ->order_by('bt.transaction_date', 'DESC')
-                              ->limit(100)
                               ->get();
             if ($query !== FALSE) {
                 $fees = array_merge($fees, $query->result());
             }
         }
 
-        $this->json_response(['data' => $fees]);
+        usort($fees, function($a, $b) {
+            $da = strtotime($a->transaction_date ?? '1970-01-01');
+            $db = strtotime($b->transaction_date ?? '1970-01-01');
+            return $db <=> $da;
+        });
+
+        $total = count($fees);
+        $total_pages = max(1, (int) ceil($total / $per_page));
+        $current_page = min($page, $total_pages);
+        $start = ($current_page - 1) * $per_page;
+        $paged_fees = array_slice($fees, $start, $per_page);
+
+        $this->json_response([
+            'data' => $paged_fees,
+            'total' => $total,
+            'current_page' => $current_page,
+            'per_page' => $per_page,
+            'total_pages' => $total_pages,
+        ]);
     }
 
     /**

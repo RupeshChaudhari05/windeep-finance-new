@@ -353,6 +353,7 @@ class Savings extends Admin_Controller {
         $this->form_validation->set_rules('savings_account_id', 'Savings Account', 'required|numeric');
         $this->form_validation->set_rules('amount', 'Amount', 'required|numeric|greater_than[0]');
         $this->form_validation->set_rules('payment_mode', 'Payment Mode', 'required');
+        $this->form_validation->set_rules('transaction_type', 'Transaction Type', 'required|in_list[deposit,withdrawal]');
         
         if ($this->form_validation->run() === FALSE) {
             $this->session->set_flashdata('error', validation_errors());
@@ -360,19 +361,19 @@ class Savings extends Admin_Controller {
         }
         
         try {
-            // 'onetime' = ad-hoc extra contribution (not an advance on the schedule)
-            $deposit_type = $this->input->post('deposit_type') === 'onetime' ? 'onetime' : 'regular';
+            $transaction_type = $this->input->post('transaction_type') === 'withdrawal' ? 'withdrawal' : 'deposit';
+            $deposit_type = $transaction_type === 'deposit' && $this->input->post('deposit_type') === 'onetime' ? 'onetime' : 'regular';
 
             $payment_data = [
                 'savings_account_id' => $this->input->post('savings_account_id'),
-                'transaction_type' => 'deposit',
-                'deposit_type' => $deposit_type,
+                'transaction_type' => $transaction_type,
+                'deposit_type' => $transaction_type === 'deposit' ? $deposit_type : null,
                 'amount' => $this->input->post('amount'),
                 'payment_mode' => $this->input->post('payment_mode'),
                 // The form field is named payment_reference; fall back to reference_number
                 // for any caller still posting the older name.
                 'reference_number' => $this->input->post('payment_reference') ?: $this->input->post('reference_number'),
-                'schedule_id' => $deposit_type === 'onetime' ? null : $this->input->post('schedule_id'),
+                'schedule_id' => ($transaction_type === 'deposit' && $deposit_type === 'onetime') ? null : $this->input->post('schedule_id'),
                 'transaction_date' => $this->input->post('transaction_date') ?: date('Y-m-d'),
                 'remarks' => $this->input->post('remarks'),
                 'received_by' => $this->session->userdata('admin_id')
@@ -384,20 +385,27 @@ class Savings extends Admin_Controller {
                 // Post to ledger
                 $account = $this->Savings_model->get_by_id($payment_data['savings_account_id']);
                 $this->load->model('Ledger_model');
+                $ledger_type = $transaction_type === 'withdrawal' ? 'savings_withdrawal' : 'savings_deposit';
+                $narration = $transaction_type === 'withdrawal'
+                    ? 'Savings withdrawal for account ' . $account->account_number
+                    : (($deposit_type === 'onetime' ? 'One-time savings deposit for account ' : 'Savings deposit for account ') . $account->account_number);
+
                 $this->Ledger_model->post_transaction(
-                    'savings_deposit',
+                    $ledger_type,
                     $transaction_id,
                     $payment_data['amount'],
                     $account->member_id,
-                    ($deposit_type === 'onetime' ? 'One-time savings deposit for account ' : 'Savings deposit for account ') . $account->account_number,
+                    $narration,
                     $this->session->userdata('admin_id'),
                     $payment_data['transaction_date']
                 );
                 
                 $this->log_audit('create', 'savings_transactions', 'savings_transactions', $transaction_id, null, $payment_data);
-                $this->session->set_flashdata('success', $deposit_type === 'onetime'
-                    ? 'One-time deposit recorded successfully (not applied to the monthly schedule).'
-                    : 'Payment recorded successfully.');
+                $this->session->set_flashdata('success', $transaction_type === 'withdrawal'
+                    ? 'Savings withdrawal recorded successfully and the balance was updated.'
+                    : ($deposit_type === 'onetime'
+                        ? 'One-time deposit recorded successfully (not applied to the monthly schedule).'
+                        : 'Payment recorded successfully.'));
                 redirect('admin/payments/receipt/' . $transaction_id . '?type=savings');
             } else {
                 throw new Exception('Failed to record payment');

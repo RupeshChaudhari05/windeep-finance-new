@@ -9,7 +9,7 @@
 
 ALTER TABLE `admin_users`
     ADD COLUMN IF NOT EXISTS `must_change_password` TINYINT(1) NOT NULL DEFAULT 0
-        COMMENT 'Set when a temporary password was issued; forces a change at next login'
+        COMMENT 'Set when a temporary password was issued, forces a change at next login'
         AFTER `password`;
 
 ALTER TABLE `admin_users`

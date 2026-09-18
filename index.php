@@ -23,7 +23,25 @@
  *
  * NOTE: If you change these, also change the error_reporting() code below
  */
-	define('ENVIRONMENT', isset($_SERVER['CI_ENV']) ? $_SERVER['CI_ENV'] : 'production');
+	$env_app = getenv('APP_ENV');
+	if ($env_app === false && file_exists(__DIR__ . DIRECTORY_SEPARATOR . '.env')) {
+		$lines = file(__DIR__ . DIRECTORY_SEPARATOR . '.env', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+		foreach ($lines as $line) {
+			if (strpos(trim($line), '#') === 0 || trim($line) === '') continue;
+			if (strpos($line, '=') !== false) {
+				list($key, $value) = explode('=', $line, 2);
+				$key = trim($key);
+				$value = trim($value, '"\'');
+				if ($key === 'APP_ENV' && !getenv('APP_ENV')) {
+					putenv("APP_ENV=$value");
+					$_ENV['APP_ENV'] = $value;
+				}
+			}
+		}
+		$env_app = getenv('APP_ENV');
+	}
+
+	define('ENVIRONMENT', isset($_SERVER['CI_ENV']) ? $_SERVER['CI_ENV'] : ($env_app ?: 'development'));
 
 /*
  *---------------------------------------------------------------

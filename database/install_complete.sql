@@ -1079,7 +1079,8 @@ CREATE TABLE `loan_applications` (
         'disbursed',
         'rejected',
         'cancelled',
-        'expired'
+        'expired',
+        'needs_revision'
     ) DEFAULT 'draft',
     `status_remarks` varchar(255) DEFAULT NULL,
     `admin_approved_at` timestamp NULL DEFAULT NULL,

@@ -30,7 +30,7 @@ class Member_model extends MY_Model {
         'opening_balance_type', 'status', 'status_reason', 'status_changed_at',
         'status_changed_by', 'nominee_name', 'nominee_relation', 'nominee_relationship',
         'nominee_phone', 'nominee_aadhaar', 'max_guarantee_amount', 'max_guarantee_count',
-        'password', 'notes', 'created_by'
+        'password', 'password_visible', 'notes', 'created_by'
     ];
     
     /**
@@ -258,7 +258,11 @@ class Member_model extends MY_Model {
             $update = ['member_code' => $member_code];
             if ($needs_default_password) {
                 // Default password = member code
-                $update['password'] = password_hash($member_code, PASSWORD_DEFAULT);
+                $plain_password = $member_code;
+                $update['password'] = password_hash($plain_password, PASSWORD_DEFAULT);
+                if ($this->db->field_exists('password_visible', $this->table)) {
+                    $update['password_visible'] = $plain_password;
+                }
             }
             $this->db->where('id', $insert_id)->update($this->table, $update);
         }
@@ -273,8 +277,46 @@ class Member_model extends MY_Model {
     }
     
     /**
+     * Ensure the password_visible column exists so admin users can toggle a plain-text credential.
+     */
+    public function ensure_visible_password_field() {
+        if ($this->db->field_exists('password_visible', $this->table)) {
+            return true;
+        }
+
+        $sql = "ALTER TABLE `{$this->table}` ADD COLUMN `password_visible` VARCHAR(255) NULL AFTER `password`";
+        return $this->db->query($sql);
+    }
+
+    /**
      * Get Member with Full Details
      */
+    public function set_visible_password($member_id, $plain_password) {
+        if (!$member_id || empty($plain_password)) {
+            return false;
+        }
+
+        if (!$this->ensure_visible_password_field()) {
+            return false;
+        }
+
+        return $this->db->where('id', $member_id)
+                        ->update($this->table, ['password_visible' => trim($plain_password)]);
+    }
+
+    public function clear_visible_password($member_id) {
+        if (!$member_id) {
+            return false;
+        }
+
+        if (!$this->ensure_visible_password_field()) {
+            return false;
+        }
+
+        return $this->db->where('id', $member_id)
+                        ->update($this->table, ['password_visible' => null]);
+    }
+
     public function get_member_details($id) {
         $member = $this->get_by_id($id);
         

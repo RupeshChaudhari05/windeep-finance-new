@@ -663,18 +663,32 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Exposed to window for inline onclick usage
     window.openCardModal = openCardModal;
+
+    $(document).on('click', '#dashboardDetailBody [data-page]', function(e) {
+        e.preventDefault();
+        var page = $(this).data('page');
+        var card = $('#dashboardDetailModal').data('active-card');
+        if (card) {
+            openCardModal(card, page);
+        }
+    });
     
-    function openCardModal(card) {
+    function openCardModal(card, page) {
         var $modal = $('#dashboardDetailModal');
         var $body = $('#dashboardDetailBody');
         var $title = $('#dashboardDetailModalLabel');
+        $modal.data('active-card', card);
         
         $body.html('<div class="text-center py-5"><i class="fas fa-spinner fa-spin fa-3x text-primary"></i><p class="mt-3 text-muted">Loading details...</p></div>');
         $modal.modal('show');
         
         var baseUrl = '<?= site_url("admin/dashboard/card_") ?>';
+        var requestUrl = baseUrl + card;
+        if (page && page > 1) {
+            requestUrl += '?page=' + page;
+        }
         
-        $.getJSON(baseUrl + card, function(res) {
+        $.getJSON(requestUrl, function(res) {
             var html = '';
             switch(card) {
                 case 'members':
@@ -771,12 +785,29 @@ document.addEventListener('DOMContentLoaded', function() {
                     break;
 
                 case 'other_fees':
-                    $title.html('<i class="fas fa-receipt mr-2 text-purple"></i>Processing Fees');
+                    var currentPage = res.current_page || 1;
+                    var totalPages = res.total_pages || 1;
+                    $title.html('<i class="fas fa-receipt mr-2 text-purple"></i>Processing Fees (' + (res.total || 0) + ')');
                     html = '<div class="table-responsive"><table class="table table-hover table-sm"><thead class="thead-light"><tr><th>Date</th><th>Member</th><th>Type</th><th>Amount</th><th>Description</th></tr></thead><tbody>';
                     $.each(res.data, function(i, f) {
                         html += '<tr><td>' + formatDate(f.transaction_date) + '</td><td>' + (f.member_code ? f.member_code + ' - ' + f.first_name + ' ' + f.last_name : '-') + '</td><td>' + (f.transaction_type || '-') + '</td><td class="text-right font-weight-bold">' + formatCurrency(f.amount) + '</td><td>' + (f.description || '-') + '</td></tr>';
                     });
+                    if (!res.data || res.data.length === 0) {
+                        html += '<tr><td colspan="5" class="text-center text-muted py-3">No processing fee transactions found.</td></tr>';
+                    }
                     html += '</tbody></table></div>';
+
+                    html += '<div class="d-flex justify-content-between align-items-center mt-3">';
+                    html += '<div class="small text-muted">Page ' + currentPage + ' of ' + totalPages + '</div>';
+                    html += '<div class="btn-group btn-group-sm">';
+                    if (currentPage > 1) {
+                        html += '<button type="button" class="btn btn-outline-secondary" data-page="' + (currentPage - 1) + '">Previous</button>';
+                    }
+                    if (currentPage < totalPages) {
+                        html += '<button type="button" class="btn btn-outline-primary" data-page="' + (currentPage + 1) + '">Next</button>';
+                    }
+                    html += '</div>';
+                    html += '</div>';
                     break;
                 
                 case 'fund_providers':

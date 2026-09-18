@@ -186,14 +186,16 @@
                                                 <?= $is_rev ? '<s>'.format_amount((float) $balance).'</s>' : format_amount((float) $balance) ?>
                                             </td>
                                             <td><small><?= ucfirst($txn->payment_mode) ?></small></td>
-                                            <td>
+                                            <td class="text-center align-middle">
                                                 <?php if (!$is_rev): ?>
-                                                <a href="<?= site_url('admin/payments/receipt/'.$txn->id.'?type=savings') ?>" target="_blank" class="btn btn-xs btn-outline-secondary" title="Print Receipt"><i class="fas fa-print"></i></a>
-                                                <?php if (in_array($txn->transaction_type, ['deposit', 'withdrawal', 'interest_credit', 'opening_balance', 'fine', 'adjustment'])): ?>
-                                                <button type="button" class="btn btn-xs btn-outline-danger ml-1 btn-reverse-savings" data-txn-id="<?= $txn->id ?>" title="Reverse Transaction">
-                                                    <i class="fas fa-undo"></i>
-                                                </button>
-                                                <?php endif; ?>
+                                                <div class="action-buttons d-flex align-items-center justify-content-center">
+                                                    <a href="<?= site_url('admin/payments/receipt/'.$txn->id.'?type=savings') ?>" target="_blank" class="btn btn-xs btn-outline-secondary" title="Print Receipt"><i class="fas fa-print"></i></a>
+                                                    <?php if (in_array($txn->transaction_type, ['deposit', 'withdrawal', 'interest_credit', 'opening_balance', 'fine', 'adjustment'])): ?>
+                                                    <button type="button" class="btn btn-xs btn-outline-danger btn-reverse-savings" data-txn-id="<?= $txn->id ?>" title="Reverse Transaction">
+                                                        <i class="fas fa-undo"></i>
+                                                    </button>
+                                                    <?php endif; ?>
+                                                </div>
                                                 <?php endif; ?>
                                             </td>
                                         </tr>
@@ -347,6 +349,32 @@
         </div>
     </div>
 </div>
+
+<style>
+    .action-buttons {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+    }
+
+    .action-buttons .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 30px;
+        height: 30px;
+        padding: 0;
+        line-height: 1;
+        border-radius: 6px;
+        vertical-align: middle;
+        margin: 0;
+    }
+
+    .action-buttons .btn i {
+        font-size: 12px;
+    }
+</style>
 
 <script>
 $(document).ready(function() {

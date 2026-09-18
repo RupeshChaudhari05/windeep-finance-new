@@ -215,7 +215,7 @@ $(document).ready(function() {
     <div class="col-md-8">
         <div class="card card-primary">
             <div class="card-header">
-                <h3 class="card-title"><i class="fas fa-rupee-sign mr-1"></i> Collect Security Deposit Payment</h3>
+                <h3 class="card-title"><i class="fas fa-rupee-sign mr-1"></i> Record Security Deposit Transaction</h3>
             </div>
             <?php if ($account): ?>
             <form action="<?= site_url('admin/savings/record_payment/' . $account->id) ?>" method="post" id="collectionForm">
@@ -223,8 +223,22 @@ $(document).ready(function() {
                 <input type="hidden" name="savings_account_id" value="<?= $account->id ?>">
                 
                 <div class="card-body">
-                    <!-- Deposit Type: regular schedule collection vs one-time extra -->
                     <div class="form-group">
+                        <label class="d-block">Transaction Type <span class="text-danger">*</span></label>
+                        <div class="btn-group btn-group-toggle w-100" data-toggle="buttons">
+                            <label class="btn btn-outline-primary active" id="lblDepositType">
+                                <input type="radio" name="transaction_type" value="deposit" checked>
+                                <i class="fas fa-arrow-down mr-1"></i> Deposit
+                            </label>
+                            <label class="btn btn-outline-danger" id="lblWithdrawalType">
+                                <input type="radio" name="transaction_type" value="withdrawal">
+                                <i class="fas fa-arrow-up mr-1"></i> Withdrawal
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Deposit Type: regular schedule collection vs one-time extra -->
+                    <div class="form-group" id="depositTypePanel">
                         <label class="d-block">Deposit Type <span class="text-danger">*</span></label>
                         <div class="btn-group btn-group-toggle w-100" data-toggle="buttons">
                             <label class="btn btn-outline-primary active" id="lblRegular">
@@ -246,7 +260,7 @@ $(document).ready(function() {
                     <div class="row">
                         <div class="col-md-6">
                             <div class="form-group">
-                                <label for="amount">Collection Amount (<?= get_currency_symbol() ?>) <span class="text-danger">*</span></label>
+                                <label for="amount" id="amountLabel">Collection Amount (<?= get_currency_symbol() ?>) <span class="text-danger">*</span></label>
                                 <input type="number" class="form-control form-control-lg" id="amount" name="amount" 
                                        value="<?= $account->monthly_amount ?>" required min="1"
                                        placeholder="Enter amount" autofocus>
@@ -309,16 +323,16 @@ $(document).ready(function() {
                     <div class="alert alert-info" id="paymentSummaryBox">
                         <div class="row">
                             <div class="col-md-6">
-                                <strong>Collection Summary:</strong>
+                                <strong>Transaction Summary:</strong>
                                 <div class="mt-2">
                                     <span>Amount: </span>
                                     <span class="font-weight-bold" id="summaryAmount"><?= format_amount($account->monthly_amount, 0) ?></span>
                                 </div>
                             </div>
                             <div class="col-md-6">
-                                <strong>After Collection:</strong>
+                                <strong>After Transaction:</strong>
                                 <div class="mt-2">
-                                    <span>New Balance: </span>
+                                    <span id="summaryBalanceLabel">New Balance: </span>
                                     <span class="font-weight-bold text-success" id="summaryNewBalance">
                                         <?= format_amount($account->current_balance + $account->monthly_amount, 0) ?>
                                     </span>
@@ -329,8 +343,8 @@ $(document).ready(function() {
                 </div>
                 
                 <div class="card-footer">
-                    <button type="submit" class="btn btn-success btn-lg">
-                        <i class="fas fa-check mr-1"></i> Collect Payment
+                    <button type="submit" class="btn btn-success btn-lg" id="submitTransactionBtn">
+                        <i class="fas fa-check mr-1"></i> Save Transaction
                     </button>
                     <a href="<?= site_url('admin/savings/view/' . $account->id) ?>" class="btn btn-secondary btn-lg">
                         <i class="fas fa-times mr-1"></i> Cancel
@@ -389,6 +403,30 @@ $(document).ready(function() {
     var currentBalance = <?= (float)$account->current_balance ?>;
     var CS             = '<?= get_currency_symbol() ?>';
 
+    function getTransactionType() {
+        return $('input[name="transaction_type"]:checked').val() || 'deposit';
+    }
+
+    function updateTransactionControls() {
+        var type = getTransactionType();
+        var isDeposit = type === 'deposit';
+
+        $('#depositTypePanel').toggle(isDeposit);
+        $('#amountLabel').text(isDeposit ? 'Collection Amount (<?= get_currency_symbol() ?>) *' : 'Withdrawal Amount (<?= get_currency_symbol() ?>) *');
+        $('#summaryBalanceLabel').text(isDeposit ? 'New Balance: ' : 'Remaining Balance: ');
+        $('#submitTransactionBtn').removeClass('btn-success btn-danger').addClass(isDeposit ? 'btn-success' : 'btn-danger');
+        $('#submitTransactionBtn').html('<i class="fas fa-check mr-1"></i> ' + (isDeposit ? 'Save Deposit' : 'Save Withdrawal'));
+
+        if (!isDeposit) {
+            $('#amount').attr('min', 1);
+        }
+    }
+
+    $('input[name="transaction_type"]').on('change', function() {
+        updateTransactionControls();
+        updateSummary();
+    });
+
     // Deposit type: regular schedule collection vs one-time extra contribution
     $('input[name="deposit_type"]').on('change', function() {
         var onetime = $('input[name="deposit_type"]:checked').val() === 'onetime';
@@ -416,10 +454,15 @@ $(document).ready(function() {
 
     function updateSummary() {
         var amount = parseFloat($('#amount').val()) || 0;
+        var type = getTransactionType();
+        var newBalance = type === 'withdrawal' ? currentBalance - amount : currentBalance + amount;
+
         $('#summaryAmount').text(fmt(amount));
-        $('#summaryNewBalance').text(fmt(currentBalance + amount));
+        $('#summaryNewBalance').text(fmt(newBalance));
+        $('#summaryNewBalance').removeClass('text-success text-danger').addClass(type === 'withdrawal' ? 'text-danger' : 'text-success');
     }
 
+    updateTransactionControls();
     updateSummary();
 
     // Payment mode — require reference for non-cash
@@ -436,15 +479,23 @@ $(document).ready(function() {
     // Form submit
     $('#collectionForm').on('submit', function(e) {
         var amount = parseFloat($('#amount').val());
+        var type = getTransactionType();
+
         if (amount <= 0) {
             e.preventDefault();
             Swal.fire('Error', 'Please enter a valid amount', 'error');
             return false;
         }
 
+        if (type === 'withdrawal' && amount > currentBalance) {
+            e.preventDefault();
+            Swal.fire('Error', 'Withdrawal amount cannot be greater than the current savings balance.', 'error');
+            return false;
+        }
+
         Swal.fire({
             title: 'Processing...',
-            text: 'Recording payment of ' + CS + amount.toLocaleString('en-IN'),
+            text: (type === 'withdrawal' ? 'Recording withdrawal of ' : 'Recording deposit of ') + CS + amount.toLocaleString('en-IN'),
             allowOutsideClick: false,
             showConfirmButton: false,
             willOpen: function() { Swal.showLoading(); }

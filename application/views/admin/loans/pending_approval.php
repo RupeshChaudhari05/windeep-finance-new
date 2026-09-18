@@ -1,8 +1,28 @@
 <!-- Pending Approval Loans -->
 <div class="card">
     <div class="card-header">
-        <h3 class="card-title"><i class="fas fa-clock mr-1"></i> Pending Approval</h3>
-        <div class="card-tools">
+        <div class="row align-items-center">
+            <div class="col-md-7">
+                <h3 class="card-title mb-0"><i class="fas fa-clock mr-1"></i> Pending Approval</h3>
+            </div>
+            <div class="col-md-5 text-right">
+                <form action="" method="get" class="form-inline justify-content-end">
+                    <div class="input-group input-group-sm mr-2">
+                        <input type="text" name="search" class="form-control" placeholder="Search application/member..." value="<?= htmlspecialchars($filters['search'] ?? '') ?>">
+                        <div class="input-group-append">
+                            <button type="submit" class="btn btn-default"><i class="fas fa-search"></i></button>
+                        </div>
+                    </div>
+                    <select name="status" class="form-control form-control-sm" onchange="this.form.submit()">
+                        <option value="all" <?= ($filters['status'] ?? 'all') == 'all' ? 'selected' : '' ?>>All Status</option>
+                        <option value="pending" <?= ($filters['status'] ?? '') == 'pending' ? 'selected' : '' ?>>Pending</option>
+                        <option value="under_review" <?= ($filters['status'] ?? '') == 'under_review' ? 'selected' : '' ?>>Under Review</option>
+                        <option value="guarantor_pending" <?= ($filters['status'] ?? '') == 'guarantor_pending' ? 'selected' : '' ?>>Guarantor Pending</option>
+                    </select>
+                </form>
+            </div>
+        </div>
+        <div class="card-tools mt-2">
             <a href="<?= site_url('admin/loans') ?>" class="btn btn-default btn-sm">
                 <i class="fas fa-arrow-left"></i> Back to Loans
             </a>

@@ -667,7 +667,7 @@ CREATE TABLE `loan_applications` (
   `revision_remarks` text DEFAULT NULL,
   `revised_at` timestamp NULL DEFAULT NULL,
   `revised_by` int(10) unsigned DEFAULT NULL,
-  `status` enum('draft','pending','under_review','guarantor_pending','admin_approved','member_review','member_approved','disbursed','rejected','cancelled','expired') DEFAULT 'draft',
+  `status` enum('draft','pending','under_review','guarantor_pending','admin_approved','member_review','member_approved','disbursed','rejected','cancelled','expired','needs_revision') DEFAULT 'draft',
   `status_remarks` varchar(255) DEFAULT NULL,
   `admin_approved_at` timestamp NULL DEFAULT NULL,
   `admin_approved_by` int(10) unsigned DEFAULT NULL,

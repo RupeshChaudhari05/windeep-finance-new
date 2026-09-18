@@ -2046,6 +2046,7 @@ class Settings extends Admin_Controller {
      */
     public function generate_member_passwords() {
         $this->load->model('Member_model');
+        $this->Member_model->ensure_visible_password_field();
         
         $data['title'] = 'Generate Member Passwords';
         $data['page_title'] = 'Generate Passwords for All Members';
@@ -2073,9 +2074,12 @@ class Settings extends Admin_Controller {
             $password_hash = password_hash($plain_password, PASSWORD_DEFAULT);
             $username = strtolower(str_replace('-', '_', $member->member_code));
             
-            // Update member password
+            // Update member password and persist the visible copy for admin viewing.
             $result = $this->db->where('id', $member->id)
-                              ->update('members', ['password' => $password_hash]);
+                              ->update('members', [
+                                  'password' => $password_hash,
+                                  'password_visible' => $plain_password
+                              ]);
             
             if ($result) {
                 $credentials[] = [
@@ -2133,6 +2137,7 @@ class Settings extends Admin_Controller {
      */
     public function view_member_passwords() {
         $this->load->model('Member_model');
+        $this->Member_model->ensure_visible_password_field();
         
         $data['title'] = 'View Member Passwords';
         $data['page_title'] = 'View All Member Passwords';
@@ -2143,7 +2148,7 @@ class Settings extends Admin_Controller {
         ];
         
         // Get all members with their password status
-        $members = $this->db->select('id, member_code, first_name, last_name, phone, email, password, created_at, status')
+        $members = $this->db->select('id, member_code, first_name, last_name, phone, email, password, password_visible, created_at, status')
                            ->where('deleted_at', NULL)
                            ->order_by('member_code', 'ASC')
                            ->get('members')
@@ -2167,8 +2172,8 @@ class Settings extends Admin_Controller {
             if ($has_password) $password_set++;
             else $password_not_set++;
             
-            // Check if this password was just generated
-            $plain_password = isset($generated_creds_map[$member->id]) ? $generated_creds_map[$member->id]['password'] : null;
+            // Check if this password was just generated or previously stored for admin visibility.
+            $plain_password = isset($generated_creds_map[$member->id]) ? $generated_creds_map[$member->id]['password'] : ($member->password_visible ?: null);
             
             $members_data[] = [
                 'id' => $member->id,
@@ -2179,6 +2184,7 @@ class Settings extends Admin_Controller {
                 'email' => $member->email,
                 'username' => strtolower(str_replace('-', '_', $member->member_code)),
                 'password_hash' => $member->password,
+                'password_visible' => $member->password_visible ?: null,
                 'plain_password' => $plain_password,
                 'has_password' => $has_password,
                 'status' => $member->status
@@ -2204,6 +2210,9 @@ class Settings extends Admin_Controller {
      * Returns JSON response with new password
      */
     public function reset_member_password() {
+        $this->load->model('Member_model');
+        $this->Member_model->ensure_visible_password_field();
+
         if (!$this->input->is_ajax_request()) {
             $this->response->set_status_header(403);
             echo json_encode(['success' => false, 'message' => 'Invalid request']);
@@ -2232,9 +2241,12 @@ class Settings extends Admin_Controller {
         $plain_password = $this->generate_random_password(12);
         $password_hash = password_hash($plain_password, PASSWORD_DEFAULT);
 
-        // Update member password
+        // Update member password and keep the plain text in the visibility field so the admin can view it later.
         $result = $this->db->where('id', $member_id)
-                          ->update('members', ['password' => $password_hash]);
+                          ->update('members', [
+                              'password' => $password_hash,
+                              'password_visible' => $plain_password
+                          ]);
 
         if ($result) {
             // Log audit

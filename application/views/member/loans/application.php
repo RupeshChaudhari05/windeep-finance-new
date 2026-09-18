@@ -21,6 +21,22 @@
             </div>
         <?php endif; ?>
 
+        <?php if ($application->status === 'needs_revision' && (!empty($application->approved_amount) || !empty($application->approved_tenure_months) || !empty($application->approved_interest_rate))): ?>
+            <hr>
+            <div class="alert alert-warning">
+                <strong>Admin Proposed Terms:</strong><br>
+                <?php if (!empty($application->approved_amount)): ?>
+                    <span><strong>Amount:</strong> <?= format_amount($application->approved_amount) ?></span><br>
+                <?php endif; ?>
+                <?php if (!empty($application->approved_tenure_months)): ?>
+                    <span><strong>Tenure:</strong> <?= (int)$application->approved_tenure_months ?> months</span><br>
+                <?php endif; ?>
+                <?php if (!empty($application->approved_interest_rate)): ?>
+                    <span><strong>Interest Rate:</strong> <?= $application->approved_interest_rate ?>%</span>
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
+
         <?php if (!empty($guarantors)): ?>
             <h5>Guarantors</h5>
             <ul>
