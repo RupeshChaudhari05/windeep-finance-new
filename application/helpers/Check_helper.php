@@ -11,11 +11,18 @@ class Check_helper {
         $this->CI =& get_instance();
         $this->CI->load->database();
     }
+
+    private function table_exists() {
+        return $this->CI->db->table_exists('loan_check_details');
+    }
     
     /**
      * Save check details for a loan application
      */
     public function save_check_details($application_id, $check_data, $created_by = null) {
+        if (!$this->table_exists()) {
+            return false;
+        }
         $insert_data = array(
             'loan_application_id' => $application_id,
             'member_id' => $check_data['member_id'],
@@ -42,6 +49,10 @@ class Check_helper {
      * Get all checks for a loan application
      */
     public function get_application_checks($application_id) {
+        if (!$this->table_exists()) {
+            return [];
+        }
+
         $this->CI->db->select('lcd.*, m.first_name, m.last_name, m.member_code, 
                               g.guarantor_member_id, gm.first_name as guar_first_name, 
                               gm.last_name as guar_last_name, gm.member_code as guar_member_code,
@@ -73,6 +84,10 @@ class Check_helper {
      * Get all checks for a loan
      */
     public function get_loan_checks($loan_id) {
+        if (!$this->table_exists()) {
+            return [];
+        }
+
         $this->CI->db->select('lcd.*, m.first_name, m.last_name, m.member_code, 
                               g.guarantor_member_id, gm.first_name as guar_first_name, 
                               gm.last_name as guar_last_name')
@@ -91,6 +106,10 @@ class Check_helper {
      * Get a single check by ID
      */
     public function get_check($check_id) {
+        if (!$this->table_exists()) {
+            return null;
+        }
+
         return $this->CI->db->select('lcd.*, m.first_name, m.last_name, m.member_code, 
                                       g.guarantor_member_id, gm.first_name as guar_first_name, 
                                       gm.last_name as guar_last_name,
@@ -109,6 +128,10 @@ class Check_helper {
      * Update check status
      */
     public function update_check_status($check_id, $status, $notes = null, $verified_by = null) {
+        if (!$this->table_exists()) {
+            return false;
+        }
+
         $update_data = array(
             'status' => $status
         );
@@ -129,6 +152,10 @@ class Check_helper {
      * Link checks to a loan (when disbursed)
      */
     public function link_checks_to_loan($application_id, $loan_id) {
+        if (!$this->table_exists()) {
+            return false;
+        }
+
         return $this->CI->db->where('loan_application_id', $application_id)
             ->where('loan_id', null)
             ->update('loan_check_details', array('loan_id' => $loan_id));
@@ -138,6 +165,10 @@ class Check_helper {
      * Delete checks for an application
      */
     public function delete_application_checks($application_id) {
+        if (!$this->table_exists()) {
+            return false;
+        }
+
         return $this->CI->db->where('loan_application_id', $application_id)->delete('loan_check_details');
     }
     
@@ -146,6 +177,10 @@ class Check_helper {
      */
     public function get_check_summary() {
         $summary = new stdClass();
+
+        if (!$this->table_exists()) {
+            return $summary;
+        }
         
         $this->CI->db->select('status, COUNT(*) as count')
             ->from('loan_check_details')
@@ -164,6 +199,10 @@ class Check_helper {
      * Get checks by bank for reconciliation
      */
     public function get_checks_by_bank($bank_name = null) {
+        if (!$this->table_exists()) {
+            return [];
+        }
+
         $query = $this->CI->db->select('bank_name, COUNT(*) as count, SUM(amount) as total')
             ->from('loan_check_details')
             ->where('status !=', 'cancelled');

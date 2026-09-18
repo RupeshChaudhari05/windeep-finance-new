@@ -134,7 +134,7 @@
         <div class="info-box dashboard-card" data-card="other_fees" style="cursor:pointer" data-toggle="tooltip" title="Click to view other fees detail">
             <span class="info-box-icon bg-purple"><i class="fas fa-receipt"></i></span>
             <div class="info-box-content">
-                <span class="info-box-text">Other Members Fee</span>
+                <span class="info-box-text">Processing Fee</span>
                 <span class="info-box-number"><?= format_amount($fee_summary['other_member_fee'] ?? 0, 0) ?></span>
             </div>
         </div>
@@ -771,7 +771,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     break;
 
                 case 'other_fees':
-                    $title.html('<i class="fas fa-receipt mr-2 text-purple"></i>Other Member Fees');
+                    $title.html('<i class="fas fa-receipt mr-2 text-purple"></i>Processing Fees');
                     html = '<div class="table-responsive"><table class="table table-hover table-sm"><thead class="thead-light"><tr><th>Date</th><th>Member</th><th>Type</th><th>Amount</th><th>Description</th></tr></thead><tbody>';
                     $.each(res.data, function(i, f) {
                         html += '<tr><td>' + formatDate(f.transaction_date) + '</td><td>' + (f.member_code ? f.member_code + ' - ' + f.first_name + ' ' + f.last_name : '-') + '</td><td>' + (f.transaction_type || '-') + '</td><td class="text-right font-weight-bold">' + formatCurrency(f.amount) + '</td><td>' + (f.description || '-') + '</td></tr>';
