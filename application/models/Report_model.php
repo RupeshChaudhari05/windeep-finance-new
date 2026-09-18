@@ -18,9 +18,19 @@ class Report_model extends MY_Model {
         $stats['total_members'] = $this->db->where('status', 'active')
                                            ->count_all_results('members');
         
+        // Counted on the membership join date, not when the row was keyed in.
+        // Written as a date range with escaping off: CodeIgniter cannot parse a
+        // NESTED function like MONTH(COALESCE(a, DATE(b))) as a field name and
+        // silently drops the "=", producing invalid SQL.
+        $month_start = date('Y-m-01');
+        $month_end   = date('Y-m-t');
         $stats['new_members_month'] = $this->db->where('status', 'active')
-                                                ->where('MONTH(created_at)', date('m'))
-                                                ->where('YEAR(created_at)', date('Y'))
+                                                ->where(
+                                                    'COALESCE(join_date, DATE(created_at)) BETWEEN '
+                                                    . $this->db->escape($month_start) . ' AND '
+                                                    . $this->db->escape($month_end),
+                                                    null, false
+                                                )
                                                 ->count_all_results('members');
         
         // Savings Stats
@@ -30,10 +40,13 @@ class Report_model extends MY_Model {
                                            ->row()
                                            ->current_balance ?? 0;
         
+        // Collected this month = deposits DATED this month, matching the loan
+        // side (which uses payment_date) and the dashboard drill-down.
         $stats['savings_this_month'] = $this->db->select_sum('amount')
                                                  ->where('transaction_type', 'deposit')
-                                                 ->where('MONTH(created_at)', date('m'))
-                                                 ->where('YEAR(created_at)', date('Y'))
+                                                 ->where('MONTH(transaction_date)', date('m'))
+                                                 ->where('YEAR(transaction_date)', date('Y'))
+                                                 ->where('COALESCE(is_reversed, 0) = 0', null, false)
                                                  ->get('savings_transactions')
                                                  ->row()
                                                  ->amount ?? 0;
@@ -493,8 +506,9 @@ class Report_model extends MY_Model {
             
             $data['savings'][] = $this->db->select_sum('amount')
                                           ->where('transaction_type', 'deposit')
-                                          ->where('MONTH(created_at)', $m)
-                                          ->where('YEAR(created_at)', $year)
+                                          ->where('MONTH(transaction_date)', $m)
+                                          ->where('YEAR(transaction_date)', $year)
+                                          ->where('COALESCE(is_reversed, 0) = 0', null, false)
                                           ->get('savings_transactions')
                                           ->row()
                                           ->amount ?? 0;

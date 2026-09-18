@@ -356,8 +356,14 @@ class Dashboard extends Admin_Controller {
                                         ->join('savings_accounts sa', 'sa.id = st.savings_account_id')
                                         ->join('members m', 'm.id = sa.member_id')
                                         ->where('st.transaction_type', 'deposit')
-                                        ->where('MONTH(st.created_at)', $month)
-                                        ->where('YEAR(st.created_at)', $year)
+                                        // Filter on the date the money was collected — the same
+                                        // column that is displayed. Filtering on created_at (when
+                                        // the row was keyed in) listed back-dated deposits under
+                                        // the wrong month.
+                                        ->where('MONTH(st.transaction_date)', $month)
+                                        ->where('YEAR(st.transaction_date)', $year)
+                                        ->where('COALESCE(st.is_reversed, 0) = 0', null, false)
+                                        ->where('st.amount >', 0)
                                         ->order_by('st.transaction_date', 'DESC')
                                         ->limit(50)
                                         ->get()

@@ -428,6 +428,96 @@ class Member_model extends MY_Model {
     /**
      * Get Members with Pagination
      */
+    /**
+     * Member search.
+     *
+     * Back-office staff search with whatever they have in front of them: part of
+     * a name, a phone number copied from a message, an account or loan number
+     * off a receipt, an Aadhaar, an email. Each whitespace-separated word must
+     * match somewhere (AND), so "sandeep pune" narrows rather than widens.
+     *
+     * Phone matching strips non-digits from BOTH sides, so "+91 98765-43210"
+     * and "98765 43210" both find 9876543210.
+     */
+    private function apply_member_search($search)
+    {
+        if ($search === '') {
+            return;
+        }
+
+        // A number typed with formatting ("+91 99233-57180", "9923 357180",
+        // "1234 5678 9012") is ONE value, not several words. Strip it to digits
+        // and match numerically rather than splitting it apart.
+        if (preg_match('/^[\d\s()+\-]+$/', $search)) {
+            $digits = preg_replace('/\D+/', '', $search);
+            if (strlen($digits) >= 4) {
+                // Try the number as typed and, when a country code was included,
+                // its trailing 10 digits — "+91 99233-57180" must find 9923357180.
+                $candidates = [$digits];
+                if (strlen($digits) > 10) {
+                    $candidates[] = substr($digits, -10);
+                }
+
+                $ors = [];
+                foreach (array_unique($candidates) as $candidate) {
+                    $d = $this->db->escape_like_str($candidate);
+                    $ors[] = "REPLACE(REPLACE(REPLACE(COALESCE(phone,''),' ',''),'-',''),'+','') LIKE '%{$d}%'";
+                    $ors[] = "REPLACE(REPLACE(REPLACE(COALESCE(alternate_phone,''),' ',''),'-',''),'+','') LIKE '%{$d}%'";
+                    $ors[] = "REPLACE(COALESCE(aadhaar_number,''),' ','') LIKE '%{$d}%'";
+                    $ors[] = "REPLACE(COALESCE(nominee_phone,''),' ','') LIKE '%{$d}%'";
+                    $ors[] = "member_code LIKE '%{$d}%'";
+                    $ors[] = "COALESCE(id_proof_number,'') LIKE '%{$d}%'";
+                }
+
+                $this->db->where('(' . implode(' OR ', $ors) . ')', null, false);
+                return;
+            }
+        }
+
+        // Each term must match; a term may match any of the columns below.
+        $terms = preg_split('/\s+/', $search, -1, PREG_SPLIT_NO_EMPTY);
+
+        foreach ($terms as $term) {
+            $like   = $this->db->escape_like_str($term);
+            $digits = preg_replace('/\D+/', '', $term);
+
+            $clauses = [];
+
+            // Identity
+            $clauses[] = "member_code LIKE '%{$like}%'";
+            $clauses[] = "CONCAT_WS(' ', first_name, middle_name, last_name) LIKE '%{$like}%'";
+            $clauses[] = "father_name LIKE '%{$like}%'";
+            $clauses[] = "nominee_name LIKE '%{$like}%'";
+
+            // Contact
+            $clauses[] = "email LIKE '%{$like}%'";
+            $clauses[] = "city LIKE '%{$like}%'";
+
+            // Documents
+            $clauses[] = "pan_number LIKE '%{$like}%'";
+            $clauses[] = "id_proof_number LIKE '%{$like}%'";
+
+            // Numbers: compare digits-only so formatting never blocks a match
+            if ($digits !== '') {
+                $d = $this->db->escape_like_str($digits);
+                $clauses[] = "REPLACE(REPLACE(REPLACE(COALESCE(phone,''),' ',''),'-',''),'+','') LIKE '%{$d}%'";
+                $clauses[] = "REPLACE(REPLACE(REPLACE(COALESCE(alternate_phone,''),' ',''),'-',''),'+','') LIKE '%{$d}%'";
+                $clauses[] = "REPLACE(COALESCE(aadhaar_number,''),' ','') LIKE '%{$d}%'";
+                $clauses[] = "REPLACE(COALESCE(nominee_phone,''),' ','') LIKE '%{$d}%'";
+            }
+
+            // Find the owner of a loan / savings account number
+            $clauses[] = "EXISTS (SELECT 1 FROM loans l
+                                   WHERE l.member_id = {$this->table}.id
+                                     AND l.loan_number LIKE '%{$like}%')";
+            $clauses[] = "EXISTS (SELECT 1 FROM savings_accounts sa
+                                   WHERE sa.member_id = {$this->table}.id
+                                     AND sa.account_number LIKE '%{$like}%')";
+
+            $this->db->where('(' . implode(' OR ', $clauses) . ')', null, false);
+        }
+    }
+
     public function get_paginated($filters = [], $page = 1, $per_page = 25) {
         // Build base query
         $this->db->from($this->table);
@@ -450,16 +540,7 @@ class Member_model extends MY_Model {
         }
         
         if (!empty($filters['search'])) {
-            $this->db->group_start();
-            $this->db->like('member_code', $filters['search']);
-            $this->db->or_like('first_name', $filters['search']);
-            $this->db->or_like('middle_name', $filters['search']);
-            $this->db->or_like('last_name', $filters['search']);
-            $this->db->or_like('phone', $filters['search']);
-            // Match against the assembled name too, so "Sandeep Ramesh" finds a
-            // member whose first and middle names are stored separately.
-            $this->db->or_like("CONCAT_WS(' ', first_name, middle_name, last_name)", $filters['search']);
-            $this->db->group_end();
+            $this->apply_member_search(trim((string) $filters['search']));
         }
         
         // Get total count

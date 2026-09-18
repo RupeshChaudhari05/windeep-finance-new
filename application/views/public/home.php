@@ -402,7 +402,7 @@
                 <div class="card-stack">
                     <div class="stat-card">
                         <div class="label">Total Disbursed This Year</div>
-                        <div class="value">₹ 48.6 Cr</div>
+                        <div class="value">₹ XX.X Cr</div>
                         <div class="sub"><i class="fas fa-arrow-up"></i> 22% growth over last year</div>
                         <div style="height:80px; margin-top:18px; background:linear-gradient(180deg,rgba(211,84,0,0.12) 0%,transparent 100%); border-bottom:2px solid var(--orange); border-radius:4px;"></div>
                     </div>
@@ -583,7 +583,7 @@
             <div data-aos="fade-left">
                 <div style="background:linear-gradient(135deg,#eff6ff,#e0f2fe); border-radius:24px; padding:40px;">
                     <div style="text-align:center; margin-bottom:30px;">
-                        <div style="font-size:3rem; font-weight:900; font-family:'Nunito',sans-serif; color:var(--blue);">₹48 Cr+</div>
+                        <div style="font-size:3rem; font-weight:900; font-family:'Nunito',sans-serif; color:var(--blue);">₹XX Cr+</div>
                         <div style="color:var(--gray); font-weight:600;">Total Member Savings Managed</div>
                     </div>
                     <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
@@ -698,6 +698,21 @@
                 <h2>Manage Everything<br>From Your Phone</h2>
                 <p>Apply for loans, track EMIs, view savings balance, download statements — all from the Windeep Finance app. Available on Android &amp; iOS.</p>
                 <div class="app-badges">
+                    <?php
+                        $apk_rel = 'app-debug.apk';
+                        $apk_file = (defined('FCPATH') ? rtrim(FCPATH, '/') . '/' : rtrim($_SERVER['DOCUMENT_ROOT'], '/') . '/') . $apk_rel;
+                        $apk_available = file_exists($apk_file);
+                        $apk_url = base_url($apk_rel);
+                    ?>
+                    <?php if ($apk_available): ?>
+                    <a href="<?= $apk_url ?>" download class="app-badge" title="Download APK">
+                        <i class="fab fa-google-play"></i>
+                        <div>
+                            <span class="small">Get it on</span>
+                            <span class="big">Google Play (APK)</span>
+                        </div>
+                    </a>
+                    <?php else: ?>
                     <a href="#" class="app-badge">
                         <i class="fab fa-google-play"></i>
                         <div>
@@ -705,6 +720,7 @@
                             <span class="big">Google Play</span>
                         </div>
                     </a>
+                    <?php endif; ?>
                     <a href="#" class="app-badge">
                         <i class="fab fa-apple"></i>
                         <div>
@@ -764,7 +780,7 @@
         <span class="badge-pill"><i class="fas fa-info-circle"></i> About Windeep Finance</span>
         <h2>Your Trusted Financial Partner in Maharashtra</h2>
         <p>
-            Windeep Finance is a leading microfinance and personal loan provider serving thousands of families and small businesses across Maharashtra. Since 2024, we have disbursed over ₹48 crore in loans and managed savings for more than 10,000 members — making us one of the fastest-growing community finance institutions in the region.
+            Windeep Finance is a leading microfinance and personal loan provider serving thousands of families and small businesses across Maharashtra. Since 2024, we have disbursed over ₹XX crore in loans and managed savings for more than 10,000 members — making us one of the fastest-growing community finance institutions in the region.
         </p>
         <p>
             Our mission is simple: make credit and savings accessible to everyone, regardless of income or background. Whether you need a small personal loan for a medical emergency, a business loan to expand your shop, or a secure place to grow your savings with high interest, Windeep Finance has a product built for you.

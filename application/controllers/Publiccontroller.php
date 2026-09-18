@@ -44,8 +44,11 @@ class PublicController extends Public_Controller {
 
             if ($action === 'accept') {
                 $this->Loan_model->update_guarantor_consent($guarantor_id, 'accepted', $remarks);
-                $title = 'Guarantor Accepted: ' . $application->application_number;
-                $message = 'Guarantor has accepted for application ' . $application->application_number . '.';
+                $this->load->helper('notification_text');
+                $g_name  = notif_member_name($guarantor->guarantor_member_id);
+                $title   = 'Guarantor Accepted: ' . $g_name . ' - ' . $application->application_number;
+                $message = $g_name . ' has accepted the guarantor request. '
+                         . notif_loan_request_summary($application);
                 // notify admins
                 $admins = $this->db->where('is_active', 1)->get('admin_users')->result();
                 foreach ($admins as $a) {
@@ -64,8 +67,11 @@ class PublicController extends Public_Controller {
 
             } elseif ($action === 'reject') {
                 $this->Loan_model->update_guarantor_consent($guarantor_id, 'rejected', $remarks);
-                $title = 'Guarantor Rejected: ' . $application->application_number;
-                $message = 'Guarantor has rejected the request for application ' . $application->application_number . '.';
+                $this->load->helper('notification_text');
+                $g_name  = notif_member_name($guarantor->guarantor_member_id);
+                $title   = 'Guarantor Rejected: ' . $g_name . ' - ' . $application->application_number;
+                $message = $g_name . ' has REJECTED the guarantor request. '
+                         . notif_loan_request_summary($application);
                 $guarantor_member = $this->Member_model->get_by_id($guarantor->guarantor_member_id);
                 $rev_note = 'Rejected by guarantor: ' . ($guarantor_member ? ($guarantor_member->first_name . ' ' . $guarantor_member->last_name) : 'Guarantor');
                 $this->Loan_model->request_modification($application->id, $rev_note, null, []);

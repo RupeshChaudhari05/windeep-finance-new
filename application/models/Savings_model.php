@@ -380,6 +380,100 @@ class Savings_model extends MY_Model {
             throw $e;
         }
     }
+
+    /**
+     * Reverse a wrongly entered savings transaction and recalculate the account balance.
+     */
+    public function reverse_transaction($txn_id, $reason, $reversed_by = null) {
+        $this->db->trans_begin();
+
+        try {
+            $txn = $this->db->query(
+                'SELECT * FROM savings_transactions WHERE id = ? FOR UPDATE',
+                [$txn_id]
+            )->row();
+
+            if (!$txn) {
+                throw new Exception('Transaction not found');
+            }
+
+            if (!empty($txn->is_reversed)) {
+                throw new Exception('This transaction is already reversed');
+            }
+
+            $account = $this->db->query(
+                'SELECT * FROM savings_accounts WHERE id = ? FOR UPDATE',
+                [$txn->savings_account_id]
+            )->row();
+
+            if (!$account) {
+                throw new Exception('Savings account not found');
+            }
+
+            $this->db->where('id', $txn->id)->update('savings_transactions', [
+                'is_reversed'     => 1,
+                'reversed_at'     => date('Y-m-d H:i:s'),
+                'reversed_by'     => $reversed_by,
+                'reversal_reason' => $reason
+            ]);
+
+            if ($this->db->trans_status() === FALSE) {
+                $this->db->trans_rollback();
+                return ['success' => false, 'error' => 'Database error while marking transaction reversed'];
+            }
+
+            $this->recalculate_account_balance($account->id);
+
+            if ($this->db->trans_status() === FALSE) {
+                $this->db->trans_rollback();
+                return ['success' => false, 'error' => 'Database error while recalculating balance'];
+            }
+
+            $this->db->trans_commit();
+
+            return [
+                'success' => true,
+                'account_id' => (int) $account->id,
+                'transaction_id' => (int) $txn->id
+            ];
+        } catch (Exception $e) {
+            $this->db->trans_rollback();
+            return ['success' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Recalculate savings account balance from non-reversed transactions.
+     */
+    private function recalculate_account_balance($account_id) {
+        $credit_types = ['deposit', 'interest_credit', 'opening_balance', 'fine', 'adjustment'];
+
+        $credits = (float) ($this->db->select_sum('amount', 'amount')
+            ->where('savings_account_id', $account_id)
+            ->where('is_reversed', 0)
+            ->where_in('transaction_type', $credit_types)
+            ->get('savings_transactions')
+            ->row()
+            ->amount ?? 0);
+
+        $withdrawals = (float) ($this->db->select_sum('amount', 'amount')
+            ->where('savings_account_id', $account_id)
+            ->where('is_reversed', 0)
+            ->where('transaction_type', 'withdrawal')
+            ->get('savings_transactions')
+            ->row()
+            ->amount ?? 0);
+
+        $balance = round($credits - $withdrawals, 2);
+
+        $this->db->where('id', $account_id)->update('savings_accounts', [
+            'current_balance' => $balance,
+            'total_deposited' => round($credits, 2),
+            'updated_at'      => date('Y-m-d H:i:s')
+        ]);
+
+        return $balance;
+    }
     
     /**
      * Update Schedule Payment for a specific entry, then carry forward any overpayment.

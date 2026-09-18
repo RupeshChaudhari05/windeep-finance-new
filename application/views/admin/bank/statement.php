@@ -306,15 +306,24 @@
                                         title="Map to member account">
                                     <i class="fas fa-link"></i> Map
                                 </button>
-                                <?php if ($txn->transaction_type == 'debit'): ?>
+                                <?php
+                                // Disbursement mapping is offered on every unmapped line.
+                                // It normally belongs to a debit (money leaving the bank), but
+                                // statement imports sometimes carry a disbursement on the credit
+                                // side, so the choice is left to the operator and a credit line
+                                // is flagged in the confirm step rather than hidden.
+                                $is_credit_line = ($txn->transaction_type == 'credit');
+                                ?>
                                 <button class="btn btn-xs btn-disbursement"
                                         data-id="<?= $txn->id ?>"
                                         data-amount="<?= $txn->amount ?>"
-                                        title="Map as loan disbursement"
-                                        style="background-color: #6f42c1; color: white;">
+                                        data-txntype="<?= $txn->transaction_type ?>"
+                                        title="<?= $is_credit_line
+                                                  ? 'Map as loan disbursement (this is a CREDIT line)'
+                                                  : 'Map as loan disbursement' ?>"
+                                        style="background-color: <?= $is_credit_line ? '#8e6fd1' : '#6f42c1' ?>; color: white;">
                                     <i class="fas fa-hand-holding-usd"></i>
                                 </button>
-                                <?php endif; ?>
                                 <button class="btn btn-secondary btn-xs btn-internal"
                                         data-id="<?= $txn->id ?>"
                                         data-amount="<?= $txn->amount ?>"
@@ -1409,7 +1418,21 @@ $(document).ready(function() {
         $('#disb_transaction_id').val(txnId);
         $('#disb_amount').text(CS + Math.round(amount).toLocaleString('en-IN'));
         $('#disb_amount_input').val(amount);
-        
+
+        // A disbursement is money leaving the bank. If this line came in on the
+        // credit side, say so plainly instead of silently allowing it.
+        var txnType = ($(this).data('txntype') || '').toString();
+        $('#disb_credit_warning').remove();
+        if (txnType === 'credit') {
+            $('#disb_description').closest('.modal-body').prepend(
+                '<div class="alert alert-warning py-2" id="disb_credit_warning">' +
+                '<i class="fas fa-exclamation-triangle mr-1"></i> ' +
+                'This is a <strong>CREDIT</strong> line (money received). Disbursements are ' +
+                'normally debits &mdash; continue only if this statement row really is a loan payout.' +
+                '</div>'
+            );
+        }
+
         var $row = $(this).closest('tr');
         $('#disb_description').text($row.find('td:eq(2)').text().trim());
         $('#disb_loans_container').hide();

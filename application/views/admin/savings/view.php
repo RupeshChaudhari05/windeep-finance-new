@@ -189,6 +189,11 @@
                                             <td>
                                                 <?php if (!$is_rev): ?>
                                                 <a href="<?= site_url('admin/payments/receipt/'.$txn->id.'?type=savings') ?>" target="_blank" class="btn btn-xs btn-outline-secondary" title="Print Receipt"><i class="fas fa-print"></i></a>
+                                                <?php if (in_array($txn->transaction_type, ['deposit', 'withdrawal', 'interest_credit', 'opening_balance', 'fine', 'adjustment'])): ?>
+                                                <button type="button" class="btn btn-xs btn-outline-danger ml-1 btn-reverse-savings" data-txn-id="<?= $txn->id ?>" title="Reverse Transaction">
+                                                    <i class="fas fa-undo"></i>
+                                                </button>
+                                                <?php endif; ?>
                                                 <?php endif; ?>
                                             </td>
                                         </tr>
@@ -274,6 +279,11 @@
                                             <td><small><?= htmlspecialchars($adj->notes ?? $adj->description ?? '-') ?></small></td>
                                             <td>
                                                 <a href="<?= site_url('admin/payments/receipt/'.$adj->id.'?type=savings') ?>" target="_blank" class="btn btn-xs btn-outline-secondary" title="Print Receipt"><i class="fas fa-print"></i></a>
+                                                <?php if (empty($adj->is_reversed)): ?>
+                                                <button type="button" class="btn btn-xs btn-outline-danger ml-1 btn-reverse-savings" data-txn-id="<?= $adj->id ?>" title="Reverse Adjustment">
+                                                    <i class="fas fa-undo"></i>
+                                                </button>
+                                                <?php endif; ?>
                                             </td>
                                         </tr>
                                         <?php endforeach; ?>
@@ -388,6 +398,49 @@ $(document).ready(function() {
         });
         
         return false;
+    });
+
+    $('.btn-reverse-savings').on('click', function() {
+        const txnId = $(this).data('txn-id');
+        const reason = prompt('Enter a reason for reversing this transaction:');
+
+        if (!reason || reason.trim().length < 5) {
+            alert('Please enter a reason with at least 5 characters.');
+            return;
+        }
+
+        if (!confirm('Reverse this savings transaction? This will recalculate the account balance.')) {
+            return;
+        }
+
+        const csrfName = '<?= $this->security->get_csrf_token_name() ?>';
+        const csrfHash = '<?= $this->security->get_csrf_hash() ?>';
+        const payload = {};
+        payload.txn_id = txnId;
+        payload.reason = reason.trim();
+        payload[csrfName] = csrfHash;
+
+        fetch('<?= site_url("admin/savings/reverse_transaction") ?>', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: new URLSearchParams(payload).toString()
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                toastr.success(data.message || 'Transaction reversed successfully');
+                setTimeout(() => window.location.reload(), 1200);
+            } else {
+                toastr.error(data.message || 'Unable to reverse transaction');
+            }
+        })
+        .catch(error => {
+            console.error('Reverse transaction error:', error);
+            toastr.error('An error occurred while reversing the transaction');
+        });
     });
 });
 </script>

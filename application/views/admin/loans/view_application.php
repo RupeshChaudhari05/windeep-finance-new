@@ -269,6 +269,9 @@
             </div>
         </div>
         <?php endif; ?>
+        
+        <!-- Check Collection Section -->
+        <?php include 'check_details_admin_form.php'; ?>
     </div>
     
     <div class="col-md-4">

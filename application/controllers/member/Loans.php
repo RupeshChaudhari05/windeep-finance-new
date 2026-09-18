@@ -198,8 +198,13 @@ class Loans extends Member_Controller {
             if ($any_guarantors) {
                 $this->load->model('Notification_model');
                 $app = $this->Loan_model->get_application($application_id);
-                $title = 'Guarantors Assigned: ' . $app->application_number;
-                $message = 'A loan application has been submitted with guarantor(s) assigned. Application: ' . $app->application_number;
+                $this->load->helper('notification_text');
+                $applicant_name = notif_member_name($app->member_id);
+                $guarantor_list = notif_guarantor_names($application_id);
+
+                $title   = 'Loan Request by ' . $applicant_name . ' - ' . $app->application_number;
+                $message = notif_loan_request_summary($app)
+                         . ' | Guarantor(s): ' . $guarantor_list;
                 $admins = $this->db->where('is_active', 1)->get('admin_users')->result();
                 foreach ($admins as $a) {
                     $this->Notification_model->create('admin', $a->id, 'guarantors_assigned', $title, $message, ['application_id' => $application_id]);
@@ -275,8 +280,11 @@ class Loans extends Member_Controller {
             if ($action === 'accept') {
                 $this->Loan_model->update_guarantor_consent($guarantor_id, 'accepted', $remarks);
                 // Notify admin(s) and applicant
-                $title = 'Guarantor Accepted: ' . $application->application_number;
-                $message = 'Guarantor has accepted for application ' . $application->application_number . '.';
+                $this->load->helper('notification_text');
+                $g_name = notif_member_name($guarantor->guarantor_member_id);
+                $title   = 'Guarantor Accepted: ' . $g_name . ' - ' . $application->application_number;
+                $message = $g_name . ' has accepted the guarantor request. '
+                         . notif_loan_request_summary($application);
                 // notify admins
                 $admins = $this->db->where('is_active', 1)->get('admin_users')->result();
                 foreach ($admins as $a) {

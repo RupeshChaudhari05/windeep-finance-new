@@ -292,6 +292,53 @@ class Savings extends Admin_Controller {
         
         $this->load_view('admin/savings/collect', $data);
     }
+
+    /**
+     * Reverse a wrongly entered savings transaction.
+     */
+    public function reverse_transaction() {
+        $this->check_permission('savings_edit');
+
+        if (!$this->input->is_ajax_request() || $this->input->method() !== 'post') {
+            $this->output->set_content_type('application/json')
+                         ->set_output(json_encode(['success' => false, 'message' => 'Invalid request']));
+            return;
+        }
+
+        $txn_id = (int) $this->input->post('txn_id');
+        $reason = trim((string) $this->input->post('reason'));
+
+        $this->output->set_content_type('application/json');
+
+        if (!$txn_id || strlen($reason) < 5) {
+            $this->output->set_output(json_encode(['success' => false, 'message' => 'Transaction ID and a reason of at least 5 characters are required']));
+            return;
+        }
+
+        $result = $this->Savings_model->reverse_transaction($txn_id, $reason, $this->admin_data->id);
+
+        if (!empty($result['success'])) {
+            $this->log_audit(
+                'reverse',
+                'savings_transactions',
+                'savings_transactions',
+                $txn_id,
+                null,
+                ['reason' => $reason, 'reversed_by' => $this->admin_data->id]
+            );
+
+            $this->output->set_output(json_encode([
+                'success' => true,
+                'message' => 'Transaction reversed successfully. Savings balance recalculated.',
+                'account_id' => $result['account_id'] ?? null
+            ]));
+        } else {
+            $this->output->set_output(json_encode([
+                'success' => false,
+                'message' => $result['error'] ?? 'Unable to reverse transaction'
+            ]));
+        }
+    }
     
     /**
      * Record Savings Payment

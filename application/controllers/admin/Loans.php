@@ -309,10 +309,196 @@ class Loans extends Admin_Controller {
         // Get member details
         $data['member'] = $this->Member_model->get_member_details($application->member_id);
         
+        // Load check details for admin collection
+        $data['checks'] = $this->check_library->get_application_checks($id);
+        
         // Flag for page-specific scripts
         $data['load_reject_script'] = true;
         
         $this->load_view('admin/loans/view_application', $data);
+    }
+    
+    /**
+     * Save check details via AJAX (Admin Only)
+     */
+    public function save_check_details() {
+        if (!$this->input->is_ajax_request()) {
+            redirect('admin/loans/applications');
+        }
+
+        $this->output->set_content_type('application/json');
+        
+        // Check admin access
+        if (!$this->ion_auth->logged_in() || !$this->ion_auth->is_admin()) {
+            $this->output->set_output(json_encode(['success' => false, 'message' => 'Unauthorized']));
+            return;
+        }
+        
+        $application_id = $this->input->post('application_id');
+        $check_id = (int) $this->input->post('check_id');
+        $check_type = $this->input->post('check_type');
+        $member_id = $this->input->post('member_id');
+        
+        // Validate required fields
+        if (!$application_id || !$check_type || !$member_id) {
+            $this->output->set_output(json_encode(['success' => false, 'message' => 'Missing required fields']));
+            return;
+        }
+        
+        $check_data = array(
+            'check_number' => trim($this->input->post('check_number')),
+            'bank_name' => trim($this->input->post('bank_name')),
+            'account_number' => trim($this->input->post('account_number')),
+            'ifsc_code' => strtoupper(trim($this->input->post('ifsc_code'))),
+            'amount' => str_replace(',', '', $this->input->post('amount')),
+            'check_date' => $this->input->post('check_date'),
+            'notes' => trim($this->input->post('notes')),
+            'check_type' => $check_type,
+            'member_id' => $member_id,
+            'status' => 'pending'
+        );
+        
+        if ($check_type === 'guarantor') {
+            $guarantor_id = $this->input->post('guarantor_id');
+            if (!$guarantor_id) {
+                $this->output->set_output(json_encode(['success' => false, 'message' => 'Guarantor not selected']));
+                return;
+            }
+            $check_data['guarantor_id'] = $guarantor_id;
+        }
+        
+        // Validate check data
+        $validation = $this->validate_check($check_data);
+        if (!$validation['valid']) {
+            $this->output->set_output(json_encode(['success' => false, 'errors' => $validation['errors']]));
+            return;
+        }
+
+        if ($check_id > 0) {
+            $existing_check = $this->check_library->get_check($check_id);
+
+            if (!$existing_check || (int) $existing_check->loan_application_id !== (int) $application_id) {
+                $this->output->set_output(json_encode(['success' => false, 'message' => 'Check not found']));
+                return;
+            }
+
+            if (!is_null($existing_check->loan_id)) {
+                $this->output->set_output(json_encode(['success' => false, 'message' => 'Cannot edit check linked to disbursed loan']));
+                return;
+            }
+
+            $update_result = $this->check_library->update_check_details($check_id, $check_data);
+            if ($update_result['success']) {
+                $this->output->set_output(json_encode(['success' => true, 'message' => 'Check updated successfully']));
+            } else {
+                $error_msg = $update_result['error'] ?? 'Error updating check';
+                $this->output->set_output(json_encode(['success' => false, 'message' => $error_msg]));
+            }
+            return;
+        }
+        
+        // Save check
+        $save_result = $this->check_library->save_check_details($application_id, $check_data, $this->session->userdata('user_id'));
+        if ($save_result['success']) {
+            $this->output->set_output(json_encode(['success' => true, 'message' => 'Check saved successfully']));
+        } else {
+            $error_msg = $save_result['error'] ?? 'Error saving check';
+            $this->output->set_output(json_encode(['success' => false, 'message' => $error_msg]));
+        }
+    }
+    
+    /**
+     * Delete check details (Admin Only)
+     */
+    public function delete_check($check_id) {
+        if (!$this->input->is_ajax_request()) {
+            redirect('admin/loans/applications');
+        }
+
+        $this->output->set_content_type('application/json');
+        
+        // Check admin access
+        if (!$this->ion_auth->logged_in() || !$this->ion_auth->is_admin()) {
+            $this->output->set_output(json_encode(['success' => false, 'message' => 'Unauthorized']));
+            return;
+        }
+        
+        // Get check details
+        $check = $this->db->select('*')->from('loan_check_details')->where('id', $check_id)->get()->row();
+        
+        if (!$check) {
+            $this->output->set_output(json_encode(['success' => false, 'message' => 'Check not found']));
+            return;
+        }
+        
+        // Prevent deletion of checks linked to disbursed loans
+        if (!is_null($check->loan_id)) {
+            $this->output->set_output(json_encode(['success' => false, 'message' => 'Cannot delete check linked to disbursed loan']));
+            return;
+        }
+        
+        // Delete check
+        if ($this->db->where('id', $check_id)->delete('loan_check_details')) {
+            $this->output->set_output(json_encode(['success' => true, 'message' => 'Check deleted successfully']));
+        } else {
+            $this->output->set_output(json_encode(['success' => false, 'message' => 'Error deleting check']));
+        }
+    }
+    
+    /**
+     * Validate check data (Industry Standard Validations)
+     */
+    private function validate_check($data) {
+        $errors = array();
+        
+        // Check number validation (6-12 digits)
+        if (empty($data['check_number'])) {
+            $errors[] = 'Check number is required';
+        } elseif (!preg_match('/^[0-9]{6,12}$/', $data['check_number'])) {
+            $errors[] = 'Check number must be 6-12 digits';
+        }
+        
+        // Bank name validation
+        if (empty($data['bank_name'])) {
+            $errors[] = 'Bank name is required';
+        }
+        
+        // IFSC validation (Indian Standard: 11 chars, format: XXXXXX0XXXXX)
+        if (empty($data['ifsc_code'])) {
+            $errors[] = 'IFSC code is required';
+        } elseif (strlen($data['ifsc_code']) !== 11) {
+            $errors[] = 'IFSC code must be exactly 11 characters';
+        } elseif (!preg_match('/^[A-Z]{4}0[A-Z0-9]{6}$/', $data['ifsc_code'])) {
+            $errors[] = 'Invalid IFSC format. Must be: 4 letters + 0 + 6 alphanumeric (e.g., HDFC0000456)';
+        }
+        
+        // Account number validation (basic check)
+        if (!empty($data['account_number']) && !preg_match('/^[0-9]{9,18}$/', $data['account_number'])) {
+            $errors[] = 'Account number must be 9-18 digits';
+        }
+        
+        // Amount validation
+        if (empty($data['amount'])) {
+            $errors[] = 'Amount is required';
+        } elseif (!is_numeric($data['amount']) || $data['amount'] <= 0) {
+            $errors[] = 'Amount must be a positive number';
+        }
+        
+        // Date validation
+        if (empty($data['check_date'])) {
+            $errors[] = 'Check date is required';
+        } else {
+            $check_date = strtotime($data['check_date']);
+            if (!$check_date) {
+                $errors[] = 'Invalid check date';
+            } elseif ($check_date < strtotime('-6 months')) {
+                $errors[] = 'Check date cannot be older than 6 months';
+            } elseif ($check_date > strtotime('+6 months')) {
+                $errors[] = 'Check date cannot be more than 6 months in future';
+            }
+        }
+        
+        return array('valid' => empty($errors), 'errors' => $errors);
     }
     
     /**
