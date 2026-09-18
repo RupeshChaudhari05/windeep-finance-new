@@ -776,19 +776,36 @@ document.addEventListener('DOMContentLoaded', function() {
                     break;
                     
                 case 'fees':
-                    $title.html('<i class="fas fa-receipt mr-2 text-teal"></i>Membership Fee Collections');
+                    var currentPage = res.current_page || 1;
+                    var totalPages = res.total_pages || 1;
+                    $title.html('<i class="fas fa-receipt mr-2 text-teal"></i>Membership Fee Collections (' + (res.total || 0) + ')');
                     html = '<div class="table-responsive"><table class="table table-hover table-sm"><thead class="thead-light"><tr><th>Date</th><th>Member</th><th>Amount</th><th>Reference</th><th>Description</th></tr></thead><tbody>';
                     $.each(res.data, function(i, f) {
                         html += '<tr><td>' + formatDate(f.transaction_date) + '</td><td>' + (f.member_code ? f.member_code + ' - ' + f.first_name + ' ' + f.last_name : '-') + '</td><td class="text-right font-weight-bold">' + formatCurrency(f.amount) + '</td><td>' + (f.reference_number || '-') + '</td><td>' + (f.description || '-') + '</td></tr>';
                     });
+                    if (!res.data || res.data.length === 0) {
+                        html += '<tr><td colspan="5" class="text-center text-muted py-3">No membership fee collections found.</td></tr>';
+                    }
                     html += '</tbody></table></div>';
+                    html += '<div class="d-flex justify-content-between align-items-center mt-3">';
+                    html += '<div class="small text-muted">Page ' + currentPage + ' of ' + totalPages + '</div>';
+                    html += '<div class="btn-group btn-group-sm">';
+                    if (currentPage > 1) {
+                        html += '<button type="button" class="btn btn-outline-secondary" data-page="' + (currentPage - 1) + '">Previous</button>';
+                    }
+                    if (currentPage < totalPages) {
+                        html += '<button type="button" class="btn btn-outline-primary" data-page="' + (currentPage + 1) + '">Next</button>';
+                    }
+                    html += '</div>';
+                    html += '</div>';
                     break;
 
                 case 'other_fees':
                     var currentPage = res.current_page || 1;
                     var totalPages = res.total_pages || 1;
                     $title.html('<i class="fas fa-receipt mr-2 text-purple"></i>Processing Fees (' + (res.total || 0) + ')');
-                    html = '<div class="table-responsive"><table class="table table-hover table-sm"><thead class="thead-light"><tr><th>Date</th><th>Member</th><th>Type</th><th>Amount</th><th>Description</th></tr></thead><tbody>';
+                    html = '<div class="mb-2"><small class="text-muted"><i class="fas fa-calendar-alt mr-1"></i>Showing available processing-fee records currently in the database</small></div>';
+                    html += '<div class="table-responsive"><table class="table table-hover table-sm"><thead class="thead-light"><tr><th>Date</th><th>Member</th><th>Type</th><th>Amount</th><th>Description</th></tr></thead><tbody>';
                     $.each(res.data, function(i, f) {
                         html += '<tr><td>' + formatDate(f.transaction_date) + '</td><td>' + (f.member_code ? f.member_code + ' - ' + f.first_name + ' ' + f.last_name : '-') + '</td><td>' + (f.transaction_type || '-') + '</td><td class="text-right font-weight-bold">' + formatCurrency(f.amount) + '</td><td>' + (f.description || '-') + '</td></tr>';
                     });

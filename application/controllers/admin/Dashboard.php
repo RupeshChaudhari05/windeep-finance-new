@@ -420,6 +420,8 @@ class Dashboard extends Admin_Controller {
      *  2. member_other_transactions with transaction_type = 'membership_fee'
      */
     public function card_fees() {
+        $page = max(1, (int) $this->input->get('page', true));
+        $per_page = 20;
         $fees = [];
 
         // -- Source 1: bank_transactions with membership_fee category --
@@ -429,7 +431,6 @@ class Dashboard extends Admin_Controller {
                           ->where('bt.transaction_category', 'membership_fee')
                           ->where('bt.mapping_status', 'mapped')
                           ->order_by('bt.transaction_date', 'DESC')
-                          ->limit(50)
                           ->get();
         if ($query !== FALSE) {
             $fees = $query->result();
@@ -442,14 +443,31 @@ class Dashboard extends Admin_Controller {
                               ->join('members m', 'm.id = mot.member_id', 'left')
                               ->where('mot.transaction_type', 'membership_fee')
                               ->order_by('mot.transaction_date', 'DESC')
-                              ->limit(50)
                               ->get();
             if ($query !== FALSE) {
                 $fees = array_merge($fees, $query->result());
             }
         }
 
-        $this->json_response(['data' => $fees]);
+        usort($fees, function($a, $b) {
+            $da = strtotime($a->transaction_date ?? '1970-01-01');
+            $db = strtotime($b->transaction_date ?? '1970-01-01');
+            return $db <=> $da;
+        });
+
+        $total = count($fees);
+        $total_pages = max(1, (int) ceil($total / $per_page));
+        $current_page = min($page, $total_pages);
+        $start = ($current_page - 1) * $per_page;
+        $paged_fees = array_slice($fees, $start, $per_page);
+
+        $this->json_response([
+            'data' => $paged_fees,
+            'total' => $total,
+            'current_page' => $current_page,
+            'per_page' => $per_page,
+            'total_pages' => $total_pages,
+        ]);
     }
     
     /**
