@@ -277,7 +277,52 @@ class Dashboard extends Admin_Controller {
                            ->where('status', 'active')
                            ->get('savings_accounts')
                            ->row();
-        $this->json_response(['data' => $accounts, 'totals' => $totals]);
+
+        $deleted_rows = $this->db->select('al.id, al.created_at, al.remarks, al.old_values')
+                                ->from('audit_logs al')
+                                ->where('al.module', 'admin_adjustments')
+                                ->where('al.action', 'delete')
+                                ->where('al.table_name', 'savings_transactions')
+                                ->order_by('al.created_at', 'DESC')
+                                ->limit(50)
+                                ->get()
+                                ->result();
+
+        $removed_transactions = [];
+        foreach ($deleted_rows as $row) {
+            $old_values = json_decode($row->old_values, true);
+            if (!is_array($old_values) || empty($old_values)) {
+                continue;
+            }
+
+            $account_id = (int)($old_values['savings_account_id'] ?? 0);
+            $account = $this->db->select('sa.account_number, m.member_code, m.first_name, m.last_name')
+                               ->from('savings_accounts sa')
+                               ->join('members m', 'm.id = sa.member_id', 'left')
+                               ->where('sa.id', $account_id)
+                               ->get()
+                               ->row();
+
+            $removed_transactions[] = [
+                'id' => $row->id,
+                'deleted_at' => $row->created_at,
+                'transaction_id' => $old_values['id'] ?? 0,
+                'account_number' => $account->account_number ?? 'N/A',
+                'member_code' => $account->member_code ?? '-',
+                'member_name' => trim(($account->first_name ?? '') . ' ' . ($account->last_name ?? '')) ?: '-',
+                'amount' => (float)($old_values['amount'] ?? 0),
+                'transaction_date' => $old_values['transaction_date'] ?? ($old_values['created_at'] ?? null),
+                'narration' => $old_values['narration'] ?? '',
+                'reason' => $row->remarks ?? 'Deleted by admin',
+            ];
+        }
+
+        $this->json_response([
+            'data' => $accounts,
+            'totals' => $totals,
+            'removed_transactions' => $removed_transactions,
+            'removed_count' => count($removed_transactions),
+        ]);
     }
     
     /**

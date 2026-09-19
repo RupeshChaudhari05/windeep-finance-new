@@ -35,6 +35,11 @@
             <div class="inner">
                 <h3><?= format_amount($stats['total_savings'], 0) ?></h3>
                 <p>Total Security Deposit</p>
+                <?php if (!empty($stats['removed_savings_transactions_count'])): ?>
+                    <div class="mt-1">
+                        <span class="badge badge-danger"><i class="fas fa-trash-alt mr-1"></i><?= (int)$stats['removed_savings_transactions_count'] ?> removed</span>
+                    </div>
+                <?php endif; ?>
             </div>
             <div class="icon">
                 <i class="fas fa-piggy-bank"></i>
@@ -672,6 +677,56 @@ document.addEventListener('DOMContentLoaded', function() {
             openCardModal(card, page);
         }
     });
+
+    $(document).on('click', '#dashboardDetailBody [data-removed-page]', function(e) {
+        e.preventDefault();
+        var targetPage = parseInt($(this).data('removed-page'), 10);
+        if (!targetPage || targetPage < 1) return;
+
+        var card = $('#dashboardDetailModal').data('active-card');
+        if (!card || card !== 'savings') return;
+
+        var removedTransactions = $('#dashboardDetailBody').data('removed-transactions') || [];
+        var pageSize = 10;
+        var totalPages = Math.max(1, Math.ceil(removedTransactions.length / pageSize));
+        if (targetPage > totalPages) return;
+
+        var start = (targetPage - 1) * pageSize;
+        var end = Math.min(start + pageSize, removedTransactions.length);
+        var tbody = '';
+        for (var i = start; i < end; i++) {
+            var t = removedTransactions[i];
+            tbody += '<tr><td>' + formatDateTime(t.deleted_at) + '</td><td><code>' + (t.account_number || '-') + '</code></td><td>' + (t.member_code || '-') + ' - ' + (t.member_name || '-') + '</td><td class="text-right font-weight-bold text-danger">' + formatCurrency(t.amount) + '</td><td>' + formatDate(t.transaction_date) + '</td><td>' + (t.reason || '-') + '</td></tr>';
+        }
+
+        var $table = $('#dashboardDetailBody .table.table-hover.table-sm.mb-0');
+        if ($table.length) {
+            $table.find('tbody').html(tbody);
+        }
+
+        var $pageLinks = $('#dashboardDetailBody .page-link[data-removed-page]');
+        $pageLinks.each(function() {
+            var page = parseInt($(this).data('removed-page'), 10);
+            $(this).parent().toggleClass('disabled', page < 1 || page > totalPages || page === targetPage && false);
+            $(this).parent().toggleClass('active', page === targetPage);
+        });
+
+        var $pagination = $('#dashboardDetailBody .pagination');
+        if ($pagination.length) {
+            $pagination.find('.page-item').removeClass('disabled active');
+            $pagination.find('.page-item').eq(0).toggleClass('disabled', targetPage === 1);
+            $pagination.find('.page-item').eq(0).find('a').attr('data-removed-page', targetPage > 1 ? targetPage - 1 : 1);
+            $pagination.find('.page-item').eq(-1).toggleClass('disabled', targetPage === totalPages);
+            $pagination.find('.page-item').eq(-1).find('a').attr('data-removed-page', targetPage < totalPages ? targetPage + 1 : totalPages);
+            $pagination.find('.page-item').each(function(index) {
+                if (index > 0 && index < $(this).parent().find('.page-item').length - 1) {
+                    var page = index;
+                    $(this).toggleClass('active', page === targetPage);
+                    $(this).find('a').attr('data-removed-page', page);
+                }
+            });
+        }
+    });
     
     function openCardModal(card, page) {
         var $modal = $('#dashboardDetailModal');
@@ -702,7 +757,33 @@ document.addEventListener('DOMContentLoaded', function() {
                     
                 case 'savings':
                     $title.html('<i class="fas fa-piggy-bank mr-2 text-success"></i>Total Security Deposit Overview');
+                    var removedTxns = Array.isArray(res.removed_transactions) ? res.removed_transactions : [];
+                    var removedPageSize = 10;
+                    var removedPage = 1;
+                    var removedPageCount = Math.max(1, Math.ceil(removedTxns.length / removedPageSize));
+
                     html = '<div class="row mb-3"><div class="col-md-4"><div class="callout callout-success"><h5>' + formatCurrency(res.totals.total_balance) + '</h5><small>Total Balance</small></div></div><div class="col-md-4"><div class="callout callout-info"><h5>' + formatCurrency(res.totals.total_deposited) + '</h5><small>Total Deposited</small></div></div><div class="col-md-4"><div class="callout callout-primary"><h5>' + res.totals.total_accounts + '</h5><small>Total Accounts</small></div></div></div>';
+                    if (removedTxns.length > 0) {
+                        var start = (removedPage - 1) * removedPageSize;
+                        var end = Math.min(start + removedPageSize, removedTxns.length);
+                        html += '<div class="alert alert-warning mb-3"><i class="fas fa-exclamation-triangle mr-2"></i><strong>' + removedTxns.length + '</strong> security deposit transaction(s) were removed from the system.</div>';
+                        html += '<div class="card card-outline card-warning mb-3"><div class="card-header"><h5 class="card-title mb-0"><i class="fas fa-trash-alt mr-2"></i>Removed Security Deposit Transactions</h5></div><div class="card-body p-0"><div class="table-responsive"><table class="table table-hover table-sm mb-0"><thead class="thead-light"><tr><th>Deleted</th><th>Account</th><th>Member</th><th>Amount</th><th>Transaction Date</th><th>Reason</th></tr></thead><tbody>';
+                        for (var i = start; i < end; i++) {
+                            var t = removedTxns[i];
+                            html += '<tr><td>' + formatDateTime(t.deleted_at) + '</td><td><code>' + (t.account_number || '-') + '</code></td><td>' + (t.member_code || '-') + ' - ' + (t.member_name || '-') + '</td><td class="text-right font-weight-bold text-danger">' + formatCurrency(t.amount) + '</td><td>' + formatDate(t.transaction_date) + '</td><td>' + (t.reason || '-') + '</td></tr>';
+                        }
+                        html += '</tbody></table></div>';
+                        if (removedPageCount > 1) {
+                            html += '<div class="card-footer clearfix"><ul class="pagination pagination-sm mb-0 justify-content-end">';
+                            html += '<li class="page-item ' + (removedPage === 1 ? 'disabled' : '') + '"><a class="page-link" href="#" data-removed-page="' + (removedPage - 1) + '">Previous</a></li>';
+                            for (var p = 1; p <= removedPageCount; p++) {
+                                html += '<li class="page-item ' + (p === removedPage ? 'active' : '') + '"><a class="page-link" href="#" data-removed-page="' + p + '">' + p + '</a></li>';
+                            }
+                            html += '<li class="page-item ' + (removedPage === removedPageCount ? 'disabled' : '') + '"><a class="page-link" href="#" data-removed-page="' + (removedPage + 1) + '">Next</a></li>';
+                            html += '</ul></div>';
+                        }
+                        html += '</div></div>';
+                    }
                     html += '<div class="table-responsive"><table class="table table-hover table-sm"><thead class="thead-light"><tr><th>Account</th><th>Member</th><th>Balance</th><th>Deposited</th><th></th></tr></thead><tbody>';
                     $.each(res.data, function(i, s) {
                         html += '<tr><td><code>' + s.account_number + '</code></td><td>' + s.member_code + ' - ' + s.first_name + ' ' + s.last_name + '</td><td class="text-right font-weight-bold text-success">' + formatCurrency(s.current_balance) + '</td><td class="text-right">' + formatCurrency(s.total_deposited) + '</td><td><a href="<?= site_url("admin/savings/view/") ?>' + s.id + '" class="btn btn-xs btn-outline-success"><i class="fas fa-eye"></i></a></td></tr>';
@@ -945,8 +1026,21 @@ document.addEventListener('DOMContentLoaded', function() {
     function formatDate(d) {
         if (!d) return '-';
         var dt = new Date(d);
+        if (isNaN(dt.getTime())) return d;
         var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
         return dt.getDate() + ' ' + months[dt.getMonth()] + ' ' + dt.getFullYear();
+    }
+
+    function formatDateTime(d) {
+        if (!d) return '-';
+        var dt = new Date(d);
+        if (isNaN(dt.getTime())) return d;
+        var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        var hh = dt.getHours();
+        var mm = dt.getMinutes();
+        var ss = dt.getSeconds();
+        return dt.getDate() + ' ' + months[dt.getMonth()] + ' ' + dt.getFullYear() + ' ' +
+            (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm + ':' + (ss < 10 ? '0' : '') + ss;
     }
     
     // Monthly Trend Chart

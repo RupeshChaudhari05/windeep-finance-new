@@ -186,9 +186,9 @@
                                                 <?= $is_rev ? '<s>'.format_amount((float) $balance).'</s>' : format_amount((float) $balance) ?>
                                             </td>
                                             <td><small><?= ucfirst($txn->payment_mode) ?></small></td>
-                                            <td class="text-center align-middle">
+                                            <td class="text-right align-middle" style="width: 110px; white-space: nowrap;">
                                                 <?php if (!$is_rev): ?>
-                                                <div class="action-buttons d-flex align-items-center justify-content-center">
+                                                <div class="d-flex align-items-center justify-content-end gap-1 savings-action-group">
                                                     <a href="<?= site_url('admin/payments/receipt/'.$txn->id.'?type=savings') ?>" target="_blank" class="btn btn-xs btn-outline-secondary" title="Print Receipt"><i class="fas fa-print"></i></a>
                                                     <?php if (in_array($txn->transaction_type, ['deposit', 'withdrawal', 'interest_credit', 'opening_balance', 'fine', 'adjustment'])): ?>
                                                     <button type="button" class="btn btn-xs btn-outline-danger btn-reverse-savings" data-txn-id="<?= $txn->id ?>" title="Reverse Transaction">
@@ -279,13 +279,15 @@
                                             </td>
                                             <td><small><?= ucfirst($adj->payment_mode ?? 'N/A') ?></small></td>
                                             <td><small><?= htmlspecialchars($adj->notes ?? $adj->description ?? '-') ?></small></td>
-                                            <td>
-                                                <a href="<?= site_url('admin/payments/receipt/'.$adj->id.'?type=savings') ?>" target="_blank" class="btn btn-xs btn-outline-secondary" title="Print Receipt"><i class="fas fa-print"></i></a>
-                                                <?php if (empty($adj->is_reversed)): ?>
-                                                <button type="button" class="btn btn-xs btn-outline-danger ml-1 btn-reverse-savings" data-txn-id="<?= $adj->id ?>" title="Reverse Adjustment">
-                                                    <i class="fas fa-undo"></i>
-                                                </button>
-                                                <?php endif; ?>
+                                            <td class="text-right align-middle" style="width: 110px; white-space: nowrap;">
+                                                <div class="d-flex align-items-center justify-content-end gap-1 savings-action-group">
+                                                    <a href="<?= site_url('admin/payments/receipt/'.$adj->id.'?type=savings') ?>" target="_blank" class="btn btn-xs btn-outline-secondary" title="Print Receipt"><i class="fas fa-print"></i></a>
+                                                    <?php if (empty($adj->is_reversed)): ?>
+                                                    <button type="button" class="btn btn-xs btn-outline-danger btn-reverse-savings" data-txn-id="<?= $adj->id ?>" title="Reverse Adjustment">
+                                                        <i class="fas fa-undo"></i>
+                                                    </button>
+                                                    <?php endif; ?>
+                                                </div>
                                             </td>
                                         </tr>
                                         <?php endforeach; ?>

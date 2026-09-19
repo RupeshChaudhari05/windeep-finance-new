@@ -39,6 +39,11 @@ class Report_model extends MY_Model {
                                            ->get('savings_accounts')
                                            ->row()
                                            ->current_balance ?? 0;
+
+        $stats['removed_savings_transactions_count'] = $this->db->where('module', 'admin_adjustments')
+                                                                  ->where('action', 'delete')
+                                                                  ->where('table_name', 'savings_transactions')
+                                                                  ->count_all_results('audit_logs');
         
         // Collected this month = deposits DATED this month, matching the loan
         // side (which uses payment_date) and the dashboard drill-down.
