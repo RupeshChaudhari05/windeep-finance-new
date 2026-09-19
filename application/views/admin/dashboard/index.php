@@ -37,7 +37,7 @@
                 <p>Total Security Deposit</p>
                 <?php if (!empty($stats['removed_savings_transactions_count'])): ?>
                     <div class="mt-1">
-                        <span class="badge badge-danger"><i class="fas fa-trash-alt mr-1"></i><?= (int)$stats['removed_savings_transactions_count'] ?> removed</span>
+                        <span class="badge badge-danger"><i class="fas fa-trash-alt mr-1"></i><?= (int)$stats['removed_savings_transactions_count'] ?> withdrawal<?= (int)$stats['removed_savings_transactions_count'] > 1 ? 's' : '' ?></span>
                     </div>
                 <?php endif; ?>
             </div>
@@ -766,8 +766,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (removedTxns.length > 0) {
                         var start = (removedPage - 1) * removedPageSize;
                         var end = Math.min(start + removedPageSize, removedTxns.length);
-                        html += '<div class="alert alert-warning mb-3"><i class="fas fa-exclamation-triangle mr-2"></i><strong>' + removedTxns.length + '</strong> security deposit transaction(s) were removed from the system.</div>';
-                        html += '<div class="card card-outline card-warning mb-3"><div class="card-header"><h5 class="card-title mb-0"><i class="fas fa-trash-alt mr-2"></i>Removed Security Deposit Transactions</h5></div><div class="card-body p-0"><div class="table-responsive"><table class="table table-hover table-sm mb-0"><thead class="thead-light"><tr><th>Deleted</th><th>Account</th><th>Member</th><th>Amount</th><th>Transaction Date</th><th>Reason</th></tr></thead><tbody>';
+                        html += '<div class="alert alert-warning mb-3"><i class="fas fa-exclamation-triangle mr-2"></i><strong>' + removedTxns.length + '</strong> security deposit withdrawal record(s) were deleted from the system.</div>';
+                        html += '<div class="card card-outline card-warning mb-3"><div class="card-header"><h5 class="card-title mb-0"><i class="fas fa-trash-alt mr-2"></i>Deleted Security Deposit Withdrawal Records</h5></div><div class="card-body p-0"><div class="table-responsive"><table class="table table-hover table-sm mb-0"><thead class="thead-light"><tr><th>Deleted</th><th>Account</th><th>Member</th><th>Amount</th><th>Transaction Date</th><th>Reason</th></tr></thead><tbody>';
                         for (var i = start; i < end; i++) {
                             var t = removedTxns[i];
                             html += '<tr><td>' + formatDateTime(t.deleted_at) + '</td><td><code>' + (t.account_number || '-') + '</code></td><td>' + (t.member_code || '-') + ' - ' + (t.member_name || '-') + '</td><td class="text-right font-weight-bold text-danger">' + formatCurrency(t.amount) + '</td><td>' + formatDate(t.transaction_date) + '</td><td>' + (t.reason || '-') + '</td></tr>';
