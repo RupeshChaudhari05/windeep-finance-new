@@ -663,19 +663,20 @@ class Loans extends Member_Controller {
             return;
         }
 
-        // Always use regular foreclosure
+        $closure_type = $this->input->post('closure_type') === 'force_close' ? 'force_close' : 'regular';
+
         $result = $this->Loan_model->request_foreclosure(
             $loan_id,
             $this->member->id,
             $reason,
             $settlement_date,
-            'regular'
+            $closure_type
         );
 
         if ($result['success']) {
             // Log activity
             $this->log_activity('Member requested loan foreclosure',
-                "Loan ID: $loan_id, Settlement: " . format_amount($settlement['total_settlement']) . ", Reason: $reason");
+                "Loan ID: $loan_id, Type: $closure_type, Settlement: " . format_amount($settlement['total_settlement']) . ", Reason: $reason");
 
             // Notify admins
             $this->load->model('Notification_model');
@@ -683,6 +684,7 @@ class Loans extends Member_Controller {
             $title = 'Foreclosure Request: ' . ($loan->loan_number ?? "Loan #$loan_id");
             $message = 'Member ' . ($this->member->first_name ?? '') . ' ' . ($this->member->last_name ?? '') 
                      . ' has requested foreclosure for loan ' . ($loan->loan_number ?? "#$loan_id")
+                     . ' (' . str_replace('_', ' ', $closure_type) . ')'
                      . '. Settlement Amount: ' . format_amount($settlement['total_settlement'])
                      . '. Reason: ' . $reason;
 

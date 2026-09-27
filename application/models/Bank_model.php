@@ -1367,7 +1367,7 @@ class Bank_model extends MY_Model {
                                     // and the loan is currently closed, revert it to active
                                     $loan_to_check = $this->db->where('id', $loan_payment->loan_id)
                                                               ->get('loans')->row();
-                                    if ($loan_to_check && $loan_to_check->status === 'closed') {
+                                    if ($loan_to_check && in_array($loan_to_check->status, ['closed', 'foreclosed'], true)) {
                                         // Check if this is the last installment
                                         $last_inst = $this->db->select_max('installment_number', 'max_inst')
                                                              ->where('loan_id', $loan_payment->loan_id)
@@ -1379,6 +1379,7 @@ class Bank_model extends MY_Model {
                                                          ->update('loans', [
                                                              'status'        => 'active',
                                                              'closure_type'  => NULL,
+                                                             'closure_date'  => NULL,
                                                              'updated_at'    => date('Y-m-d H:i:s')
                                                          ]);
                                             }
@@ -1386,6 +1387,20 @@ class Bank_model extends MY_Model {
                                     }
                                     // --- End loan closure reversal check ---
                                 }
+                            }
+
+                            if ($loan_payment->payment_type === 'foreclosure') {
+                                $this->Loan_model->restore_cancelled_schedule_after_reversal($loan_payment->loan_id);
+                                $this->Loan_model->reinstate_guarantors($loan_payment->loan_id);
+
+                                $this->db->where('id', $loan_payment->loan_id)
+                                         ->update('loans', [
+                                             'status' => 'active',
+                                             'closure_type' => null,
+                                             'closure_date' => null,
+                                             'closure_remarks' => null,
+                                             'updated_at' => date('Y-m-d H:i:s')
+                                         ]);
                             }
                         }
                     }

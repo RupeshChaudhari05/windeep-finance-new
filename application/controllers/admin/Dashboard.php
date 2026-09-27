@@ -265,63 +265,80 @@ class Dashboard extends Admin_Controller {
      * Total Savings Detail (for modal)
      */
     public function card_savings() {
+        $page = max(1, (int)$this->input->get('page'));
+        $removed_page = max(1, (int)$this->input->get('removed_page'));
+        $per_page = 10;
+        $removed_per_page = 10;
+
+        $total_accounts = (int)$this->db->where('status', 'active')->count_all_results('savings_accounts');
+        $page_count = max(1, (int)ceil($total_accounts / $per_page));
+        $offset = ($page - 1) * $per_page;
+
         $accounts = $this->db->select('sa.id, sa.account_number, sa.current_balance, sa.total_deposited, sa.status, m.member_code, m.first_name, m.last_name')
                              ->from('savings_accounts sa')
                              ->join('members m', 'm.id = sa.member_id')
                              ->where('sa.status', 'active')
                              ->order_by('sa.current_balance', 'DESC')
-                             ->limit(50)
+                             ->limit($per_page, $offset)
                              ->get()
                              ->result();
+
         $totals = $this->db->select('SUM(current_balance) as total_balance, COUNT(*) as total_accounts, SUM(total_deposited) as total_deposited')
                            ->where('status', 'active')
                            ->get('savings_accounts')
                            ->row();
 
-        $deleted_rows = $this->db->select('al.id, al.created_at, al.remarks, al.old_values')
-                                ->from('audit_logs al')
-                                ->where('al.module', 'admin_adjustments')
-                                ->where('al.action', 'delete')
-                                ->where('al.table_name', 'savings_transactions')
-                                ->order_by('al.created_at', 'DESC')
-                                ->limit(50)
-                                ->get()
-                                ->result();
+        $removed_offset = ($removed_page - 1) * $removed_per_page;
 
-        $removed_transactions = [];
-        foreach ($deleted_rows as $row) {
-            $old_values = json_decode($row->old_values, true);
-            if (!is_array($old_values) || empty($old_values)) {
-                continue;
+        $withdrawal_rows = $this->db->select('st.id, st.amount, st.transaction_date, st.narration, st.created_at, st.created_by, sa.account_number, m.member_code, m.first_name, m.last_name')
+                                  ->from('savings_transactions st')
+                                  ->join('savings_accounts sa', 'sa.id = st.savings_account_id', 'left')
+                                  ->join('members m', 'm.id = sa.member_id', 'left')
+                                  ->where('st.transaction_type', 'withdrawal')
+                                  ->where('st.amount >', 0)
+                                  ->order_by('st.created_at', 'DESC')
+                                  ->limit($removed_per_page, $removed_offset)
+                                  ->get()
+                                  ->result();
+
+        $withdrawal_transactions = [];
+        foreach ($withdrawal_rows as $txn) {
+            $description = trim((string)($txn->narration ?? ''));
+            if ($description === '') {
+                $description = 'Withdrawal';
             }
 
-            $account_id = (int)($old_values['savings_account_id'] ?? 0);
-            $account = $this->db->select('sa.account_number, m.member_code, m.first_name, m.last_name')
-                               ->from('savings_accounts sa')
-                               ->join('members m', 'm.id = sa.member_id', 'left')
-                               ->where('sa.id', $account_id)
-                               ->get()
-                               ->row();
-
-            $removed_transactions[] = [
-                'id' => $row->id,
-                'deleted_at' => $row->created_at,
-                'transaction_id' => $old_values['id'] ?? 0,
-                'account_number' => $account->account_number ?? 'N/A',
-                'member_code' => $account->member_code ?? '-',
-                'member_name' => trim(($account->first_name ?? '') . ' ' . ($account->last_name ?? '')) ?: '-',
-                'amount' => (float)($old_values['amount'] ?? 0),
-                'transaction_date' => $old_values['transaction_date'] ?? ($old_values['created_at'] ?? null),
-                'narration' => $old_values['narration'] ?? '',
-                'reason' => $row->remarks ?? 'Deleted by admin',
+            $withdrawal_transactions[] = [
+                'id' => $txn->id,
+                'recorded_at' => $txn->created_at,
+                'transaction_id' => $txn->id,
+                'account_number' => $txn->account_number ?? 'N/A',
+                'member_code' => $txn->member_code ?? '-',
+                'member_name' => trim(($txn->first_name ?? '') . ' ' . ($txn->last_name ?? '')) ?: '-',
+                'amount' => (float)($txn->amount ?? 0),
+                'transaction_date' => $txn->transaction_date ?? $txn->created_at,
+                'narration' => $description,
+                'created_by' => $txn->created_by ?? null,
+                'reason' => $description,
             ];
         }
+
+        $withdrawal_count = (int)$this->db->where('transaction_type', 'withdrawal')->where('amount >', 0)->count_all_results('savings_transactions');
+        $withdrawal_total_pages = max(1, (int)ceil($withdrawal_count / $removed_per_page));
 
         $this->json_response([
             'data' => $accounts,
             'totals' => $totals,
-            'removed_transactions' => $removed_transactions,
-            'removed_count' => count($removed_transactions),
+            'removed_transactions' => $withdrawal_transactions,
+            'withdrawal_transactions' => $withdrawal_transactions,
+            'removed_count' => $withdrawal_count,
+            'page' => $page,
+            'total_pages' => $page_count,
+            'per_page' => $per_page,
+            'removed_page' => $removed_page,
+            'removed_total_pages' => $withdrawal_total_pages,
+            'removed_per_page' => $removed_per_page,
+            'transaction_source' => 'live',
         ]);
     }
     

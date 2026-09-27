@@ -671,64 +671,128 @@ document.addEventListener('DOMContentLoaded', function() {
 
     $(document).on('click', '#dashboardDetailBody [data-page]', function(e) {
         e.preventDefault();
-        var page = $(this).data('page');
+        var page = parseInt($(this).data('page'), 10);
         var card = $('#dashboardDetailModal').data('active-card');
-        if (card) {
-            openCardModal(card, page);
+        if (!card) return;
+
+        if (card === 'savings') {
+            var currentRemovedPage = $('#dashboardDetailModal').data('removed-page') || 1;
+            var activeTab = $('#dashboardDetailModal').data('active-savings-tab') || 'accounts';
+            refreshSavingsModal(page, currentRemovedPage, activeTab);
+            return;
         }
+
+        openCardModal(card, page);
     });
 
     $(document).on('click', '#dashboardDetailBody [data-removed-page]', function(e) {
         e.preventDefault();
-        var targetPage = parseInt($(this).data('removed-page'), 10);
-        if (!targetPage || targetPage < 1) return;
+        var removedPage = parseInt($(this).data('removed-page'), 10);
+        if (!removedPage || removedPage < 1) return;
 
         var card = $('#dashboardDetailModal').data('active-card');
-        if (!card || card !== 'savings') return;
-
-        var removedTransactions = $('#dashboardDetailBody').data('removed-transactions') || [];
-        var pageSize = 10;
-        var totalPages = Math.max(1, Math.ceil(removedTransactions.length / pageSize));
-        if (targetPage > totalPages) return;
-
-        var start = (targetPage - 1) * pageSize;
-        var end = Math.min(start + pageSize, removedTransactions.length);
-        var tbody = '';
-        for (var i = start; i < end; i++) {
-            var t = removedTransactions[i];
-            tbody += '<tr><td>' + formatDateTime(t.deleted_at) + '</td><td><code>' + (t.account_number || '-') + '</code></td><td>' + (t.member_code || '-') + ' - ' + (t.member_name || '-') + '</td><td class="text-right font-weight-bold text-danger">' + formatCurrency(t.amount) + '</td><td>' + formatDate(t.transaction_date) + '</td><td>' + (t.reason || '-') + '</td></tr>';
+        var currentPage = $('#dashboardDetailModal').data('savings-page') || 1;
+        if (card === 'savings') {
+            refreshSavingsModal(currentPage, removedPage, 'transactions');
+            return;
         }
 
-        var $table = $('#dashboardDetailBody .table.table-hover.table-sm.mb-0');
-        if ($table.length) {
-            $table.find('tbody').html(tbody);
-        }
-
-        var $pageLinks = $('#dashboardDetailBody .page-link[data-removed-page]');
-        $pageLinks.each(function() {
-            var page = parseInt($(this).data('removed-page'), 10);
-            $(this).parent().toggleClass('disabled', page < 1 || page > totalPages || page === targetPage && false);
-            $(this).parent().toggleClass('active', page === targetPage);
-        });
-
-        var $pagination = $('#dashboardDetailBody .pagination');
-        if ($pagination.length) {
-            $pagination.find('.page-item').removeClass('disabled active');
-            $pagination.find('.page-item').eq(0).toggleClass('disabled', targetPage === 1);
-            $pagination.find('.page-item').eq(0).find('a').attr('data-removed-page', targetPage > 1 ? targetPage - 1 : 1);
-            $pagination.find('.page-item').eq(-1).toggleClass('disabled', targetPage === totalPages);
-            $pagination.find('.page-item').eq(-1).find('a').attr('data-removed-page', targetPage < totalPages ? targetPage + 1 : totalPages);
-            $pagination.find('.page-item').each(function(index) {
-                if (index > 0 && index < $(this).parent().find('.page-item').length - 1) {
-                    var page = index;
-                    $(this).toggleClass('active', page === targetPage);
-                    $(this).find('a').attr('data-removed-page', page);
-                }
-            });
-        }
+        openCardModal(card, currentPage);
     });
+
+    function refreshSavingsModal(page, removedPage, activeTab) {
+        var requestUrl = '<?= site_url("admin/dashboard/card_savings") ?>';
+        var params = [];
+        if (page && page > 1) {
+            params.push('page=' + page);
+        }
+        if (removedPage && removedPage > 1 && activeTab === 'transactions') {
+            params.push('removed_page=' + removedPage);
+        }
+        if (params.length) {
+            requestUrl += '?' + params.join('&');
+        }
+
+        $.getJSON(requestUrl, function(res) {
+            renderSavingsModal(res, activeTab);
+        });
+    }
     
-    function openCardModal(card, page) {
+    function renderSavingsModal(res, activeTab) {
+        var $modal = $('#dashboardDetailModal');
+        var $title = $('#dashboardDetailModalLabel');
+        var currentPage = res.page || 1;
+        var totalPages = res.total_pages || 1;
+        var currentRemovedPage = res.removed_page || 1;
+        var removedPageCount = res.removed_total_pages || 1;
+        var removedTxns = Array.isArray(res.removed_transactions) ? res.removed_transactions : [];
+        var withdrawalSource = res.transaction_source || 'live';
+
+        $('#dashboardDetailModal').data('savings-page', currentPage);
+        $('#dashboardDetailModal').data('removed-page', currentRemovedPage);
+        $('#dashboardDetailModal').data('active-savings-tab', activeTab || 'accounts');
+
+        $title.html('<i class="fas fa-piggy-bank mr-2 text-success"></i>Total Security Deposit Overview');
+        var html = '<div class="row mb-3"><div class="col-md-4"><div class="callout callout-success"><h5>' + formatCurrency(res.totals.total_balance) + '</h5><small>Total Balance</small></div></div><div class="col-md-4"><div class="callout callout-info"><h5>' + formatCurrency(res.totals.total_deposited) + '</h5><small>Total Deposited</small></div></div><div class="col-md-4"><div class="callout callout-primary"><h5>' + res.totals.total_accounts + '</h5><small>Total Accounts</small></div></div></div>';
+        html += '<ul class="nav nav-tabs mb-3" id="securityDepositTabs" role="tablist">';
+        html += '<li class="nav-item"><a class="nav-link ' + (activeTab === 'accounts' ? 'active' : '') + '" id="securityDepositAccountsTab" data-toggle="tab" href="#securityDepositAccounts" role="tab">Savings Accounts</a></li>';
+        html += '<li class="nav-item"><a class="nav-link ' + (activeTab === 'transactions' ? 'active' : '') + '" id="securityDepositTransactionsTab" data-toggle="tab" href="#securityDepositTransactions" role="tab">Transactions <span class="badge badge-light ml-1">' + (res.removed_count || 0) + '</span></a></li>';
+        html += '</ul>';
+        html += '<div class="tab-content">';
+        html += '<div class="tab-pane fade ' + (activeTab === 'accounts' ? 'show active' : '') + '" id="securityDepositAccounts" role="tabpanel">';
+        html += '<div class="table-responsive"><table class="table table-hover table-sm"><thead class="thead-light"><tr><th>Account</th><th>Member</th><th>Balance</th><th>Deposited</th><th></th></tr></thead><tbody>';
+        $.each(res.data, function(i, s) {
+            html += '<tr><td><code>' + s.account_number + '</code></td><td>' + s.member_code + ' - ' + s.first_name + ' ' + s.last_name + '</td><td class="text-right font-weight-bold text-success">' + formatCurrency(s.current_balance) + '</td><td class="text-right">' + formatCurrency(s.total_deposited) + '</td><td><a href="<?= site_url("admin/savings/view/") ?>' + s.id + '" class="btn btn-xs btn-outline-success"><i class="fas fa-eye"></i></a></td></tr>';
+        });
+        if (!res.data || res.data.length === 0) {
+            html += '<tr><td colspan="5" class="text-center text-muted py-3">No active security deposit accounts found.</td></tr>';
+        }
+        html += '</tbody></table></div>';
+        if (totalPages > 1) {
+            html += '<div class="d-flex justify-content-between align-items-center mt-3"><div class="small text-muted">Page ' + currentPage + ' of ' + totalPages + '</div><div class="btn-group btn-group-sm">';
+            if (currentPage > 1) {
+                html += '<button type="button" class="btn btn-outline-secondary" data-page="' + (currentPage - 1) + '">Previous</button>';
+            }
+            if (currentPage < totalPages) {
+                html += '<button type="button" class="btn btn-outline-primary" data-page="' + (currentPage + 1) + '">Next</button>';
+            }
+            html += '</div></div>';
+        }
+        html += '</div>';
+
+        html += '<div class="tab-pane fade ' + (activeTab === 'transactions' ? 'show active' : '') + '" id="securityDepositTransactions" role="tabpanel">';
+        if (removedTxns.length > 0) {
+            html += '<div class="alert alert-info mb-3"><i class="fas fa-list mr-2"></i><strong>' + (res.removed_count || removedTxns.length) + '</strong> security deposit withdrawal record(s) found.</div>';
+            html += '<div class="table-responsive"><table class="table table-hover table-sm mb-0"><thead class="thead-light"><tr><th>Recorded</th><th>Account</th><th>Member</th><th>Amount</th><th>Transaction Date</th><th>Reason / Description</th></tr></thead><tbody>';
+            $.each(removedTxns, function(i, t) {
+                html += '<tr><td>' + formatDateTime(t.recorded_at) + '</td><td><code>' + (t.account_number || '-') + '</code></td><td>' + (t.member_code || '-') + ' - ' + (t.member_name || '-') + '</td><td class="text-right font-weight-bold text-danger">' + formatCurrency(t.amount) + '</td><td>' + formatDate(t.transaction_date) + '</td><td>' + (t.reason || t.narration || 'Withdrawal') + '</td></tr>';
+            });
+            html += '</tbody></table></div>';
+            if (removedPageCount > 1) {
+                html += '<div class="d-flex justify-content-between align-items-center mt-3"><div class="small text-muted">Page ' + currentRemovedPage + ' of ' + removedPageCount + '</div><div class="btn-group btn-group-sm">';
+                if (currentRemovedPage > 1) {
+                    html += '<button type="button" class="btn btn-outline-secondary" data-removed-page="' + (currentRemovedPage - 1) + '">Previous</button>';
+                }
+                if (currentRemovedPage < removedPageCount) {
+                    html += '<button type="button" class="btn btn-outline-primary" data-removed-page="' + (currentRemovedPage + 1) + '">Next</button>';
+                }
+                html += '</div></div>';
+            }
+        } else {
+            html += '<div class="text-center text-muted py-5"><i class="fas fa-money-bill-wave fa-2x mb-2"></i><p class="mb-0">No security deposit withdrawal records found.</p></div>';
+        }
+        html += '</div>';
+        html += '</div>';
+
+        $('#dashboardDetailBody').html(html);
+        if (activeTab === 'transactions') {
+            $('#securityDepositTransactionsTab').tab('show');
+        } else {
+            $('#securityDepositAccountsTab').tab('show');
+        }
+    }
+
+    function openCardModal(card, page, removedPage) {
         var $modal = $('#dashboardDetailModal');
         var $body = $('#dashboardDetailBody');
         var $title = $('#dashboardDetailModalLabel');
@@ -739,8 +803,15 @@ document.addEventListener('DOMContentLoaded', function() {
         
         var baseUrl = '<?= site_url("admin/dashboard/card_") ?>';
         var requestUrl = baseUrl + card;
+        var params = [];
         if (page && page > 1) {
-            requestUrl += '?page=' + page;
+            params.push('page=' + page);
+        }
+        if (card === 'savings' && removedPage && removedPage > 1) {
+            params.push('removed_page=' + removedPage);
+        }
+        if (params.length) {
+            requestUrl += '?' + params.join('&');
         }
         
         $.getJSON(requestUrl, function(res) {
@@ -756,40 +827,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     break;
                     
                 case 'savings':
-                    $title.html('<i class="fas fa-piggy-bank mr-2 text-success"></i>Total Security Deposit Overview');
-                    var removedTxns = Array.isArray(res.removed_transactions) ? res.removed_transactions : [];
-                    var removedPageSize = 10;
-                    var removedPage = 1;
-                    var removedPageCount = Math.max(1, Math.ceil(removedTxns.length / removedPageSize));
-
-                    html = '<div class="row mb-3"><div class="col-md-4"><div class="callout callout-success"><h5>' + formatCurrency(res.totals.total_balance) + '</h5><small>Total Balance</small></div></div><div class="col-md-4"><div class="callout callout-info"><h5>' + formatCurrency(res.totals.total_deposited) + '</h5><small>Total Deposited</small></div></div><div class="col-md-4"><div class="callout callout-primary"><h5>' + res.totals.total_accounts + '</h5><small>Total Accounts</small></div></div></div>';
-                    if (removedTxns.length > 0) {
-                        var start = (removedPage - 1) * removedPageSize;
-                        var end = Math.min(start + removedPageSize, removedTxns.length);
-                        html += '<div class="alert alert-warning mb-3"><i class="fas fa-exclamation-triangle mr-2"></i><strong>' + removedTxns.length + '</strong> security deposit withdrawal record(s) were deleted from the system.</div>';
-                        html += '<div class="card card-outline card-warning mb-3"><div class="card-header"><h5 class="card-title mb-0"><i class="fas fa-trash-alt mr-2"></i>Deleted Security Deposit Withdrawal Records</h5></div><div class="card-body p-0"><div class="table-responsive"><table class="table table-hover table-sm mb-0"><thead class="thead-light"><tr><th>Deleted</th><th>Account</th><th>Member</th><th>Amount</th><th>Transaction Date</th><th>Reason</th></tr></thead><tbody>';
-                        for (var i = start; i < end; i++) {
-                            var t = removedTxns[i];
-                            html += '<tr><td>' + formatDateTime(t.deleted_at) + '</td><td><code>' + (t.account_number || '-') + '</code></td><td>' + (t.member_code || '-') + ' - ' + (t.member_name || '-') + '</td><td class="text-right font-weight-bold text-danger">' + formatCurrency(t.amount) + '</td><td>' + formatDate(t.transaction_date) + '</td><td>' + (t.reason || '-') + '</td></tr>';
-                        }
-                        html += '</tbody></table></div>';
-                        if (removedPageCount > 1) {
-                            html += '<div class="card-footer clearfix"><ul class="pagination pagination-sm mb-0 justify-content-end">';
-                            html += '<li class="page-item ' + (removedPage === 1 ? 'disabled' : '') + '"><a class="page-link" href="#" data-removed-page="' + (removedPage - 1) + '">Previous</a></li>';
-                            for (var p = 1; p <= removedPageCount; p++) {
-                                html += '<li class="page-item ' + (p === removedPage ? 'active' : '') + '"><a class="page-link" href="#" data-removed-page="' + p + '">' + p + '</a></li>';
-                            }
-                            html += '<li class="page-item ' + (removedPage === removedPageCount ? 'disabled' : '') + '"><a class="page-link" href="#" data-removed-page="' + (removedPage + 1) + '">Next</a></li>';
-                            html += '</ul></div>';
-                        }
-                        html += '</div></div>';
-                    }
-                    html += '<div class="table-responsive"><table class="table table-hover table-sm"><thead class="thead-light"><tr><th>Account</th><th>Member</th><th>Balance</th><th>Deposited</th><th></th></tr></thead><tbody>';
-                    $.each(res.data, function(i, s) {
-                        html += '<tr><td><code>' + s.account_number + '</code></td><td>' + s.member_code + ' - ' + s.first_name + ' ' + s.last_name + '</td><td class="text-right font-weight-bold text-success">' + formatCurrency(s.current_balance) + '</td><td class="text-right">' + formatCurrency(s.total_deposited) + '</td><td><a href="<?= site_url("admin/savings/view/") ?>' + s.id + '" class="btn btn-xs btn-outline-success"><i class="fas fa-eye"></i></a></td></tr>';
-                    });
-                    html += '</tbody></table></div>';
-                    break;
+                    renderSavingsModal(res, 'accounts');
+                    return;
                     
                 case 'loans':
                     $title.html('<i class="fas fa-hand-holding-usd mr-2 text-warning"></i>Loan Outstanding Detail');
@@ -1020,7 +1059,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     function formatCurrency(val) {
         var n = parseFloat(val) || 0;
-        return '₹' + n.toLocaleString('en-IN', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+        if (n <= 0) return '₹0';
+        var rounded = n < 1.5 ? 1 : Math.ceil(n);
+        return '₹' + rounded.toLocaleString('en-IN');
     }
     
     function formatDate(d) {

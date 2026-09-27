@@ -1414,6 +1414,91 @@ class Loan_model extends MY_Model {
                             'released_at' => date('Y-m-d H:i:s')
                         ]);
     }
+
+    /**
+     * Reinstate guarantors when a closure payment is reversed.
+     */
+    public function reinstate_guarantors($loan_id) {
+        return $this->db->where('loan_id', $loan_id)
+                        ->where('is_released', 1)
+                        ->update('loan_guarantors', [
+                            'is_released' => 0,
+                            'released_at' => null
+                        ]);
+    }
+
+    /**
+     * Restore installments and unpaid fines that were auto-cancelled by a
+     * foreclosure or full-settlement closure.
+     */
+    public function restore_cancelled_schedule_after_reversal($loan_id) {
+        $rows = $this->db->where('loan_id', $loan_id)
+                         ->where('status', 'cancelled')
+                         ->group_start()
+                             ->where_in('skip_reason', ['Foreclosure settlement', 'Loan fully settled'])
+                             ->or_like('remarks', 'Cancelled on loan foreclosure', 'after')
+                             ->or_like('remarks', 'Cancelled on loan closure', 'after')
+                         ->group_end()
+                         ->order_by('installment_number', 'ASC')
+                         ->get('loan_installments')
+                         ->result();
+
+        if (empty($rows)) {
+            return [];
+        }
+
+        $restored_ids = [];
+        foreach ($rows as $row) {
+            $total_paid = round((float)($row->total_paid ?? 0), 2);
+            $emi_amount = round((float)($row->emi_amount ?? 0), 2);
+
+            if ($total_paid <= 0) {
+                $status = 'pending';
+                $paid_date = null;
+                $is_late = 0;
+                $days_late = 0;
+            } elseif ($total_paid < ($emi_amount - 0.01)) {
+                $status = 'partial';
+                $paid_date = $row->paid_date;
+                $is_late = (int)($row->is_late ?? 0);
+                $days_late = (int)($row->days_late ?? 0);
+            } else {
+                $status = 'paid';
+                $paid_date = $row->paid_date;
+                $is_late = (int)($row->is_late ?? 0);
+                $days_late = (int)($row->days_late ?? 0);
+            }
+
+            $this->db->where('id', $row->id)
+                     ->update('loan_installments', [
+                         'status' => $status,
+                         'paid_date' => $paid_date,
+                         'is_skipped' => 0,
+                         'skip_reason' => null,
+                         'skipped_by' => null,
+                         'remarks' => null,
+                         'is_late' => $is_late,
+                         'days_late' => $days_late,
+                         'updated_at' => date('Y-m-d H:i:s')
+                     ]);
+            $restored_ids[] = (int)$row->id;
+        }
+
+        if (!empty($restored_ids)) {
+            $this->db->where('related_type', 'loan_installment')
+                     ->where_in('related_id', $restored_ids)
+                     ->where('status', 'paid')
+                     ->where('COALESCE(paid_amount, 0) = 0', null, false)
+                     ->where('COALESCE(waived_amount, 0) = 0', null, false)
+                     ->update('fines', [
+                         'status' => 'pending',
+                         'payment_date' => null,
+                         'updated_at' => date('Y-m-d H:i:s')
+                     ]);
+        }
+
+        return $restored_ids;
+    }
     
     /**
      * Skip Installment
@@ -2006,6 +2091,53 @@ class Loan_model extends MY_Model {
     }
 
     /**
+     * Calculate Force Close Amount
+     * Charges only next month's interest while waiving the currently
+     * outstanding interest and pending fines.
+     */
+    public function calculate_force_close_amount($loan_id) {
+        $loan = $this->db->where('id', $loan_id)->get('loans')->row();
+        if (!$loan) {
+            return false;
+        }
+
+        $outstanding_principal = round((float)($loan->outstanding_principal ?? 0), 2);
+        $outstanding_interest = round((float)($loan->outstanding_interest ?? 0), 2);
+
+        $pending_fines_row = $this->db->select_sum('f.fine_amount')
+                                      ->from('fines f')
+                                      ->join('loan_installments li', 'li.id = f.related_id AND f.related_type = "loan_installment"', 'inner')
+                                      ->where('li.loan_id', $loan_id)
+                                      ->where('f.status', 'pending')
+                                      ->get()
+                                      ->row();
+        $pending_fines = $pending_fines_row && $pending_fines_row->fine_amount ? (float)$pending_fines_row->fine_amount : 0;
+
+        $annual_rate = (float)($loan->interest_rate ?? 0);
+        $next_month_interest = round($outstanding_principal * ($annual_rate / 12 / 100), 2);
+
+        return [
+            'outstanding_principal' => $outstanding_principal,
+            'outstanding_interest' => $outstanding_interest,
+            'pending_fines' => round($pending_fines, 2),
+            'annual_interest_rate' => $annual_rate,
+            'interest_charge_pct' => 0,
+            'next_month_interest' => $next_month_interest,
+            'total_amount' => $next_month_interest,
+            'waived_interest' => $outstanding_interest,
+            'waived_fines' => round($pending_fines, 2),
+            'type' => 'force_close',
+            'pending_fines_list' => $this->db->select('f.*')
+                                                  ->from('fines f')
+                                                  ->join('loan_installments li', 'li.id = f.related_id AND f.related_type = "loan_installment"', 'inner')
+                                                  ->where('li.loan_id', $loan_id)
+                                                  ->where('f.status', 'pending')
+                                                  ->get()
+                                                  ->result(),
+        ];
+    }
+
+    /**
      * Request Loan Foreclosure
      */
     public function request_foreclosure($loan_id, $member_id, $reason, $settlement_date, $closure_type = 'regular') {
@@ -2024,14 +2156,16 @@ class Loan_model extends MY_Model {
             return ['success' => false, 'message' => 'Foreclosure already requested for this loan'];
         }
 
-        // Calculate foreclosure amount (regular logic always)
-        $calculation = $this->calculate_foreclosure_amount($loan_id);
+        $closure_type = ($closure_type === 'force_close') ? 'force_close' : 'regular';
+        $calculation = ($closure_type === 'force_close')
+            ? $this->calculate_force_close_amount($loan_id)
+            : $this->calculate_foreclosure_amount($loan_id);
 
         $data = [
             'loan_id'            => $loan_id,
             'member_id'          => $member_id,
             'foreclosure_amount' => $calculation['total_amount'],
-            'closure_type'       => 'regular',
+            'closure_type'       => $closure_type,
             'reason'             => $reason,
             'settlement_date'    => $settlement_date,
             'status'             => 'pending',
@@ -2050,7 +2184,7 @@ class Loan_model extends MY_Model {
                 'module'     => 'loans',
                 'table_name' => 'loans',
                 'record_id'  => $loan_id,
-                'remarks'    => "Member requested foreclosure for loan #{$loan->loan_number}: {$reason}",
+                'remarks'    => "Member requested {$closure_type} foreclosure for loan #{$loan->loan_number}: {$reason}",
             ]);
 
             return ['success' => true, 'message' => 'Foreclosure request submitted successfully'];
@@ -2096,6 +2230,7 @@ class Loan_model extends MY_Model {
 
         if ($action === 'approve') {
             $update_data['status'] = 'approved';
+            $closure_type = ($request->closure_type === 'force_close') ? 'force_close' : 'regular';
 
             // Get loan details for breakdown calculation
             $loan = $this->db->where('id', $request->loan_id)->get('loans')->row();
@@ -2112,8 +2247,10 @@ class Loan_model extends MY_Model {
                 return ['success' => false, 'message' => 'Interest charge % must be between 0 and 100'];
             }
 
-            // Recalculate the breakdown at approval time, honouring the admin's %
-            $breakdown = $this->calculate_foreclosure_amount($request->loan_id, $override_pct);
+            // Recalculate the breakdown at approval time.
+            $breakdown = ($closure_type === 'force_close')
+                       ? $this->calculate_force_close_amount($request->loan_id)
+                       : $this->calculate_foreclosure_amount($request->loan_id, $override_pct);
             if (!$breakdown) {
                 return ['success' => false, 'message' => 'Unable to calculate settlement amount'];
             }
@@ -2129,16 +2266,25 @@ class Loan_model extends MY_Model {
                 return ['success' => false, 'message' => 'Settlement amount must be greater than zero'];
             }
 
-            // ── Split the collected amount into components ────────────────
-            // Principal is settled first, then pending fines, remainder is interest.
-            $principal_component = min(round((float)$breakdown['outstanding_principal'], 2), $final_amount);
-            $remaining           = round($final_amount - $principal_component, 2);
-            $fine_component      = min(round((float)$breakdown['pending_fines'], 2), $remaining);
-            $interest_component  = round($remaining - $fine_component, 2);
+            if ($closure_type === 'force_close') {
+                // Preserve the waived balances in the payment components so a
+                // later reversal can restore the original loan state.
+                $principal_component = round((float)$breakdown['outstanding_principal'], 2);
+                $interest_component = round((float)$breakdown['outstanding_interest'], 2);
+                $fine_component = round((float)$breakdown['pending_fines'], 2);
+                $settlement_note = 'Force Close Settlement (charged next month interest only: '
+                                 . number_format((float)$breakdown['next_month_interest'], 2) . ')';
+            } else {
+                // Principal is settled first, then pending fines, remainder is interest.
+                $principal_component = min(round((float)$breakdown['outstanding_principal'], 2), $final_amount);
+                $remaining           = round($final_amount - $principal_component, 2);
+                $fine_component      = min(round((float)$breakdown['pending_fines'], 2), $remaining);
+                $interest_component  = round($remaining - $fine_component, 2);
 
-            $settlement_note = 'Foreclosure Settlement (Interest charged @ '
-                             . rtrim(rtrim(number_format((float)$breakdown['interest_charge_pct'], 2, '.', ''), '0'), '.')
-                             . '% of remaining interest)';
+                $settlement_note = 'Foreclosure Settlement (Interest charged @ '
+                                 . rtrim(rtrim(number_format((float)$breakdown['interest_charge_pct'], 2, '.', ''), '0'), '.')
+                                 . '% of remaining interest)';
+            }
 
             if (abs($final_amount - $calculated_total) >= 0.01) {
                 $settlement_note .= ' [Admin adjusted: calculated '
@@ -2148,7 +2294,7 @@ class Loan_model extends MY_Model {
 
             // Store what was actually approved on the request itself
             $update_data['approved_amount']       = $final_amount;
-            $update_data['approved_interest_pct'] = (float)$breakdown['interest_charge_pct'];
+            $update_data['approved_interest_pct'] = ($closure_type === 'force_close') ? 0 : (float)$breakdown['interest_charge_pct'];
 
             // Normalize payment_mode to valid ENUM values
             $payment_mode_input = strtolower($payment_details['payment_mode'] ?? 'cash');
@@ -2211,7 +2357,7 @@ class Loan_model extends MY_Model {
                     ->update('loans', [
                         'status' => 'foreclosed',
                         'closure_date' => date('Y-m-d'),
-                        'closure_type' => 'foreclosure',
+                        'closure_type' => ($closure_type === 'force_close') ? 'force_close' : 'foreclosure',
                         'closure_remarks' => $settlement_note . ($comments ? ' — ' . $comments : ''),
                         'closed_by' => $admin_id,
                         'outstanding_principal' => 0,
@@ -2271,10 +2417,12 @@ class Loan_model extends MY_Model {
                 'record_id'  => $request_id,
                 'remarks'    => "Foreclosure request {$action}d for loan #{$request->loan_id}"
                               . ($action === 'approve'
-                                 ? ". Requested: " . number_format((float)$request->foreclosure_amount, 2)
+                                            ? ". Type: {$closure_type}. Requested: " . number_format((float)$request->foreclosure_amount, 2)
                                  . ", Calculated: " . number_format($calculated_total, 2)
                                  . ", Collected: " . number_format($final_amount, 2)
-                                 . " @ " . $breakdown['interest_charge_pct'] . "% interest charge"
+                                            . ($closure_type === 'force_close'
+                                                ? ', next month interest only charged'
+                                                : " @ " . $breakdown['interest_charge_pct'] . "% interest charge")
                                  : ''),
             ]);
 
