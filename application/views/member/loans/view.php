@@ -3,9 +3,34 @@
         <h3 class="card-title">Loan Details - <?= $loan->loan_number ?></h3>
     </div>
     <div class="card-body">
+        <?php
+            $loan_status = strtolower($loan->status ?? 'active');
+            if (in_array($loan_status, ['foreclosed', 'closed'])) {
+                $status_label = ($loan->closure_type === 'force_close') ? 'Force Close' : 'Closed';
+                $status_class = 'danger';
+            } elseif ($loan_status === 'overdue') {
+                $status_label = 'Active';
+                $status_class = 'warning';
+            } elseif ($loan_status === 'npa') {
+                $status_label = 'NPA';
+                $status_class = 'danger';
+            } else {
+                $status_label = 'Active';
+                $status_class = 'success';
+            }
+        ?>
+        <p><strong>Status:</strong> <span class="badge badge-<?= $status_class ?>"><?= htmlspecialchars($status_label) ?></span></p>
         <p><strong>Product:</strong> <?= $loan->product_name ?></p>
         <p><strong>Amount:</strong> <?= format_amount($loan->principal_amount) ?></p>
         <p><strong>Outstanding:</strong> <?= format_amount($loan->outstanding_principal ?? 0) ?></p>
+
+        <?php if (!empty($force_close_receipt_payment)): ?>
+            <p>
+                <a href="<?= site_url('member/loans/receipt/' . $force_close_receipt_payment->id) ?>" target="_blank" class="btn btn-sm btn-outline-danger">
+                    View Force Close Receipt
+                </a>
+            </p>
+        <?php endif; ?>
 
         <h5>Installments</h5>
         <?php if (empty($installments)): ?>

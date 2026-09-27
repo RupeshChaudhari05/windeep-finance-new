@@ -105,8 +105,61 @@ class Loans extends Member_Controller {
                                     ->order_by('payment_date', 'DESC')
                                     ->get('loan_payments')
                                     ->result();
+
+        $data['force_close_receipt_payment'] = $this->db
+            ->where('loan_id', $loan_id)
+            ->where('payment_type', 'foreclosure')
+            ->where('is_reversed', 0)
+            ->order_by('payment_date', 'DESC')
+            ->order_by('id', 'DESC')
+            ->limit(1)
+            ->get('loan_payments')
+            ->row();
         
         $this->load_member_view('member/loans/view', $data);
+    }
+
+    /**
+     * View Force Close / Foreclosure Receipt for a member-owned loan payment
+     */
+    public function receipt($payment_id) {
+        $this->load->helper(['settings', 'format']);
+
+        $payment = $this->db
+            ->select('lp.*, l.loan_number, l.member_id, l.principal_amount, l.interest_rate, l.tenure_months, lpd.product_name, m.member_code, m.first_name, m.last_name, m.phone, m.mobile, m.email')
+            ->from('loan_payments lp')
+            ->join('loans l', 'l.id = lp.loan_id')
+            ->join('loan_products lpd', 'lpd.id = l.loan_product_id', 'left')
+            ->join('members m', 'm.id = l.member_id', 'left')
+            ->where('lp.id', $payment_id)
+            ->where('l.member_id', $this->member->id)
+            ->where('lp.payment_type', 'foreclosure')
+            ->where('lp.is_reversed', 0)
+            ->get()
+            ->row();
+
+        if (!$payment) {
+            show_404();
+            return;
+        }
+
+        $data['payment'] = $payment;
+        $data['loan'] = (object) [
+            'loan_number' => $payment->loan_number,
+            'product_name' => $payment->product_name ?? 'Loan',
+            'tenure_months' => $payment->tenure_months ?? 0,
+            'interest_rate' => $payment->interest_rate ?? 0,
+        ];
+        $data['member'] = (object) [
+            'member_code' => $payment->member_code ?? '-',
+            'first_name' => $payment->first_name ?? '',
+            'last_name' => $payment->last_name ?? '',
+            'mobile' => $payment->mobile ?? $payment->phone ?? '',
+            'email' => $payment->email ?? '',
+            'full_name' => trim(($payment->first_name ?? '') . ' ' . ($payment->last_name ?? '')) ?: 'Member',
+        ];
+
+        $this->load->view('member/loans/receipt', $data);
     }
     
     /**

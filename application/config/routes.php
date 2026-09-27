@@ -264,6 +264,7 @@ $route['member/loans/apply'] = 'member/loans/apply';
 $route['member/loans/applications'] = 'member/loans/applications';
 $route['member/loans/application/(:num)'] = 'member/loans/application/$1';
 $route['member/loans/view/(:num)'] = 'member/loans/view/$1';
+$route['member/loans/receipt/(:num)'] = 'member/loans/receipt/$1';
 $route['member/loans/approve_application/(:num)'] = 'member/loans/approve_application/$1';
 $route['member/loans/reject_application/(:num)'] = 'member/loans/reject_application/$1';
 $route['member/loans/guarantor_consent/(:num)/(:any)'] = 'member/loans/guarantor_consent/$1/$2';
