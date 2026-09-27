@@ -9,7 +9,7 @@
                 <div class="text-center mb-3">
                     <h4 class="mb-0"><?= $loan->loan_number ?></h4>
                     <?php
-                    $status_class = ['active' => 'success', 'overdue' => 'warning', 'npa' => 'danger', 'closed' => 'secondary'];
+                    $status_class = ['active' => 'success', 'overdue' => 'warning', 'npa' => 'danger', 'closed' => 'secondary', 'foreclosed' => 'dark'];
                     ?>
                     <span class="badge badge-<?= $status_class[$loan->status] ?? 'secondary' ?> badge-lg mt-1">
                         <?= strtoupper($loan->status) ?>

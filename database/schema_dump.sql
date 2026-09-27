@@ -784,7 +784,7 @@ CREATE TABLE `loan_installments` (
   `fine_amount` decimal(15,2) DEFAULT 0.00,
   `fine_paid` decimal(15,2) DEFAULT 0.00,
   `total_paid` decimal(15,2) DEFAULT 0.00,
-  `status` enum('upcoming','pending','partial','paid','overdue','skipped','interest_only','waived') DEFAULT 'upcoming',
+  `status` enum('upcoming','pending','partial','paid','overdue','skipped','interest_only','waived','cancelled') DEFAULT 'upcoming',
   `paid_date` date DEFAULT NULL,
   `is_late` tinyint(1) DEFAULT 0,
   `days_late` int(11) DEFAULT 0,

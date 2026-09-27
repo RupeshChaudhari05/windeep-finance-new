@@ -618,7 +618,8 @@ CREATE TABLE IF NOT EXISTS `loan_installments` (
     'overdue',
     'skipped',
     'interest_only',
-    'waived'
+    'waived',
+    'cancelled'
 ) DEFAULT 'upcoming',
 `paid_date` DATE,
 `is_late` TINYINT(1) DEFAULT 0,

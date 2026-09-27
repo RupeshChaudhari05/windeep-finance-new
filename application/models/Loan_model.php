@@ -1702,6 +1702,24 @@ class Loan_model extends MY_Model {
      * Get Loan Installments
      */
     public function get_loan_installments($loan_id) {
+        $loan = $this->db->where('id', $loan_id)->get('loans')->row();
+
+        // Safety guard: once a loan is closed/foreclosed, no unpaid future EMI
+        // should remain open in the schedule. Older data may still have rows in
+        // pending/upcoming/overdue state; they must be normalized here so the
+        // UI does not keep showing payable instalments after closure.
+        if ($loan && in_array($loan->status, ['closed', 'foreclosed'], true)) {
+            $this->db->where('loan_id', $loan_id)
+                     ->where_in('status', ['upcoming', 'pending', 'overdue', 'partial'])
+                     ->update('loan_installments', [
+                         'status'      => 'cancelled',
+                         'remarks'     => 'Cancelled on loan closure (' . date('Y-m-d') . ')',
+                         'is_skipped'  => 1,
+                         'skip_reason' => ($loan->status === 'foreclosed') ? 'Foreclosure settlement' : 'Loan fully settled',
+                         'updated_at'  => date('Y-m-d H:i:s')
+                     ]);
+        }
+
         return $this->db->where('loan_id', $loan_id)
                         ->order_by('installment_number', 'ASC')
                         ->get('loan_installments')

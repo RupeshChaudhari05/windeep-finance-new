@@ -11,6 +11,17 @@ class Savings extends Member_Controller {
     /**
      * My Savings Accounts
      */
+    protected function should_display_member_transaction($txn) {
+        $type = strtolower((string) ($txn->transaction_type ?? ''));
+        $payment_mode = strtolower((string) ($txn->payment_mode ?? ''));
+        $amount = abs((float) ($txn->amount ?? 0));
+
+        $is_adjustment_like = in_array($type, ['adjustment', 'fine_waiver', 'loan_adjustment'], true)
+            || $payment_mode === 'adjustment';
+
+        return !($is_adjustment_like && $amount < 5);
+    }
+
     public function index() {
         $data['title'] = 'My Security ';
         $data['page_title'] = 'Security & Contributions';
@@ -24,14 +35,16 @@ class Savings extends Member_Controller {
         
         // Get recent transactions for all accounts (exclude reversed — they are ghost entries)
         foreach ($data['accounts'] as $account) {
-            $account->recent_transactions = $this->db
+            $transactions = $this->db
                 ->where('savings_account_id', $account->id)
                 ->where('is_reversed', 0)
                 ->order_by('transaction_date', 'DESC')
                 ->order_by('id', 'DESC')
-                ->limit(5)
+                ->limit(20)
                 ->get('savings_transactions')
                 ->result();
+
+            $account->recent_transactions = array_values(array_filter($transactions, [$this, 'should_display_member_transaction']));
         }
         
         $this->load_member_view('member/savings/index', $data);
@@ -78,6 +91,8 @@ class Savings extends Member_Controller {
             ->order_by('id', 'DESC')
             ->get('savings_transactions')
             ->result();
+
+        $all_txns = array_values(array_filter($all_txns, [$this, 'should_display_member_transaction']));
 
         // Start from the true current balance and walk backwards through history
         $running_balance = (float) ($account->current_balance ?? 0);

@@ -712,7 +712,8 @@ CREATE TABLE `loan_installments` (
         'overdue',
         'skipped',
         'interest_only',
-        'waived'
+        'waived',
+        'cancelled'
     ) DEFAULT 'upcoming',
     `paid_date` date DEFAULT NULL,
     `is_late` tinyint(1) DEFAULT 0,
