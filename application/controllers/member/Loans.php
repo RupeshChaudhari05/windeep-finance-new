@@ -143,6 +143,8 @@ class Loans extends Member_Controller {
             return;
         }
 
+        $member_name = trim((string)($payment->first_name ?? '') . ' ' . (string)($payment->last_name ?? ''));
+
         $data['payment'] = $payment;
         $data['loan'] = (object) [
             'loan_number' => $payment->loan_number,
@@ -154,9 +156,9 @@ class Loans extends Member_Controller {
             'member_code' => $payment->member_code ?? '-',
             'first_name' => $payment->first_name ?? '',
             'last_name' => $payment->last_name ?? '',
-            'mobile' => $payment->mobile ?? $payment->phone ?? '',
+            'mobile' => $payment->mobile ?? $payment->phone ?? '-',
             'email' => $payment->email ?? '',
-            'full_name' => trim(($payment->first_name ?? '') . ' ' . ($payment->last_name ?? '')) ?: 'Member',
+            'full_name' => $member_name ?: 'Member',
         ];
 
         $this->load->view('member/loans/receipt', $data);

@@ -75,7 +75,7 @@
         <div class="info-grid">
             <div class="info-row">
                 <span class="label">Member Name</span>
-                <span class="value"><?= htmlspecialchars($member->full_name ?? ($member->first_name . ' ' . $member->last_name)) ?></span>
+                <span class="value"><?= htmlspecialchars($member->full_name ?? 'Member') ?></span>
             </div>
             <div class="info-row">
                 <span class="label">Member Code</span>
