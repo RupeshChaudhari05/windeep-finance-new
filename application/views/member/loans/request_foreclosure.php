@@ -5,6 +5,7 @@ $total_interest  = (float)($settlement['total_interest']          ?? 0);
 $interest_pct    = (float)($settlement['interest_charge_pct']     ?? 30);
 $interest_charge = (float)($settlement['interest_charge']         ?? 0);
 $fines           = (float)($settlement['pending_fines']           ?? 0);
+$extra_charges   = $interest_charge + $fines;
 $total           = (float)($settlement['total_settlement']        ?? 0);
 $annual_rate     = (float)($loan->interest_rate ?? 0);
 ?>
@@ -70,22 +71,12 @@ $annual_rate     = (float)($loan->interest_rate ?? 0);
                 <td class="text-right border-0 py-1 font-weight-bold"><?= $cs.number_format($principal,2) ?></td>
             </tr>
             <tr>
-                <td class="text-muted border-0 py-1">Total Pending Interest (Current + Future Months)</td>
-                <td class="text-right border-0 py-1"><?= $cs.number_format($total_interest,2) ?></td>
-            </tr>
-            <tr>
                 <td class="text-muted border-0 py-1">
-                    Interest Charge (<?= $interest_pct ?>% of pending interest)
-                    <small class="d-block text-muted">Based on admin configuration</small>
+                    Extra Charges
+                    <small class="d-block text-muted">Calculated as per current foreclosure policy</small>
                 </td>
-                <td class="text-right border-0 py-1 text-info"><?= $cs.number_format($interest_charge,2) ?></td>
+                <td class="text-right border-0 py-1 text-info"><?= $cs.number_format($extra_charges,2) ?></td>
             </tr>
-            <?php if ($fines > 0): ?>
-            <tr>
-                <td class="text-muted border-0 py-1">Pending Fines</td>
-                <td class="text-right border-0 py-1 text-danger"><?= $cs.number_format($fines,2) ?></td>
-            </tr>
-            <?php endif; ?>
             <tr style="border-top:2px solid #dee2e6;">
                 <td class="font-weight-bold py-2" style="font-size:14px;">Total to Pay</td>
                 <td class="text-right font-weight-bold text-primary py-2" style="font-size:1.4em;"><?= $cs.number_format($total,2) ?></td>
@@ -101,7 +92,7 @@ $annual_rate     = (float)($loan->interest_rate ?? 0);
             <div class="col">
                 <div style="font-size:12px;opacity:.8;text-transform:uppercase;letter-spacing:.5px;">You will pay (Foreclosure)</div>
                 <div class="font-weight-bold" style="font-size:2em;"><?= $cs.number_format($total,2) ?></div>
-                <div style="font-size:12px;opacity:.75;">Includes principal, accrued interest &amp; all charges</div>
+                <div style="font-size:12px;opacity:.75;">Includes principal and extra charges</div>
             </div>
             <div class="col-auto d-none d-md-block">
                 <i class="fas fa-rupee-sign" style="font-size:4em;opacity:.15;"></i>
@@ -176,21 +167,9 @@ $annual_rate     = (float)($loan->interest_rate ?? 0);
                                 <span><?= $cs.number_format($principal,2) ?></span>
                             </div>
                             <div class="d-flex justify-content-between mb-1" style="font-size:13px;">
-                                <span class="text-muted">Remaining Interest</span>
-                                <span><?= $cs.number_format($total_interest,2) ?></span>
+                                <span class="text-muted">Extra Charges</span>
+                                <span class="text-danger"><?= $cs.number_format($extra_charges,2) ?></span>
                             </div>
-                            <?php if ($interest_charge > 0): ?>
-                            <div class="d-flex justify-content-between mb-1" style="font-size:13px;">
-                                <span class="text-muted">Interest Charged (<?= $interest_pct ?>%)</span>
-                                <span class="text-danger"><?= $cs.number_format($interest_charge,2) ?></span>
-                            </div>
-                            <?php endif; ?>
-                            <?php if ($fines > 0): ?>
-                            <div class="d-flex justify-content-between mb-1" style="font-size:13px;">
-                                <span class="text-muted">Pending Fines</span>
-                                <span class="text-danger"><?= $cs.number_format($fines,2) ?></span>
-                            </div>
-                            <?php endif; ?>
                             <hr class="my-2">
                             <div class="d-flex justify-content-between">
                                 <span class="font-weight-bold">Total</span>
