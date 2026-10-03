@@ -128,7 +128,8 @@
                             <th>Member</th>
                             <th>Year</th>
                             <th class="text-right">Amount</th>
-                            <th>Date</th>
+                            <th>Description</th>
+                            <th class="text-center" width="50">Action</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -143,7 +144,16 @@
                                 </td>
                                 <td><?= $bh->bonus_year ?></td>
                                 <td class="text-right text-success font-weight-bold"><?= format_amount($bh->amount) ?></td>
-                                <td><small><?= format_date($bh->created_at) ?></small></td>
+                                <td><small><?= htmlspecialchars($bh->description ?: '-') ?></small></td>
+                                <td class="text-center">
+                                    <?php if ($bh->status == 'credited'): ?>
+                                    <button class="btn btn-sm btn-danger delete-bonus" data-id="<?= $bh->id ?>" data-member="<?= htmlspecialchars($bh->first_name) ?>" data-amount="<?= $bh->amount ?>" title="Delete this bonus entry">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                    <?php else: ?>
+                                    <span class="badge badge-secondary"><?= ucfirst($bh->status) ?></span>
+                                    <?php endif; ?>
+                                </td>
                             </tr>
                             <?php endforeach; ?>
                         <?php endif; ?>
@@ -229,6 +239,90 @@ $(function() {
                 var res = xhr.responseJSON || {};
                 toastr.error(res.message || 'An error occurred');
                 btn.prop('disabled', false).html('<i class="fas fa-gift mr-1"></i> Distribute Bonus');
+            }
+        });
+    });
+
+    // Reverse bonus transaction
+    $(document).on('click', '.reverse-bonus', function(e) {
+        e.preventDefault();
+        
+        var btn = $(this);
+        var bonusId = btn.data('id');
+        var memberName = btn.data('member');
+        var amount = parseFloat(btn.data('amount'));
+
+        if (!confirm('Are you sure you want to reverse the bonus of ₹' + 
+                      amount.toLocaleString('en-IN', {minimumFractionDigits: 2}) + 
+                      ' for ' + memberName + '?')) {
+            return;
+        }
+
+        btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i>');
+
+        $.ajax({
+            url: '<?= site_url("admin/savings/reverse_bonus") ?>',
+            type: 'POST',
+            data: {
+                bonus_id: bonusId,
+                '<?= $this->security->get_csrf_token_name() ?>': '<?= $this->security->get_csrf_hash() ?>'
+            },
+            dataType: 'json',
+            success: function(res) {
+                if (res.success) {
+                    toastr.success(res.message || 'Bonus reversed successfully.');
+                    setTimeout(function() { location.reload(); }, 1500);
+                } else {
+                    toastr.error(res.message || 'Failed to reverse bonus.');
+                    btn.prop('disabled', false).html('<i class="fas fa-undo"></i>');
+                }
+            },
+            error: function(xhr) {
+                var res = xhr.responseJSON || {};
+                toastr.error(res.message || 'An error occurred while reversing bonus.');
+                btn.prop('disabled', false).html('<i class="fas fa-undo"></i>');
+            }
+        });
+    });
+
+    // Delete bonus entry (completely remove from database)
+    $(document).on('click', '.delete-bonus', function(e) {
+        e.preventDefault();
+        
+        var btn = $(this);
+        var bonusId = btn.data('id');
+        var memberName = btn.data('member');
+        var amount = parseFloat(btn.data('amount'));
+
+        if (!confirm('⚠️ DELETE BONUS ENTRY?\n\nThis will:\n- Remove this bonus record completely\n- Withdraw ₹' + 
+                      amount.toLocaleString('en-IN', {minimumFractionDigits: 2}) + 
+                      ' from ' + memberName + '\'s account\n\nThis action CANNOT be undone!')) {
+            return;
+        }
+
+        btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i>');
+
+        $.ajax({
+            url: '<?= site_url("admin/savings/delete_bonus") ?>',
+            type: 'POST',
+            data: {
+                bonus_id: bonusId,
+                '<?= $this->security->get_csrf_token_name() ?>': '<?= $this->security->get_csrf_hash() ?>'
+            },
+            dataType: 'json',
+            success: function(res) {
+                if (res.success) {
+                    toastr.success(res.message || 'Bonus entry deleted successfully.');
+                    setTimeout(function() { location.reload(); }, 1500);
+                } else {
+                    toastr.error(res.message || 'Failed to delete bonus entry.');
+                    btn.prop('disabled', false).html('<i class="fas fa-trash"></i>');
+                }
+            },
+            error: function(xhr) {
+                var res = xhr.responseJSON || {};
+                toastr.error(res.message || 'An error occurred while deleting bonus.');
+                btn.prop('disabled', false).html('<i class="fas fa-trash"></i>');
             }
         });
     });

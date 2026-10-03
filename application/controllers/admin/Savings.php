@@ -1135,4 +1135,161 @@ class Savings extends Admin_Controller {
             'errors' => $errors
         ]);
     }
+
+    /**
+     * Reverse a bonus transaction
+     */
+    public function reverse_bonus() {
+        if (!$this->input->is_ajax_request()) {
+            $this->error_response('Invalid request');
+            return;
+        }
+
+        $this->check_permission('savings_edit');
+
+        $bonus_id = intval($this->input->post('bonus_id'));
+        $admin_id = $this->session->userdata('admin_id');
+
+        if ($bonus_id <= 0) {
+            $this->error_response('Invalid bonus ID');
+            return;
+        }
+
+        // Get the bonus transaction
+        $bonus = $this->db->where('id', $bonus_id)
+                         ->get('bonus_transactions')
+                         ->row();
+
+        if (!$bonus) {
+            $this->error_response('Bonus record not found');
+            return;
+        }
+
+        if ($bonus->status !== 'credited') {
+            $this->error_response('Only credited bonuses can be reversed');
+            return;
+        }
+
+        try {
+            // Get the associated savings transaction to reverse
+            $savings_txn = $this->db->where('id', $bonus->savings_transaction_id)
+                                    ->get('savings_transactions')
+                                    ->row();
+
+            if (!$savings_txn) {
+                $this->error_response('Associated savings transaction not found');
+                return;
+            }
+
+            // Create a reversal transaction (negative amount)
+            $reversal_txn_id = $this->Savings_model->record_payment([
+                'savings_account_id' => $bonus->savings_account_id,
+                'transaction_type' => 'withdrawal',
+                'amount' => $bonus->amount,
+                'payment_mode' => 'adjustment',
+                'narration' => 'Reversal of bonus (Txn ID: ' . $bonus->savings_transaction_id . ')',
+                'transaction_date' => date('Y-m-d'),
+                'created_by' => $admin_id
+            ]);
+
+            if ($reversal_txn_id) {
+                // Update bonus transaction status to 'reversed'
+                $this->db->where('id', $bonus_id)
+                         ->update('bonus_transactions', [
+                             'status' => 'reversed',
+                             'updated_at' => date('Y-m-d H:i:s')
+                         ]);
+
+                $member = $this->db->select('member_code, first_name')
+                                  ->where('id', $bonus->member_id)
+                                  ->get('members')
+                                  ->row();
+
+                $this->log_activity('Reversed bonus transaction',
+                    "Member: " . ($member->member_code ?? "ID:" . $bonus->member_id) .
+                    ", Amount: " . number_format($bonus->amount, 2) .
+                    ", Year: " . $bonus->bonus_year);
+
+                $this->success_response('Bonus reversed successfully. ₹' . number_format($bonus->amount, 2) . 
+                    ' has been withdrawn from ' . $member->first_name . '\'s account.');
+            } else {
+                $this->error_response('Failed to create reversal transaction');
+            }
+        } catch (Exception $e) {
+            $this->error_response('Error reversing bonus: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Delete a bonus transaction completely
+     */
+    public function delete_bonus() {
+        if (!$this->input->is_ajax_request()) {
+            $this->error_response('Invalid request');
+            return;
+        }
+
+        $this->check_permission('savings_edit');
+
+        $bonus_id = intval($this->input->post('bonus_id'));
+        $admin_id = $this->session->userdata('admin_id');
+
+        if ($bonus_id <= 0) {
+            $this->error_response('Invalid bonus ID');
+            return;
+        }
+
+        // Get the bonus transaction
+        $bonus = $this->db->where('id', $bonus_id)
+                         ->get('bonus_transactions')
+                         ->row();
+
+        if (!$bonus) {
+            $this->error_response('Bonus record not found');
+            return;
+        }
+
+        if ($bonus->status !== 'credited') {
+            $this->error_response('Only credited bonuses can be deleted');
+            return;
+        }
+
+        try {
+            // Get member info before deletion
+            $member = $this->db->select('member_code, first_name')
+                              ->where('id', $bonus->member_id)
+                              ->get('members')
+                              ->row();
+
+            // Create a withdrawal transaction to reverse the amount
+            $reversal_txn_id = $this->Savings_model->record_payment([
+                'savings_account_id' => $bonus->savings_account_id,
+                'transaction_type' => 'withdrawal',
+                'amount' => $bonus->amount,
+                'payment_mode' => 'adjustment',
+                'narration' => 'Reversal & Deletion of bonus entry (Original Txn ID: ' . $bonus->savings_transaction_id . ')',
+                'transaction_date' => date('Y-m-d'),
+                'created_by' => $admin_id
+            ]);
+
+            if ($reversal_txn_id) {
+                // Delete the bonus transaction record completely
+                $this->db->where('id', $bonus_id)
+                         ->delete('bonus_transactions');
+
+                $this->log_activity('Deleted bonus transaction entry',
+                    "Member: " . ($member->member_code ?? "ID:" . $bonus->member_id) .
+                    ", Amount: " . number_format($bonus->amount, 2) .
+                    ", Year: " . $bonus->bonus_year .
+                    ", Reason: Entry correction (admin deletion)");
+
+                $this->success_response('Bonus entry deleted successfully. ₹' . number_format($bonus->amount, 2) . 
+                    ' has been withdrawn from ' . $member->first_name . '\'s account. Entry removed from all records.');
+            } else {
+                $this->error_response('Failed to create reversal transaction');
+            }
+        } catch (Exception $e) {
+            $this->error_response('Error deleting bonus: ' . $e->getMessage());
+        }
+    }
 }

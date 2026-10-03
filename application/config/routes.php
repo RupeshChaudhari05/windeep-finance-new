@@ -100,6 +100,8 @@ $route['admin/savings/collection/(:num)'] = 'admin/savings/collect/$1';
 $route['admin/savings/collect/(:num)'] = 'admin/savings/collect/$1';
 $route['admin/savings/bonus'] = 'admin/savings/bonus';
 $route['admin/savings/process_bonus'] = 'admin/savings/process_bonus';
+$route['admin/savings/reverse_bonus'] = 'admin/savings/reverse_bonus';
+$route['admin/savings/delete_bonus'] = 'admin/savings/delete_bonus';
 
 // Loans routes
 $route['admin/loans'] = 'admin/loans/index';
