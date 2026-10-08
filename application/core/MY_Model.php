@@ -16,8 +16,31 @@ class MY_Model extends CI_Model {
     protected $soft_delete = false;
     protected $soft_delete_field = 'deleted_at';
     
+    // Strict SQL mode is applied once per DB connection
+    private static $_strict_applied = false;
+
     public function __construct() {
         // parent::__construct(); // Commented out to avoid PHP 8 constructor issue
+        self::enforce_strict_sql_mode();
+    }
+
+    /**
+     * Force STRICT_ALL_TABLES on the session.
+     *
+     * The production server runs MariaDB in non-strict mode, where an invalid
+     * ENUM value (e.g. a status the column doesn't list) is silently stored as ''
+     * and the row disappears from every screen. In strict mode the same write
+     * fails and is logged instead, so bad data can never be saved quietly.
+     * Done here explicitly because the 'stricton' init command is not reliable
+     * across hosts.
+     */
+    public static function enforce_strict_sql_mode() {
+        if (self::$_strict_applied) return;
+        $CI =& get_instance();
+        if (!isset($CI->db) || !$CI->db->conn_id) return;
+
+        $CI->db->query("SET SESSION sql_mode = CONCAT_WS(',', NULLIF(@@SESSION.sql_mode, ''), 'STRICT_ALL_TABLES')");
+        self::$_strict_applied = true;
     }
     
     /**

@@ -126,7 +126,7 @@ class Loans extends Member_Controller {
         $this->load->helper(['settings', 'format']);
 
         $payment = $this->db
-            ->select('lp.*, l.loan_number, l.member_id, l.principal_amount, l.interest_rate, l.tenure_months, lpd.product_name, m.member_code, m.first_name, m.last_name, m.phone, m.mobile, m.email')
+            ->select('lp.*, l.loan_number, l.member_id, l.principal_amount, l.interest_rate, l.tenure_months, lpd.product_name, m.member_code, m.first_name, m.last_name, m.phone, m.email')
             ->from('loan_payments lp')
             ->join('loans l', 'l.id = lp.loan_id')
             ->join('loan_products lpd', 'lpd.id = l.loan_product_id', 'left')
@@ -156,7 +156,7 @@ class Loans extends Member_Controller {
             'member_code' => $payment->member_code ?? '-',
             'first_name' => $payment->first_name ?? '',
             'last_name' => $payment->last_name ?? '',
-            'mobile' => $payment->mobile ?? $payment->phone ?? '-',
+            'mobile' => $payment->phone ?: '-',
             'email' => $payment->email ?? '',
             'full_name' => $member_name ?: 'Member',
         ];

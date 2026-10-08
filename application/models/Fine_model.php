@@ -34,6 +34,19 @@ class Fine_model extends MY_Model {
      * Create Fine
      */
     public function create_fine($data) {
+        // Manual fines aren't tied to an installment/schedule, but these columns
+        // are NOT NULL with no default — fill them so the insert can't fail.
+        $valid_types = ['savings_late', 'loan_late', 'bounced_cheque', 'other'];
+        if (empty($data['fine_type']) || !in_array($data['fine_type'], $valid_types, true)) {
+            $data['fine_type'] = 'other';
+        }
+        if (empty($data['related_type'])) { $data['related_type'] = 'other'; }
+        if (!isset($data['related_id']) || $data['related_id'] === '' || $data['related_id'] === null) {
+            $data['related_id'] = 0;
+        }
+        if (empty($data['due_date']))  { $data['due_date']  = $data['fine_date'] ?? date('Y-m-d'); }
+        if (!isset($data['days_late'])) { $data['days_late'] = 0; }
+
         $data['fine_code'] = $this->generate_fine_code();
         $data['balance_amount'] = $data['fine_amount'];
         $data['status'] = 'pending';
