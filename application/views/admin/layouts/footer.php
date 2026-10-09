@@ -62,6 +62,7 @@
     window.CSRF_NAME = '<?= $this->security->get_csrf_token_name() ?>';
 </script>
 <script src="<?= base_url('assets/js/custom.js') ?>"></script>
+<script src="<?= base_url('assets/js/member-select.js') ?>"></script>
 
 <?php if (isset($extra_js)): ?>
     <?= $extra_js ?>

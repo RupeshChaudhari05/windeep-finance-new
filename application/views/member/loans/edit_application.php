@@ -78,6 +78,10 @@ $(function(){
     $('#addGuarantor').click(function(){
         var idx = $('.guarantor-row').length;
         var row = $('.guarantor-row:first').clone();
+        // drop the copied Select2 widget; member-select.js re-applies search to the new row
+        row.find('.select2-container').remove();
+        row.find('select').removeClass('select2-hidden-accessible').removeAttr('data-select2-id aria-hidden tabindex')
+           .find('option').removeAttr('data-select2-id');
         row.find('select').val('').removeAttr('required');
         row.find('label').text('Guarantor Member ' + (idx + 1));
         // Add remove button if not already there
