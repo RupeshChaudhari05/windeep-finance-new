@@ -19,6 +19,18 @@ UPDATE `loan_applications` SET `status` = 'needs_revision'
 UPDATE `loan_installments` SET `status` = 'cancelled'
  WHERE `status` = '' AND `remarks` LIKE 'Cancelled on loan foreclosure%';
 
+-- Other values blanked the same way (found by scanning every ENUM column for ''):
+-- EMI payments posted as 'regular' (enum only has 'emi')
+UPDATE `loan_payments` SET `payment_type` = 'emi' WHERE `payment_type` = '';
+-- Manual fines posted as 'manual'
+UPDATE `fines` SET `fine_type` = 'other' WHERE `fine_type` = '';
+-- Excel bank statements stored with extension 'xlsx'/'xls'
+UPDATE `bank_statement_imports` SET `file_type` = 'excel' WHERE `file_type` = '';
+-- Failed logins are logged with user_type 'system'
+ALTER TABLE `activity_logs`
+    MODIFY `user_type` ENUM('admin','member','system') NOT NULL;
+UPDATE `activity_logs` SET `user_type` = 'system' WHERE `user_type` = '';
+
 INSERT INTO `schema_migrations` (`filename`, `applied_at`)
 VALUES ('032_loan_application_needs_revision.sql', NOW())
 ON DUPLICATE KEY UPDATE `applied_at` = NOW();

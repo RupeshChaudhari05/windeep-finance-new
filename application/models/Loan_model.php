@@ -602,6 +602,14 @@ class Loan_model extends MY_Model {
                 throw new Exception('Duplicate payment detected. A payment of the same amount was recorded within the last 60 seconds.');
             }
             
+            // Forms post 'regular' for a normal EMI, but the column only knows 'emi'.
+            // Map anything outside the enum so the insert can't fail (or be blanked).
+            $valid_payment_types = ['emi', 'part_payment', 'advance_payment', 'interest_only',
+                                    'fine_payment', 'foreclosure', 'adjustment', 'reversal'];
+            if (empty($data['payment_type']) || !in_array($data['payment_type'], $valid_payment_types, true)) {
+                $data['payment_type'] = 'emi';
+            }
+
             // Generate payment code
             $data['payment_code'] = 'PAY-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -6));
             $data['payment_date'] = $data['payment_date'] ?? date('Y-m-d');

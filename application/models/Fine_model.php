@@ -247,6 +247,15 @@ class Fine_model extends MY_Model {
             return false;
         }
         
+        // fines.payment_mode only allows cash/cheque/bank_transfer/online
+        $mode_map = ['upi' => 'online', 'auto_debit' => 'online', 'auto' => 'online', 'neft' => 'bank_transfer',
+                     'rtgs' => 'bank_transfer', 'imps' => 'bank_transfer', 'bank' => 'bank_transfer'];
+        $payment_mode = strtolower((string) $payment_mode);
+        $payment_mode = $mode_map[$payment_mode] ?? $payment_mode;
+        if (!in_array($payment_mode, ['cash', 'cheque', 'bank_transfer', 'online'], true)) {
+            $payment_mode = 'cash';
+        }
+
         $new_paid = $fine->paid_amount + $amount;
         $new_balance = $fine->balance_amount - $amount;
         
@@ -333,13 +342,18 @@ class Fine_model extends MY_Model {
      * Cancel Fine
      */
     public function cancel_fine($fine_id, $reason, $cancelled_by) {
+        // fines has no cancellation_* columns — the old update failed on every cancel.
+        // Record who/why in admin_comments + updated_by and clear what is owed.
+        $fine = $this->db->select('admin_comments')->where('id', $fine_id)->get($this->table)->row();
+        if (!$fine) return false;
+        $note = '[Cancelled ' . date('Y-m-d H:i') . ' by admin #' . (int) $cancelled_by . '] ' . $reason;
         return $this->db->where('id', $fine_id)
                         ->update($this->table, [
-                            'status' => 'cancelled',
-                            'cancellation_reason' => $reason,
-                            'cancelled_by' => $cancelled_by,
-                            'cancelled_at' => date('Y-m-d H:i:s'),
-                            'updated_at' => date('Y-m-d H:i:s')
+                            'status'         => 'cancelled',
+                            'balance_amount' => 0,
+                            'admin_comments' => trim(($fine->admin_comments ? $fine->admin_comments . "\n" : '') . $note),
+                            'updated_by'     => $cancelled_by,
+                            'updated_at'     => date('Y-m-d H:i:s')
                         ]);
     }
     

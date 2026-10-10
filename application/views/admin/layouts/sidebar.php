@@ -70,6 +70,14 @@ if (!function_exists('nav_active')) {
                         </a>
                     </li>
 
+                    <!-- AI Assistant -->
+                    <li class="nav-item">
+                        <a href="<?= base_url('admin/ai_assistant') ?>" class="nav-link <?= nav_active('ai_assistant/*', $nav_current, $nav_controller) ?>">
+                            <i class="nav-icon fas fa-robot"></i>
+                            <p>AI Assistant <span class="right badge badge-info">New</span></p>
+                        </a>
+                    </li>
+
                     <!-- Member Management -->
                     <?php $nav_members = nav_is(['members/*', 'settings/view_member_passwords'], $nav_current, $nav_controller); ?>
                     <li class="nav-item <?= $nav_members ? 'menu-open' : '' ?>">

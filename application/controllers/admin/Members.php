@@ -384,7 +384,16 @@ class Members extends Admin_Controller {
         $member_data['account_number']    = $member_data['bank_account_number'];
         $member_data['ifsc_code']         = $member_data['bank_ifsc'];
         $member_data['nominee_relation']  = $member_data['nominee_relationship'];
-        
+
+        // Member Status dropdown — was never read, so changing it on the edit form did nothing
+        $new_status = $this->input->post('status');
+        if (in_array($new_status, ['active', 'inactive', 'blocked', 'suspended'], true) && $new_status !== $member->status) {
+            $member_data['status']            = $new_status;
+            $member_data['status_changed_at'] = date('Y-m-d H:i:s');
+            $member_data['status_changed_by'] = $this->session->userdata('admin_id');
+            $member_data['status_reason']     = 'Changed from member edit form';
+        }
+
         // Handle profile image upload
         if (!empty($_FILES['profile_image']['name'])) {
             $upload_path = './uploads/profile_images/';

@@ -65,7 +65,10 @@ class Bank_model extends MY_Model {
                 'bank_account_id' => $bank_account_id,
                 'file_name' => basename($file_path),
                 'file_path' => $file_path,
-                'file_type' => strtolower(pathinfo($file_path, PATHINFO_EXTENSION)),
+                // enum is csv/excel/pdf — map xls/xlsx to 'excel'
+                'file_type' => (function ($ext) {
+                    return in_array($ext, ['xls', 'xlsx'], true) ? 'excel' : (in_array($ext, ['csv', 'pdf'], true) ? $ext : 'csv');
+                })(strtolower(pathinfo($file_path, PATHINFO_EXTENSION))),
                 'status' => 'processing',
                 'imported_by' => $imported_by
             ];
