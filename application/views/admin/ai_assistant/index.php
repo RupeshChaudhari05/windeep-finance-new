@@ -1,6 +1,8 @@
 <?php $cfg = $ai_config;
-$cur_model = ['local' => $cfg['local_model'], 'openai' => $cfg['openai_model'], 'gemini' => $cfg['gemini_model'], 'deepseek' => $cfg['deepseek_model']][$cfg['provider']] ?? '';
-$model_label = (['local' => 'Local', 'openai' => 'ChatGPT', 'gemini' => 'Gemini', 'deepseek' => 'DeepSeek'][$cfg['provider']] ?? $cfg['provider']) . ' · ' . $cur_model;
+$cur_model = ['local' => $cfg['local_model'], 'openai' => $cfg['openai_model'], 'gemini' => $cfg['gemini_model'], 'deepseek' => $cfg['deepseek_model'], 'openrouter' => $cfg['openrouter_model'], 'aicredits' => $cfg['aicredits_model']][$cfg['provider']] ?? '';
+$chat_only = false;
+foreach ($model_catalog[$cfg['provider']] ?? [] as $mc) if ($mc['id'] === $cur_model && isset($mc['tools']) && $mc['tools'] === false) $chat_only = true;
+$model_label = (['local' => 'Local', 'openai' => 'ChatGPT', 'gemini' => 'Gemini', 'deepseek' => 'DeepSeek', 'openrouter' => 'OpenRouter', 'aicredits' => 'AICredits'][$cfg['provider']] ?? $cfg['provider']) . ' · ' . $cur_model;
 ?>
 <style>
 :root{--ai-bg:#f7f7f8;--ai-card:#fff;--ai-line:#e5e7eb;--ai-text:#1f2937;--ai-muted:#6b7280;--ai-brand:#1a3c6e;--ai-brand2:#2c5f9e;--ai-ok:#16a34a;--ai-warn:#b45309;--ai-err:#dc2626}
@@ -68,6 +70,34 @@ $model_label = (['local' => 'Local', 'openai' => 'ChatGPT', 'gemini' => 'Gemini'
 .ai-meter{height:6px;background:var(--ai-line);border-radius:3px;overflow:hidden}
 .ai-meter i{display:block;height:100%;background:var(--ai-brand2)}
 .ai-price{font-size:12px;color:var(--ai-muted)}
+.ai-row.bot .ai-bubble.ai-md{white-space:normal}
+.ai-md p{margin:0 0 .6em}.ai-md p:last-child{margin-bottom:0}
+.ai-md ul,.ai-md ol{margin:0 0 .6em;padding-left:1.4em}
+.ai-md h1,.ai-md h2,.ai-md h3,.ai-md h4{font-size:15px;font-weight:600;margin:.8em 0 .4em}
+.ai-md code{background:var(--ai-bg);border-radius:4px;padding:1px 5px;font-size:13px;color:#be185d}
+.ai-md pre{background:#0f172a;color:#e2e8f0;border-radius:8px;padding:10px 12px;overflow-x:auto;font-size:12px}
+.ai-md pre code{background:transparent;color:inherit;padding:0}
+.ai-md .tbl{overflow-x:auto;margin:.4em 0 .8em;border:1px solid var(--ai-line);border-radius:10px}
+.ai-md table{border-collapse:collapse;width:100%;font-size:13px}
+.ai-md th,.ai-md td{padding:6px 10px;border-bottom:1px solid var(--ai-line);text-align:left;white-space:nowrap}
+.ai-md th{background:var(--ai-bg);font-weight:600}
+.ai-md tr:last-child td{border-bottom:0}
+.ai-steps{font-size:12px;color:var(--ai-muted);margin-bottom:8px}
+.ai-steps summary{cursor:pointer;user-select:none;outline:0}
+.ai-steps summary:hover{color:var(--ai-text)}
+.ai-steps .st{display:flex;gap:8px;padding:3px 0 3px 4px}
+.ai-steps .st i{width:14px;margin-top:3px;color:var(--ai-brand2)}
+.ai-steps pre{background:var(--ai-bg);border-radius:6px;padding:6px 8px;margin:3px 0 0;font-size:11px;white-space:pre-wrap;color:var(--ai-text);max-height:160px;overflow:auto}
+.ai-entry .kv{width:100%;font-size:13px;margin-bottom:4px}
+.ai-entry .kv td{padding:3px 6px;border-bottom:1px dashed var(--ai-line);vertical-align:top}
+.ai-entry .kv td:first-child{color:var(--ai-muted);width:42%}
+.ai-entry .mailbody{white-space:pre-wrap;background:var(--ai-bg);border-radius:8px;padding:8px 10px;max-height:260px;overflow:auto;margin:6px 0}
+.ai-entry.stale{opacity:.6}
+.ai-live{display:flex;align-items:center;gap:10px;color:var(--ai-muted);font-size:14px}
+.ai-live .sec{font-size:11px;background:var(--ai-bg);border-radius:999px;padding:1px 8px}
+.ai-live-steps{font-size:12px;color:var(--ai-muted);margin-top:6px}
+.ai-live-steps .st{padding:2px 0}.ai-live-steps i{width:16px;color:var(--ai-brand2)}
+.ai-send.stop{background:var(--ai-err)}
 @media (max-width:600px){.ai-tiles{grid-template-columns:1fr}.ai-row.user .ai-bubble{max-width:90%}.ai-shell{height:calc(100vh - 120px)}.ai-meta span:last-child{display:none}}
 </style>
 
@@ -77,6 +107,7 @@ $model_label = (['local' => 'Local', 'openai' => 'ChatGPT', 'gemini' => 'Gemini'
     <div class="ai-top">
         <span class="ttl"><i class="fas fa-robot mr-1" style="color:var(--ai-brand2)"></i> AI Assistant</span>
         <span class="ai-model"><?= htmlspecialchars($model_label) ?></span>
+        <?php if ($chat_only): ?><span class="badge badge-danger" title="This model cannot query the database or make entries"><i class="fas fa-exclamation-triangle mr-1"></i>Chat-only model — choose GPT-4o Mini in ⚙️ Settings</span><?php endif; ?>
         <span class="ai-usage" id="aiUsageTop"></span>
         <div class="ml-auto d-flex align-items-center" style="gap:6px">
             <div class="custom-control custom-switch mr-2" title="On: clear entries are saved straight away. Off: every entry waits for Confirm.">
@@ -139,6 +170,7 @@ $model_label = (['local' => 'Local', 'openai' => 'ChatGPT', 'gemini' => 'Gemini'
                     <option value="gemini" <?= $cfg['provider'] === 'gemini' ? 'selected' : '' ?>>Google — Gemini</option>
                     <option value="deepseek" <?= $cfg['provider'] === 'deepseek' ? 'selected' : '' ?>>DeepSeek — Very cheap</option>
                     <option value="openrouter" <?= $cfg['provider'] === 'openrouter' ? 'selected' : '' ?>>OpenRouter — Cheapest (DeepSeek, Llama, Qwen)</option>
+                    <option value="aicredits" <?= $cfg['provider'] === 'aicredits' ? 'selected' : '' ?>>AICredits — Best price for India (Aion models)</option>
                     <option value="local"  <?= $cfg['provider'] === 'local'  ? 'selected' : '' ?>>Self-hosted (OpenAI-compatible, e.g. Gemma) — free</option>
                 </select>
             </div>
@@ -173,7 +205,15 @@ $model_label = (['local' => 'Local', 'openai' => 'ChatGPT', 'gemini' => 'Gemini'
                     <div class="ai-price mt-1"></div></div>
                 <div class="form-group"><label>API key</label>
                     <input name="ai_openrouter_key" type="password" class="form-control" autocomplete="new-password" placeholder="<?= $cfg['openrouter_key_set'] ? '•••••• saved — leave blank to keep' : 'sk-…' ?>">
-                    <small class="text-muted">openrouter.ai → Dashboard → API keys. Access multiple models (DeepSeek, Llama, Qwen, Gemini) via one API. <b>Cheapest option.</b></small></div>
+                    <small class="text-muted">openrouter.ai → Dashboard → API keys. Access multiple models via one API.</small></div>
+            </div>
+            <div class="prov-box" data-prov="aicredits">
+                <div class="form-group"><label>Model</label>
+                    <select name="ai_aicredits_model" class="form-control model-sel" data-prov="aicredits" data-cur="<?= htmlspecialchars($cfg['aicredits_model']) ?>" data-no-search="1"></select>
+                    <div class="ai-price mt-1"></div></div>
+                <div class="form-group"><label>API key</label>
+                    <input name="ai_aicredits_key" type="password" class="form-control" autocomplete="new-password" placeholder="<?= $cfg['aicredits_key_set'] ? '•••••• saved — leave blank to keep' : 'sk-…' ?>">
+                    <small class="text-muted">aicredits.in → Dashboard → API keys. Aion models optimized for India with pricing in INR. <b>Best rates: ₹0.71/M input.</b></small></div>
             </div>
             <div class="prov-box" data-prov="local">
                 <div class="form-group"><label>Server URL</label>
@@ -200,6 +240,8 @@ $model_label = (['local' => 'Local', 'openai' => 'ChatGPT', 'gemini' => 'Gemini'
 </div>
 <?php endif; ?>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
 <script>
 $(function () {
     var URL = '<?= site_url('admin/ai_assistant') ?>';
@@ -210,24 +252,42 @@ $(function () {
     var $log = $('#aiLog'), $scroll = $('#aiScroll'), $txt = $('#aiText'), $sug = $('#aiSuggest');
     var MODES = {cash: 'Cash / रोख', upi: 'UPI', bank_transfer: 'Bank transfer', cheque: 'Cheque'};
     var TITLES = {loan_payment: '💰 Loan EMI payment', savings_deposit: '🏦 Savings deposit', fine: '⚠️ Fine',
-                  member_status: '👤 Member status', reverse_entry: '🗑️ Delete entry', update_member: '✏️ Update member'};
+                  member_status: '👤 Member status', reverse_entry: '🗑️ Delete entry', update_member: '✏️ Update member',
+                  foreclose_loan: '🔒 ', send_email: '✉️ ', correct_record: '🛠️ '};
     var TILES = [
+        ['थकबाकी कर्जे', 'कोणाचे हप्ते थकले आहेत, किती रक्कम', 'थकबाकी असलेल्या सर्व सभासदांची यादी रकमेसह दाखवा'],
+        ['आजचा सारांश', 'सभासद, कर्जे, बचत, दंड', 'आजचा संपूर्ण सारांश सांगा: सभासद, कर्जे, बचत, दंड आणि या महिन्याची वसुली'],
+        ['Force close / foreclose', 'quote + close a loan', 'Show the foreclosure and force-close amount for loan '],
+        ['Email a member', 'reminder, statement, notice', 'Send an EMI reminder email to '],
         ['बचत जमा करा', 'उदा. योगेश औचरे बचत २००० रोख', 'योगेश औचरे यांच्या बचत खात्यात २००० रोख जमा करा'],
-        ['थकबाकी कर्जे', 'कोणाचे हप्ते थकले आहेत', 'थकबाकी कर्जे दाखवा'],
-        ['आजचा सारांश', 'सभासद, कर्जे, दंड', 'आजचा सारांश सांगा'],
         ['पासबुक नोंदी', 'मजकूर पेस्ट करा किंवा 📎 फोटो', 'खालील पासबुक नोंदी भरा:\n']
     ];
 
     function csrf(d) { if (window.CSRF_NAME) d[window.CSRF_NAME] = window.CSRF_TOKEN; return d; }
     function esc(s) { return $('<div>').text(s == null ? '' : String(s)).html(); }
-    function md(s) { return esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>'); }
+    function md(s) {
+        s = s == null ? '' : String(s);
+        if (window.marked && window.DOMPurify) {
+            var html = DOMPurify.sanitize(marked.parse(s, {breaks: true, gfm: true}));
+            return '<div class="ai-mdwrap">' + html.replace(/<table>/g, '<div class="tbl"><table>').replace(/<\/table>/g, '</table></div>') + '</div>';
+        }
+        return esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\n/g, '<br>');
+    }
+    function stepsHtml(steps) {
+        if (!steps || !steps.length) return '';
+        return '<details class="ai-steps"><summary><i class="fas fa-cogs mr-1"></i>' + steps.length + ' step' + (steps.length > 1 ? 's' : '') + ' — ' +
+            esc(steps[steps.length - 1].label) + '</summary>' + steps.map(function (s) {
+                return '<div class="st"><i class="fas fa-' + esc(s.icon || 'circle') + '"></i><div>' + esc(s.label) +
+                       (s.detail ? '<pre>' + esc(s.detail) + '</pre>' : '') + '</div></div>';
+            }).join('') + '</details>';
+    }
     function down() { $scroll.stop().animate({scrollTop: $scroll[0].scrollHeight}, 200); }
     function inr(n) { return '₹' + Number(n || 0).toLocaleString('en-IN', {maximumFractionDigits: 2}); }
 
     // ── Rendering ─────────────────────────────────────────────────
     function empty() {
         $log.html('<div class="ai-empty"><div class="logo"><i class="fas fa-robot"></i></div>' +
-            '<h3>नमस्कार! मी कशी मदत करू?</h3><p>मराठी, हिंदी किंवा इंग्रजीत लिहा किंवा 🎤 बोला. मी नोंदी करतो, चुकीच्या नोंदी काढतो आणि माहिती देतो.</p>' +
+            '<h3>नमस्कार! मी कशी मदत करू?</h3><p>मराठी, हिंदी किंवा इंग्रजीत लिहा किंवा 🎤 बोला. मला संपूर्ण डेटाबेस माहीत आहे — कोणताही प्रश्न विचारा, नोंदी करा, कर्ज बंद (foreclose / force close) करा, ईमेल पाठवा किंवा चुकीची माहिती दुरुस्त करा. बदल करण्याआधी मी तुमची Confirm घेतो.</p>' +
             '<div class="ai-tiles">' + TILES.map(function (t, i) {
                 return '<div class="ai-tile" data-i="' + i + '"><b>' + esc(t[0]) + '</b><span>' + esc(t[1]) + '</span></div>';
             }).join('') + '</div></div>');
@@ -239,9 +299,10 @@ $(function () {
         if (img) $r.find('.ai-bubble').append('<img src="' + img + '">');
         $log.append($r); down();
     }
-    function botRow(html, cls) {
+    function botRow(html, cls, steps) {
         $log.find('.ai-empty').remove();
-        var $r = $('<div class="ai-row bot"><div class="ai-av"><i class="fas fa-robot"></i></div><div class="ai-body"><div class="ai-bubble ' + (cls || '') + '"></div></div></div>');
+        var $r = $('<div class="ai-row bot"><div class="ai-av"><i class="fas fa-robot"></i></div><div class="ai-body">' + stepsHtml(steps) +
+                   '<div class="ai-bubble ' + (cls || 'ai-md') + '"></div></div></div>');
         $r.find('.ai-bubble').html(html);
         $log.append($r); down();
         return $r;
@@ -251,7 +312,9 @@ $(function () {
         (cards || []).forEach(function (c) {
             if (c.type === 'navigate') { links += '<a class="ai-chipbtn mr-1" href="' + esc(c.url) + '"><i class="fas fa-arrow-right mr-1"></i>' + esc(c.label) + '</a>'; return; }
             if (c.executed) { $body.append(savedHtml(c)); return; }
-            pending++; $body.append(cardHtml(c));
+            if (c.stale) { $body.append('<div class="ai-entry stale"><div class="msg text-muted"><i class="fas fa-history mr-1"></i>' +
+                esc((TITLES[c.type] || '') + (c.title || '')) + ' — already handled.</div></div>'); return; }
+            pending++; $body.append($(cardHtml(c)).attr('data-token', c.token || ''));
         });
         if (links) $body.append('<div class="mt-2">' + links + '</div>');
         if (pending > 1) $body.append('<button class="btn btn-success btn-sm mt-2 ai-confirm-all"><i class="fas fa-check-double mr-1"></i>Confirm all (' + pending + ')</button>');
@@ -273,6 +336,21 @@ $(function () {
                '<button class="btn btn-link btn-sm text-muted ai-skip">Skip</button></div><div class="res"></div>';
     }
     function cardHtml(a) {
+        if (a.type === 'foreclose_loan' || a.type === 'send_email' || a.type === 'correct_record') {
+            var kv = (a.rows || []).map(function (r) { return '<tr><td>' + esc(r[0]) + '</td><td>' + esc(r[1]) + '</td></tr>'; }).join('');
+            var extra = '';
+            if (a.type === 'send_email') extra = '<div class="mailbody">' + esc(a.body) + '</div>';
+            if (a.type === 'correct_record') {
+                extra = '<table class="table table-sm mb-1"><thead><tr><th>Field</th><th>Now</th><th>New</th></tr></thead><tbody>' +
+                    (a.changes || []).map(function (c) {
+                        return '<tr><td class="text-muted">' + esc(c.field) + '</td><td><s class="text-muted">' + esc(c.old == null ? 'NULL' : c.old) +
+                               '</s></td><td><b>' + esc(c.new == null ? 'NULL' : c.new) + '</b></td></tr>';
+                    }).join('') + '</tbody></table>';
+            }
+            var btn = {foreclose_loan: a.title, send_email: 'Send email', correct_record: 'Save correction'}[a.type];
+            return '<div class="ai-entry' + (a.danger ? ' danger' : '') + '" data-type="' + a.type + '"><div class="head">' + TITLES[a.type] + esc(a.title) + '</div>' +
+                '<table class="kv">' + kv + '</table>' + extra + warns(a) + actBtns(esc(btn), a.danger ? 'danger' : 'primary') + '</div>';
+        }
         if (a.type === 'update_member') {
             var rows = (a.changes || []).map(function (c, i) {
                 return '<tr><td class="text-muted">' + esc(c.field.replace(/_/g, ' ')) + '</td><td><s class="text-muted">' + esc(c.old || '—') + '</s></td>' +
@@ -329,7 +407,7 @@ $(function () {
             if (!r.messages || !r.messages.length) { empty(); return; }
             r.messages.forEach(function (m) {
                 if (m.role === 'user') userRow(m.text, m.image);
-                else renderCards(botRow(md(m.text)), m.cards);
+                else renderCards(botRow(md(m.text), null, m.steps), m.cards);
             });
             $scroll.scrollTop($scroll[0].scrollHeight);
         }).fail(empty);
@@ -342,7 +420,7 @@ $(function () {
     $log.on('click', '.ai-tile', function () {
         var t = TILES[$(this).data('i')][2];
         $txt.val(t).trigger('input').focus();
-        if (!/\n$/.test(t)) send();
+        if (!/[\n ]$/.test(t)) send();
     });
 
     // ── Composer ──────────────────────────────────────────────────
@@ -425,30 +503,86 @@ $(function () {
         rec.start(); $('#aiMic i').addClass('ai-rec');
     });
 
+    var aborter = null;
+    function setBusy(on) {
+        busy = on;
+        $('#aiSend').prop('disabled', false).toggleClass('stop', on).attr('title', on ? 'Stop' : 'Send')
+            .html(on ? '<i class="fas fa-stop"></i>' : '<i class="fas fa-arrow-up"></i>');
+    }
     function send() {
+        if (busy) { if (aborter) aborter.abort(); return; }   // the send button is "Stop" while working
         var text = $.trim($txt.val());
-        if (busy || (!text && !imageData)) return;
-        busy = true; $sug.hide(); $('#aiSend').prop('disabled', true);
+        if (!text && !imageData) return;
+        setBusy(true); $sug.hide();
         var sentImage = imageData, sentMentions = Object.keys(mentions).map(Number);
         $txt.val('').trigger('input'); imageData = ''; $('#aiImgPreview').empty(); mentions = {}; renderChips();
         userRow(text, !!sentImage, sentImage);
-        var $t = botRow('<span class="ai-typing"><span></span><span></span><span></span></span>');
-        $.post(URL + '/chat', csrf({
-            message: text, image: sentImage, auto: $('#aiAuto').is(':checked') ? '1' : '0',
-            mentions: JSON.stringify(sentMentions)
-        }), null, 'json').done(function (r) {
+
+        // Live progress bubble: current status + elapsed time + the steps as they happen
+        var $t = botRow('<div class="ai-live"><span class="ai-typing"><span></span><span></span><span></span></span>' +
+                        '<span class="txt">Thinking…</span><span class="sec">0s</span></div><div class="ai-live-steps"></div>');
+        var t0 = Date.now(), steps = [];
+        var tick = setInterval(function () { $t.find('.sec').text(Math.round((Date.now() - t0) / 1000) + 's'); }, 1000);
+        aborter = window.AbortController ? new AbortController() : null;
+        var timeout = setTimeout(function () { if (aborter) { aborter.timedOut = true; aborter.abort(); } }, 240000);
+
+        function finish() { clearInterval(tick); clearTimeout(timeout); aborter = null; setBusy(false); $txt.focus(); }
+        function showError(msg, r) {
             $t.remove();
-            if (!r.success) { botRow(esc(r.message || 'Error'), 'ai-err'); return; }
-            renderCards(botRow(md(r.reply || '…')), r.actions);
-            if (r.usage) showUsage(r.usage);
-        }).fail(function (x) {
-            $t.remove();
-            var j = x.responseJSON || {};
-            if (j.recharge) { setRecharge(j.message); botRow('🔋 ' + esc(j.message), 'ai-err'); return; }
-            botRow(esc(j.message || 'Could not reach the server.'), 'ai-err');
-        }).always(function () {
-            busy = false; $('#aiSend').prop('disabled', false); $txt.focus();
-        });
+            if (r && r.recharge) { setRecharge(msg); botRow('🔋 ' + esc(msg), 'ai-err'); return; }
+            botRow(esc(msg), 'ai-err', (r && r.steps) || steps);
+        }
+        function handle(ev) {
+            if (ev.type === 'status') { $t.find('.txt').text(ev.text); down(); }
+            else if (ev.type === 'step') {
+                steps.push(ev.step);
+                $t.find('.ai-live-steps').append('<div class="st"><i class="fas fa-' + esc(ev.step.icon || 'circle') + '"></i> ' + esc(ev.step.label) + '</div>');
+                down();
+            }
+            else if (ev.type === 'done') {
+                $t.remove();
+                renderCards(botRow(md(ev.reply || ''), null, ev.steps), ev.actions);
+                if (ev.usage) showUsage(ev.usage);
+                return true;
+            }
+            else if (ev.type === 'error') { showError(ev.message || 'Error', ev); return true; }
+        }
+
+        var body = new URLSearchParams(csrf({message: text, image: sentImage, auto: $('#aiAuto').is(':checked') ? '1' : '0',
+                                             mentions: JSON.stringify(sentMentions), stream: '1'}));
+        fetch(URL + '/chat', {method: 'POST', body: body, credentials: 'same-origin', signal: aborter ? aborter.signal : undefined,
+                              headers: {'X-Requested-With': 'XMLHttpRequest'}})
+        .then(function (res) {
+            var ct = res.headers.get('content-type') || '';
+            if (ct.indexOf('ndjson') === -1) {   // login expired / PHP error page → normal JSON or HTML
+                return res.text().then(function (t) {
+                    var j = null; try { j = JSON.parse(t); } catch (e) {}
+                    showError((j && j.message) || ('Server error (HTTP ' + res.status + '). Please reload the page.'), j);
+                });
+            }
+            var reader = res.body.getReader(), dec = new TextDecoder(), buf = '', ended = false;
+            function pump() {
+                return reader.read().then(function (r) {
+                    buf += dec.decode(r.value || new Uint8Array(), {stream: !r.done});
+                    var lines = buf.split('\n'); buf = r.done ? '' : lines.pop();
+                    lines.forEach(function (l) {
+                        l = $.trim(l); if (!l || ended) return;
+                        var ev; try { ev = JSON.parse(l); } catch (e) { ev = {type: 'error', message: 'Server error: ' + l.replace(/<[^>]+>/g, ' ').slice(0, 300)}; }
+                        if (handle(ev)) ended = true;
+                    });
+                    if (!r.done) return pump();
+                    if (!ended) showError('The server stopped before answering. Please try again.');
+                });
+            }
+            return pump();
+        })
+        .catch(function (e) {
+            if (e && e.name === 'AbortError') {
+                $t.remove();
+                botRow(aborter && aborter.timedOut ? '⏱️ Stopped after 4 minutes without an answer. Please try again.' : '⏹️ Stopped.', 'ai-err', steps);
+            } else showError('Could not reach the server. Check your connection and try again.');
+        })
+        .then(finish, finish);
     }
     $('#aiSend').on('click', send);
 
@@ -478,7 +612,8 @@ $(function () {
         $card.data('busy', 1);
         var $btn = $card.find('.ai-confirm').prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i>');
         var type = $card.data('type');
-        var d = type === 'reverse_entry'
+        var d = /^(foreclose_loan|send_email|correct_record)$/.test(type) ? {type: type}
+            : type === 'reverse_entry'
             ? {type: 'reverse_entry', kind: $card.data('kind'), target_id: $card.data('id'), remarks: $card.find('.f-remarks').val()}
             : type === 'update_member'
             ? {type: 'update_member', member_id: $card.find('.f-member').val(),
@@ -487,10 +622,14 @@ $(function () {
                savings_account_id: $card.find('.f-acc').val(), deposit_type: $card.find('.f-dtype').val(), amount: $card.find('.f-amount').val(),
                date: $card.find('.f-date').val(), mode: $card.find('.f-mode').val(), reference: $card.find('.f-ref').val(),
                remarks: $card.find('.f-remarks').val(), status: $card.find('.f-status').val()};
+        if ($card.attr('data-token')) d.token = $card.attr('data-token');
         return post(d).done(function (r) {
             if (r.success) $card.replaceWith(savedHtml({result: {message: r.message, data: r.data}}));
             else fail(r.message);
-        }).fail(function (x) { fail((x.responseJSON && x.responseJSON.message) || 'Failed'); })
+        }).fail(function (x) {
+            fail((x.responseJSON && x.responseJSON.message) ||
+                 ('Server error (HTTP ' + x.status + ') — nothing was saved. ' + ($('<div>').html(x.responseText || '').text().replace(/\s+/g, ' ').trim().slice(0, 200))));
+        })
           .always(function () { $card.removeData('busy'); });
         function fail(m) {
             $btn.prop('disabled', false).html('<i class="fas fa-check mr-1"></i>Retry');
@@ -498,7 +637,11 @@ $(function () {
         }
     }
     $log.on('click', '.ai-confirm', function () { confirmCard($(this).closest('.ai-entry')); });
-    $log.on('click', '.ai-skip', function () { $(this).closest('.ai-entry').slideUp(150, function () { $(this).remove(); }); });
+    $log.on('click', '.ai-skip', function () {
+        var $card = $(this).closest('.ai-entry'), token = $card.attr('data-token');
+        if (token) $.post(URL + '/cancel', csrf({token: token}), null, 'json');
+        $card.slideUp(150, function () { $(this).remove(); });
+    });
     $log.on('click', '.ai-confirm-all', function () {
         var $b = $(this).prop('disabled', true), cards = $b.closest('.ai-body').find('.ai-entry:not(.saved):not(.undone)').toArray();
         (function next() { if (!cards.length) { $b.remove(); return; } confirmCard($(cards.shift())).always(next); })();

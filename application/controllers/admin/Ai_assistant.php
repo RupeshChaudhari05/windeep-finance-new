@@ -2,19 +2,37 @@
 defined('BASEPATH') OR exit('No direct script access allowed');
 
 /**
- * AI Assistant - admin chat that understands Marathi / English / Hinglish.
+ * AI Assistant - admin chat agent that understands Marathi / English / Hinglish.
  *
- * Flow:  admin message ──► AI (local Gemma / ChatGPT / Gemini) returns JSON {reply, actions[]}
- *        ──► server resolves every action against real data (member, loan, account)
- *        ──► browser shows editable preview cards ──► admin clicks Confirm
- *        ──► execute() re-validates and saves through the normal models
- *            (same ledger posting + audit log as the manual screens).
+ * Flow (tool-calling agent, like ChatGPT with functions):
+ *   admin message ──► model ──► calls tools: describe_tables / run_sql (read-only) / get_member / get_loan …
+ *                ◄── tool results ──┘  (repeats up to MAX_STEPS)
+ *   write tools (payment, deposit, fine, member edit, status, reverse, foreclose, email, correct_record)
+ *   only PROPOSE: the server resolves the real records, stores the proposal in the session and the browser
+ *   shows a card. Simple, unambiguous entries may auto-save; everything risky waits for Confirm.
+ *   execute() runs the stored proposal through the normal models (ledger posting + audit log).
  *
  * The AI never writes to the database itself.
  */
 class Ai_assistant extends Admin_Controller {
 
     const ACTION_TYPES = ['loan_payment', 'savings_deposit', 'fine', 'member_status', 'reverse_entry', 'update_member', 'navigate'];
+    const MAX_STEPS    = 8;               // model ↔ tool round trips per message
+    const PENDING_KEY  = 'ai_pending';    // session: proposals waiting for Confirm (token => card)
+
+    // Tables the agent may never read (credentials / sessions)
+    const SQL_BLOCKED_TABLES = ['admin_details', 'admin_sessions', 'api_tokens', 'ci_sessions', 'password_history', 'two_factor_auth',
+                                'verification_tokens', 'active_sessions', 'failed_login_attempts', 'member_details', 'security_logs'];
+    // Tables correct_record may edit (one row by id, audit-logged)
+    const CORRECTABLE_TABLES = ['members', 'loans', 'loan_installments', 'loan_payments', 'loan_applications', 'loan_foreclosure_requests',
+                                'loan_guarantors', 'savings_accounts', 'savings_schedule', 'savings_transactions', 'fines', 'non_members',
+                                'non_member_funds', 'bank_transactions', 'member_other_transactions', 'expenditure'];
+    const CORE_TABLES = ['members', 'loans', 'loan_installments', 'loan_payments', 'loan_applications', 'loan_foreclosure_requests',
+                         'loan_products', 'loan_part_payments', 'savings_accounts', 'savings_transactions', 'savings_schedule',
+                         'savings_schemes', 'fines', 'bank_transactions', 'general_ledger'];
+
+    /** State of the message being processed (cards shown, steps taken, conversation). */
+    private $run = null;
 
     // Member fields the assistant may change (label => column). Identity / KYC / money fields are deliberately excluded.
     const MEMBER_EDITABLE = [
@@ -54,9 +72,21 @@ class Ai_assistant extends Admin_Controller {
             ['id' => 'deepseek/deepseek-r1-distill-llama-70b', 'label' => 'DeepSeek R1 Distill (70B)',     'tag' => 'cheapest with reasoning', 'in' => 0.07, 'out' => 0.14],
             ['id' => 'deepseek/deepseek-chat',                'label' => 'DeepSeek Chat (fast)',           'tag' => 'ultra cheap, very fast', 'in' => 0.02, 'out' => 0.04],
             ['id' => 'qwen/qwen-2.5-7b-instruct',             'label' => 'Qwen 2.5 (7B)',                  'tag' => 'good for Indic, very cheap', 'in' => 0.07, 'out' => 0.14],
-            ['id' => 'llama/llama-3.3-70b-instruct',          'label' => 'Llama 3.3 (70B)',                'tag' => 'strong multi-lingual', 'in' => 0.37, 'out' => 0.55],
-            ['id' => 'openai/gpt-4.5-turbo-2025-01-13',       'label' => 'GPT-4.5 Turbo via OpenRouter', 'tag' => 'latest, via aggregator',  'in' => 0.42, 'out' => 1.68],
+            ['id' => 'meta-llama/llama-3.3-70b-instruct',          'label' => 'Llama 3.3 (70B)',                'tag' => 'strong multi-lingual', 'in' => 0.37, 'out' => 0.55],
+            ['id' => 'openai/gpt-4o-mini',                   'label' => 'GPT-4o mini via OpenRouter',   'tag' => 'reliable tool use',       'in' => 0.15, 'out' => 0.60],
             ['id' => 'google/gemini-2.0-flash-001',           'label' => 'Gemini 2.0 Flash via OpenRouter', 'tag' => 'cheap, multimodal',      'in' => 0.05, 'out' => 0.20],
+        ],
+        // AICredits prices converted from their INR list (≈ ₹97/USD). Aion models do not call tools — the agent needs GPT models.
+        'aicredits' => [
+            ['id' => 'gpt-4o-mini',             'label' => 'GPT-4o Mini via AICredits',    'tag' => 'recommended: full agent (DB, foreclose, email)', 'in' => 0.0158, 'out' => 0.0629],
+            ['id' => 'gpt-4o',                  'label' => 'GPT-4o via AICredits',         'tag' => 'best accuracy + passbook photos',  'in' => 0.262,  'out' => 1.049],
+            ['id' => 'o3-mini',                 'label' => 'O3-mini via AICredits',        'tag' => 'reasoning, slower',               'in' => 0.115,  'out' => 0.461],
+            ['id' => 'o1',                      'label' => 'O1 via AICredits',             'tag' => 'reasoning, expensive',            'in' => 1.573,  'out' => 6.291],
+            ['id' => 'aion-labs/aion-3.5-mini', 'label' => 'Aion 3.5 Mini (AICredits)',    'tag' => 'cheapest — chat only, cannot use tools', 'in' => 0.0073, 'out' => 0.0146, 'tools' => false],
+            ['id' => 'aion-labs/aion-3.0-mini', 'label' => 'Aion 3.0 Mini (AICredits)',    'tag' => 'chat only, cannot use tools',     'in' => 0.0073, 'out' => 0.0146, 'tools' => false],
+            ['id' => 'aion-labs/aion-rp-llama-3.1-8b', 'label' => 'Aion-RP Llama 8B (AICredits)', 'tag' => 'chat only, cannot use tools', 'in' => 0.0084, 'out' => 0.0168, 'tools' => false],
+            ['id' => 'aion-labs/aion-3.5',      'label' => 'Aion 3.5 (AICredits)',         'tag' => 'chat only, cannot use tools',     'in' => 0.0314, 'out' => 0.0629, 'tools' => false],
+            ['id' => 'aion-labs/aion-3.0',      'label' => 'Aion 3.0 (AICredits)',         'tag' => 'chat only, cannot use tools',     'in' => 0.0314, 'out' => 0.0629, 'tools' => false],
         ],
     ];
 
@@ -107,7 +137,7 @@ class Ai_assistant extends Admin_Controller {
             return $this->error_response('Only the AI account owner can change AI settings.', [], 403);
         }
         $provider = $this->input->post('ai_provider');
-        if (!in_array($provider, ['local', 'openai', 'gemini', 'deepseek', 'openrouter'], true)) {
+        if (!in_array($provider, ['local', 'openai', 'gemini', 'deepseek', 'openrouter', 'aicredits'], true)) {
             return $this->error_response('Unknown provider.');
         }
         $save = [
@@ -118,8 +148,9 @@ class Ai_assistant extends Admin_Controller {
             'ai_gemini_model'    => trim((string) $this->input->post('ai_gemini_model')),
             'ai_deepseek_model'  => trim((string) $this->input->post('ai_deepseek_model')),
             'ai_openrouter_model'=> trim((string) $this->input->post('ai_openrouter_model')),
+            'ai_aicredits_model' => trim((string) $this->input->post('ai_aicredits_model')),
         ];
-        foreach (['ai_openai_key', 'ai_gemini_key', 'ai_deepseek_key', 'ai_openrouter_key'] as $k) {
+        foreach (['ai_openai_key', 'ai_gemini_key', 'ai_deepseek_key', 'ai_openrouter_key', 'ai_aicredits_key'] as $k) {
             $v = trim((string) $this->input->post($k));
             if ($v !== '') $save[$k] = $v;
         }
@@ -149,12 +180,21 @@ class Ai_assistant extends Admin_Controller {
     /** Restore the current conversation (page reload). */
     public function history() {
         $c = $this->_conv();
+        $pending = $this->_pending();
+        foreach ($c['messages'] as &$m) {
+            unset($m['memory']);
+            foreach ($m['cards'] ?? [] as &$card) {
+                if (!empty($card['token']) && !isset($pending[$card['token']])) $card['stale'] = true;   // confirmed / cancelled since
+            }
+            unset($card);
+        }
+        unset($m);
         $this->json_response(['success' => true, 'messages' => $c['messages']]);
     }
 
     /** Start a new conversation. */
     public function reset() {
-        $this->session->unset_userdata(self::CONV_KEY);
+        $this->session->unset_userdata([self::CONV_KEY, self::PENDING_KEY]);
         $this->success_response('New chat started.');
     }
 
@@ -242,6 +282,10 @@ class Ai_assistant extends Admin_Controller {
         $c['messages'] = array_slice($c['messages'], -40);
         $c['members']  = array_slice(array_values(array_unique($c['members'])), 0, 6);
         $c['entries']  = array_slice($c['entries'], -30);
+        foreach ($c['messages'] as &$m) {   // keep the session file small
+            foreach ($m['steps'] ?? [] as $i => $s) $m['steps'][$i]['detail'] = mb_substr((string) ($s['detail'] ?? ''), 0, 600);
+        }
+        unset($m);
         $this->session->set_userdata(self::CONV_KEY, $c);
     }
 
@@ -288,184 +332,220 @@ class Ai_assistant extends Admin_Controller {
         $this->json_response(['items' => $items]);
     }
 
-    // ───────────────────────────── Chat ─────────────────────────────
+    // ───────────────────────────── Chat (agent loop) ─────────────────────────────
 
     /**
-     * POST message, mentions (JSON array of member ids), history (JSON [{role,content}]), image (data URL, optional)
+     * POST message, mentions (JSON array of member ids), image (data URL, optional), auto (1|0)
      */
     public function chat() {
+        // stream=1: the browser reads NDJSON events (status / step / done / error) as they happen, like ChatGPT
+        $this->stream = $this->input->post('stream') === '1';
+        if ($this->stream) $this->_stream_open();
+
         $message = trim((string) $this->input->post('message'));
         $image   = (string) $this->input->post('image');
         if ($message === '' && $image === '') {
-            return $this->error_response('Please type a message.');
+            return $this->_chat_out(['success' => false, 'message' => 'Please type a message.'], 400);
         }
 
-        $mentions = json_decode((string) $this->input->post('mentions'), true) ?: [];
-        $conv     = $this->_conv();
+        $cfg = $this->_config();
+        $model = $cfg[$cfg['provider'] . '_model'] ?? '';
+        if ($image !== '' && $cfg['provider'] === 'deepseek') {
+            return $this->_chat_out(['success' => false, 'message' => 'DeepSeek can\'t read photos. Paste the passbook text instead, or switch to ChatGPT / Gemini in AI Settings for photos.'], 400);
+        }
+        if ($this->_model_info($cfg['provider'], $model)['tools'] === false) {
+            return $this->_chat_out(['success' => false, 'message' => 'The selected model "' . $model . '" can only chat — it cannot look up the database or make entries. '
+                . 'Open ⚙️ AI Settings and choose a GPT model (recommended: GPT-4o Mini).'], 400);
+        }
+        @set_time_limit(300);   // several model calls per message
 
-        // Members referenced by @code in the text count as mentions too
+        // Spending cap / daily limit
+        $usage = $this->_usage();
+        if ($cfg['provider'] !== 'local' && $usage['cap_inr'] > 0 && $usage['month_cost_inr'] >= $usage['cap_inr']) {
+            return $this->_chat_out(['success' => false, 'recharge' => true, 'message' => $this->_recharge_message($usage)], 402);
+        }
+        if ($usage['daily_limit'] > 0 && $usage['today_requests'] >= $usage['daily_limit']) {
+            return $this->_chat_out(['success' => false, 'message' => 'Daily limit of ' . $usage['daily_limit'] . ' AI requests reached. Try again tomorrow.'], 400);
+        }
+
+        // Members tagged with @ (chips or @MEMB codes in the text) are handed to the model as a hint
+        $mentions = json_decode((string) $this->input->post('mentions'), true) ?: [];
         if (preg_match_all('/@?(MEMB\d+)/i', $message, $mm)) {
             foreach ($mm[1] as $code) {
                 $row = $this->db->select('id')->where('member_code', strtoupper($code))->get('members')->row();
                 if ($row) $mentions[] = (int) $row->id;
             }
         }
-        $mentions = array_values(array_unique(array_map('intval', $mentions)));
-        if (!$mentions) {
-            $spotted = $this->_spot_member($message);
-            if ($spotted) $mentions = [$spotted];
+        $hint = '';
+        foreach (array_slice(array_values(array_unique(array_map('intval', $mentions))), 0, 5) as $id) {
+            $m = $this->Member_model->get_by_id($id);
+            if ($m) $hint .= "\n[Admin tagged member {$m->member_code} " . $this->_member_name($m) . " (member id {$m->id})]";
         }
-        // Members talked about earlier stay in focus ("his loan", "same member")
-        $focus = array_values(array_unique(array_merge($mentions, $conv['members'])));
 
-        $messages = [['role' => 'system', 'content' => $this->_system_prompt($focus, $conv['entries'])]];
-        foreach (array_slice($conv['messages'], -12) as $h) {
-            $messages[] = ['role' => $h['role'], 'content' => mb_substr((string) ($h['memory'] ?? $h['text']), 0, 3000)];
-        }
-        $messages[] = ['role' => 'user', 'content' => $message !== '' ? $message : 'Read this passbook / statement image and create the entries.'];
+        $conv = $this->_conv();
+        $this->run = ['auto' => $this->input->post('auto') !== '0', 'message' => $message, 'cards' => [], 'steps' => [], 'log' => [], 'conv' => $conv];
 
-        $opts = ['json' => true, 'temperature' => 0.1];
-        if ($image !== '' && $this->_config()['provider'] === 'deepseek') {
-            return $this->error_response('DeepSeek can\'t read photos. Paste the passbook text instead, or switch to ChatGPT / Gemini in AI Settings for photos.');
+        $messages = [['role' => 'system', 'content' => $this->_system_prompt()]];
+        foreach (array_slice($conv['messages'], -16) as $h) {
+            $messages[] = ['role' => $h['role'], 'content' => mb_substr((string) ($h['memory'] ?? $h['text']), 0, 4000)];
         }
+        $messages[] = ['role' => 'user', 'content' => ($message !== '' ? $message : 'Read this passbook / statement image and create the entries.') . $hint];
+
+        $opts = ['temperature' => 0.1, 'max_tokens' => (int) $cfg['max_tokens']];
         if ($image !== '' && preg_match('#^data:image/(png|jpe?g|webp);base64,#', $image)) {
             $opts['images'] = [$image];
         }
 
-        // Spending cap / daily limit
-        $cfg   = $this->_config();
-        $usage = $this->_usage();
-        if ($cfg['provider'] !== 'local' && $usage['cap_inr'] > 0 && $usage['month_cost_inr'] >= $usage['cap_inr']) {
-            return $this->json_response(['success' => false, 'recharge' => true, 'message' => $this->_recharge_message($usage)], 402);
-        }
-        if ($usage['daily_limit'] > 0 && $usage['today_requests'] >= $usage['daily_limit']) {
-            return $this->error_response('Daily limit of ' . $usage['daily_limit'] . ' AI requests reached. Try again tomorrow.');
-        }
-        $opts['max_tokens'] = (int) $cfg['max_tokens'];
-
+        $tin = $tout = 0;
+        $reply = null;
+        $error = null;
+        $nudged = false;
         try {
             $client = $this->_client();
-            $raw = $client->chat($messages, $opts);
-        } catch (Exception $e) {
-            return $this->error_response($e->getMessage());
-        }
-        $model   = ['local' => $cfg['local_model'], 'openai' => $cfg['openai_model'], 'gemini' => $cfg['gemini_model'],
-                    'deepseek' => $cfg['deepseek_model']][$cfg['provider']] ?? '';
-        $tok     = $client->last_usage;
-        $cost    = $this->_cost_usd($cfg['provider'], $model, $tok['in'], $tok['out']);
+            $tools  = $this->_tool_defs();
+            for ($step = 0; $step < self::MAX_STEPS; $step++) {
+                if ($step === self::MAX_STEPS - 1) {
+                    $messages[] = ['role' => 'system', 'content' => 'Step limit reached. Do not call more tools — answer the admin now with what you have.'];
+                }
+                $this->_emit(['type' => 'status', 'text' => $step === 0 ? 'Thinking…' : 'Reading the results…']);
+                $res = $client->chat_tools($messages, $tools, $opts);
+                $tin  += $client->last_usage['in'];
+                $tout += $client->last_usage['out'];
+                $messages[] = $res['message'];
 
-        $parsed = Ai_client::extract_json($raw);
-        if (!$parsed) {
-            // Model answered in plain text — still useful as a reply
-            $parsed = ['reply' => trim($raw), 'actions' => []];
-        }
-
-        $cards = [];
-        foreach ((array) ($parsed['actions'] ?? []) as $a) {
-            if (!is_array($a)) continue;
-            $card = $this->_resolve_action($a, $mentions ?: array_slice($conv['members'], 0, 1), $conv['entries']);
-            if (!$card) continue;
-            // Small models sometimes flip the status — trust the admin's own words over the model
-            if ($card['type'] === 'member_status') {
-                $said = $this->_status_from_text($message);
-                if ($said && $said !== $card['status']) {
-                    $card['status'] = $said;
-                    $card['warnings'] = array_values(array_filter($card['warnings'], function ($w) {
-                        return strpos($w, 'already') === false && strpos($w, 'choose the new status') === false;
-                    }));
-                    if (($card['current_status'] ?? null) === $said) $card['warnings'][] = 'Member is already ' . $said . '.';
+                if (!$res['tool_calls']) {
+                    // Weaker models announce "I'll check the loan…" and stop, or return nothing — push once to actually do it
+                    $said = trim($res['content']);
+                    if (!$nudged && $step < self::MAX_STEPS - 2 && !$this->run['cards']
+                        && ($said === '' || preg_match('/\b(I\'ll|I will|let me|first|checking|going to)\b|तपासतो|पाहतो|करतो|चेक/iu', $said))) {
+                        $nudged = true;
+                        $messages[] = ['role' => 'user', 'content' => $said === ''
+                            ? 'You returned an empty answer. Answer my request now, using the tools if needed.'
+                            : 'Go ahead — call the tool now instead of describing it.'];
+                        continue;
+                    }
+                    $reply = $said;
+                    break;
+                }
+                if ($step === self::MAX_STEPS - 1) { $reply = trim($res['content']); break; }
+                foreach ($res['tool_calls'] as $tc) {
+                    $this->_emit(['type' => 'status', 'text' => $this->_tool_status($tc['name'], $tc['args'])]);
+                    $out = $this->_run_tool($tc['name'], $tc['args']);
+                    $this->run['log'][] = $tc['name'] . '(' . mb_substr(json_encode($tc['args'], JSON_UNESCAPED_UNICODE), 0, 300) . ') → '
+                                        . mb_substr(json_encode($out, JSON_UNESCAPED_UNICODE), 0, 600);
+                    $messages[] = ['role' => 'tool', 'tool_call_id' => $tc['id'], 'name' => $tc['name'], 'content' => $this->_json_for_model($out)];
                 }
             }
-            $cards[] = $card;
+        } catch (Exception $e) {
+            $error = $e->getMessage();
         }
 
-        // Safety net: admin clearly asked to undo, the model didn't produce it → undo the latest entry of this chat
-        $has_reverse = (bool) array_filter($cards, function ($c) { return $c['type'] === 'reverse_entry'; });
-        $wants_entry = (bool) array_filter($cards, function ($c) { return !in_array($c['type'], ['navigate', 'reverse_entry'], true); });
-        if (!$has_reverse && !$wants_entry && $this->_wants_undo($message)) {
-            $card = $this->_resolve_reverse(['remarks' => mb_substr($message, 0, 255)], [], $conv['entries']);
-            if (!empty($card['target_id'])) {
-                $cards = [$card];
-                $parsed['reply'] = '';
-            }
+        $cards = $this->run['cards'];
+        $steps = $this->run['steps'];
+        $conv  = $this->run['conv'];
+        $tool_log = $this->run['log'];
+        $this->run = null;
+
+        if ($error !== null && !$cards) {
+            $this->_log_chat($message, 'ERROR: ' . $error, [], ['provider' => $cfg['provider'], 'model' => $model,
+                             'tokens_in' => $tin, 'tokens_out' => $tout, 'cost_usd' => $this->_cost_usd($cfg['provider'], $model, $tin, $tout)]);
+            return $this->_chat_out(['success' => false, 'message' => $error, 'steps' => $steps], 400);
+        }
+        if ($error !== null) {
+            $reply = '⚠️ ' . $error;
+        }
+        if ($reply === null || $reply === '') {
+            $saved = array_filter($cards, function ($c) { return !empty($c['executed']); });
+            $reply = $saved ? '✅ ' . implode("\n✅ ", array_map(function ($c) { return $c['result']['message']; }, $saved))
+                   : ($cards ? '👇 Please check the details below and press Confirm.'
+                             : '⚠️ The AI model (' . $model . ') returned an empty answer. Please try again, or choose GPT-4o Mini in ⚙️ AI Settings.');
         }
 
-        // ── Auto-save: run every action that is complete and unambiguous; ask about the rest ──
-        $auto = $this->input->post('auto') !== '0';
-        $questions = [];
-        foreach ($cards as &$card) {
-            if ($card['type'] === 'navigate') continue;
-            if ($card['type'] === 'member_status' && ($card['remarks'] ?? '') === '') {
-                $card['remarks'] = mb_substr('AI assistant: ' . $message, 0, 255);
-            }
-            $ready = $auto && empty($card['warnings']) && !empty($card['member_id'])
-                && ($card['type'] !== 'loan_payment'    || !empty($card['loan_id']))
-                && ($card['type'] !== 'savings_deposit' || !empty($card['savings_account_id']))
-                && ($card['type'] !== 'reverse_entry'   || !empty($card['from_chat']) || !empty($card['unique']))
-                && ($card['type'] !== 'update_member'   || !empty($card['changes']));
-            if ($ready) {
-                $r = $this->_perform($card);
-                $card['executed'] = $r['ok'];
-                $card['result']   = $r;
-                if (!$r['ok']) $questions[] = $r['message'];
-            } else {
-                foreach ($card['warnings'] as $w) $questions[] = $w;
-            }
-        }
-        unset($card);
-
-        // An entry request never needs a page link
-        $has_entry = (bool) array_filter($cards, function ($c) { return $c['type'] !== 'navigate'; });
-        if ($has_entry) {
-            $cards = array_values(array_filter($cards, function ($c) { return $c['type'] !== 'navigate'; }));
-        }
-
-        $reply   = (string) ($parsed['reply'] ?? '');
-        $saved   = array_filter($cards, function ($c) { return !empty($c['executed']); });
-        $pending = array_filter($cards, function ($c) { return $c['type'] !== 'navigate' && empty($c['executed']); });
-        if ($saved || $pending) {
-            // The model's own text may say "done" — only the server's results are reported for entries
-            $reply = $saved ? '✅ ' . implode("\n✅ ", array_map(function ($c) { return $c['result']['message']; }, $saved)) : '';
-            if ($pending) {
-                $reply .= ($reply !== '' ? "\n\n" : '') . '👇 Not saved yet — check the details below and press Confirm.';
-            }
-        }
-        if ($questions) {
-            $reply .= ($reply !== '' ? "\n\n" : '') . '❓ ' . implode("\n❓ ", array_unique($questions));
-        }
-
-        // ── Remember this turn ──
-        $memory = [];
-        foreach ($cards as &$card) {
-            if (!empty($card['member_id'])) array_unshift($conv['members'], (int) $card['member_id']);
-            if (!empty($card['executed'])) {
-                $memory[] = $this->_remember_entry($conv, $card);
-            }
-        }
-        unset($card);
-        foreach ($mentions as $id) array_unshift($conv['members'], $id);
-
+        // Remember this turn (the model sees the tool log next time, so "his loan" / "send him the same" works)
+        $log = mb_substr($reply . ($tool_log ? "\n[Tool log of this turn:\n" . implode("\n", $tool_log) . ']' : ''), 0, 6000);
         $conv['messages'][] = ['role' => 'user', 'text' => $message, 'image' => $image !== ''];
-        $conv['messages'][] = ['role' => 'assistant', 'text' => $reply, 'cards' => $this->_compact_cards($cards),
-                               'memory' => $reply . ($memory ? "\n[Done: " . implode('; ', $memory) . ']' : '')];
+        $conv['messages'][] = ['role' => 'assistant', 'text' => $reply, 'cards' => $this->_compact_cards($cards), 'steps' => $steps,
+                               'memory' => $log];
         $this->_save_conv($conv);
 
-        $this->_log_chat($message, $raw, $cards, ['provider' => $cfg['provider'], 'model' => $model,
-                                                  'tokens_in' => $tok['in'], 'tokens_out' => $tok['out'], 'cost_usd' => $cost]);
+        $this->_log_chat($message, $log, $cards, ['provider' => $cfg['provider'], 'model' => $model,
+                                                    'tokens_in' => $tin, 'tokens_out' => $tout, 'cost_usd' => $this->_cost_usd($cfg['provider'], $model, $tin, $tout)]);
 
         $usage = $this->_usage();
-        $warn  = $usage['cap_inr'] > 0 && $usage['month_cost_inr'] >= $usage['cap_inr'] * $usage['warn_pct'] / 100;
-        if ($warn) {
+        if ($usage['cap_inr'] > 0 && $usage['month_cost_inr'] >= $usage['cap_inr'] * $usage['warn_pct'] / 100) {
             $reply .= "\n\n⚠️ AI usage this month: ₹" . number_format($usage['month_cost_inr'], 2) . ' of ₹' . number_format($usage['cap_inr']) . ' budget.';
         }
 
-        $this->json_response([
+        $this->_chat_out([
             'success' => true,
             'reply'   => $reply,
             'actions' => $cards,
+            'steps'   => $steps,
             'usage'   => $this->_usage_for_viewer(),
         ]);
     }
+
+    // ── streaming (NDJSON over a chunked response) ──
+
+    private $stream = false;
+
+    private function _stream_open() {
+        @ini_set('zlib.output_compression', '0');
+        @ini_set('output_buffering', '0');
+        @ini_set('implicit_flush', '1');
+        if (function_exists('apache_setenv')) @apache_setenv('no-gzip', '1');
+        while (ob_get_level() > 0) @ob_end_flush();
+        header('Content-Type: application/x-ndjson; charset=utf-8');
+        header('Cache-Control: no-cache, no-transform');
+        header('X-Accel-Buffering: no');        // nginx / LiteSpeed: don't hold the chunks
+        echo str_repeat(' ', 2048) . "\n";       // push through proxies that buffer the first KBs
+        flush();
+    }
+
+    /** Send one progress event to the browser (no-op when not streaming). */
+    private function _emit(array $event) {
+        if (!$this->stream) return;
+        echo json_encode($event, JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR) . "\n";
+        @ob_flush();
+        flush();
+    }
+
+    /** Final answer of chat(): one "done"/"error" event when streaming, a normal JSON response otherwise. */
+    private function _chat_out(array $payload, $status = 200) {
+        if (!$this->stream) return $this->json_response($payload, $status);
+        $this->_emit(['type' => empty($payload['success']) ? 'error' : 'done'] + $payload);
+    }
+
+    /** What the admin sees while a tool runs. */
+    private function _tool_status($name, array $a) {
+        $labels = [
+            'describe_tables' => 'Reading the database structure…',
+            'run_sql'         => 'Querying the database' . (!empty($a['purpose']) ? ': ' . $a['purpose'] : '') . '…',
+            'get_member'      => 'Looking up member ' . ($a['member'] ?? '') . '…',
+            'get_loan'        => 'Looking up loan ' . ($a['loan'] ?? ($a['member'] ?? '')) . '…',
+            'open_page'       => 'Preparing the page link…',
+            'foreclose_loan'  => 'Calculating the ' . (($a['closure_type'] ?? '') === 'force_close' ? 'force-close' : 'foreclosure') . ' settlement…',
+            'send_email'      => 'Drafting the email…',
+            'correct_record'  => 'Preparing the correction…',
+        ];
+        return $labels[$name] ?? 'Preparing ' . str_replace('_', ' ', $name) . '…';
+    }
+
+    /** Catalog entry for a model (tools => false for chat-only models). */
+    private function _model_info($provider, $model) {
+        foreach (self::MODEL_CATALOG[$provider] ?? [] as $m) {
+            if ($m['id'] === $model) return $m + ['tools' => true];
+        }
+        return ['tools' => null];   // custom / local model: unknown, let it try
+    }
+
+    /** Pass each step to the browser as it happens. */
+    private function _step($icon, $label, $detail = '') {
+        $s = ['icon' => $icon, 'label' => $label, 'detail' => mb_substr((string) $detail, 0, 2000)];
+        $this->run['steps'][] = $s;
+        $this->_emit(['type' => 'step', 'step' => $s]);
+    }
+
 
     /**
      * Admin re-picks the member on a card → return that member's loans/accounts for the card.
@@ -485,7 +565,27 @@ class Ai_assistant extends Admin_Controller {
      */
     public function execute() {
         $f = $this->input->post() ?: [];
+        $token = (string) ($f['token'] ?? '');
+        $pending = $this->_pending();
+        if ($token !== '') {
+            if (!isset($pending[$token])) return $this->error_response('This request has expired or was already handled — please ask again.');
+            $card = $pending[$token];
+            if (in_array($card['type'], ['loan_payment', 'savings_deposit', 'fine', 'member_status', 'update_member'], true)) {
+                $f['type'] = $card['type'];          // the admin may have edited the card's fields
+            } elseif ($card['type'] === 'reverse_entry') {
+                $f = ['type' => 'reverse_entry', 'kind' => $card['kind'], 'target_id' => $card['target_id'],
+                      'remarks' => trim((string) ($f['remarks'] ?? '')) !== '' ? $f['remarks'] : ($card['remarks'] ?? '')];
+            } else {
+                $f = $card;                          // foreclose / email / correction: exactly what was shown
+            }
+        } elseif (!in_array($f['type'] ?? '', ['loan_payment', 'savings_deposit', 'fine', 'member_status', 'update_member', 'reverse_entry'], true)) {
+            return $this->error_response('Unknown action.');
+        }
         $r = $this->_perform($f);
+        if ($r['ok'] && $token !== '') {
+            unset($pending[$token]);
+            $this->session->set_userdata(self::PENDING_KEY, $pending);
+        }
         if ($r['ok']) {
             $conv = $this->_conv();
             $card = $f + ['executed' => true, 'result' => $r];
@@ -499,6 +599,21 @@ class Ai_assistant extends Admin_Controller {
                         : $this->error_response($r['message']);
     }
 
+    /** Admin pressed Cancel on a proposal. POST token */
+    public function cancel() {
+        $token = (string) $this->input->post('token');
+        $pending = $this->_pending();
+        if (isset($pending[$token])) {
+            $card = $pending[$token];
+            unset($pending[$token]);
+            $this->session->set_userdata(self::PENDING_KEY, $pending);
+            $conv = $this->_conv();
+            $conv['messages'][] = ['role' => 'assistant', 'text' => '✖ Cancelled.', 'memory' => '[Admin cancelled the proposed ' . $card['type'] . ']'];
+            $this->_save_conv($conv);
+        }
+        $this->success_response('Cancelled.');
+    }
+
     /**
      * Validate and save one action. Used by Confirm (execute) and by auto-save in chat().
      * @return array ['ok' => bool, 'message' => string, 'data' => array]
@@ -506,6 +621,9 @@ class Ai_assistant extends Admin_Controller {
     private function _perform(array $f) {
         $in = function ($k) use ($f) { return $f[$k] ?? null; };
         $type = $in('type');
+        if ($type === 'foreclose_loan') return $this->_perform_foreclose($f);
+        if ($type === 'send_email')     return $this->_perform_email($f);
+        if ($type === 'correct_record') return $this->_perform_correct($f);
         if ($type === 'update_member') {
             return $this->_perform_update_member((int) $in('member_id'), $in('changes'));
         }
@@ -661,8 +779,8 @@ class Ai_assistant extends Admin_Controller {
         foreach ($cards as $c) {
             if (!empty($c['executed'])) {
                 $out[] = ['type' => $c['type'], 'executed' => true, 'result' => $c['result']];
-            } elseif (($c['type'] ?? '') === 'navigate') {
-                $out[] = $c;
+            } elseif (($c['type'] ?? '') === 'navigate' || !empty($c['token'])) {
+                $out[] = $c;   // pending cards stay confirmable after a reload
             }
         }
         return $out;
@@ -749,6 +867,13 @@ class Ai_assistant extends Admin_Controller {
     }
 
     private function _mark_reversed($kind, $id) {
+        if ($this->run !== null) {   // inside chat(): the conversation is saved at the end of the turn
+            foreach ($this->run['conv']['entries'] as &$e) {
+                if ($e['kind'] === $kind && $e['id'] === (int) $id) $e['reversed'] = true;
+            }
+            unset($e);
+            return;
+        }
         $conv = $this->_conv();
         foreach ($conv['entries'] as &$e) {
             if ($e['kind'] === $kind && $e['id'] === (int) $id) $e['reversed'] = true;
@@ -767,114 +892,705 @@ class Ai_assistant extends Admin_Controller {
         return in_array($permission, $perms, true);
     }
 
-    // ───────────────────────────── Prompt & context ─────────────────────────────
+    // ───────────────────────────── Prompt & schema ─────────────────────────────
 
-    private function _system_prompt(array $mention_ids, array $entries = []) {
-        $today = date('Y-m-d');
-        $pages = [];
-        foreach ($this->pages as $k => $p) $pages[] = $k . ' (' . $p[0] . ')';
+    private function _system_prompt() {
+        $today  = date('Y-m-d');
+        $admin  = $this->admin_data;
+        $schema = $this->_schema_brief();
+        $pages  = implode(', ', array_keys($this->pages));
 
-        $ctx = '';
-        foreach (array_slice($mention_ids, 0, 4) as $i => $id) {
-            $ctx .= ($i === 0 ? '(member currently being discussed) ' : '') . $this->_member_context($id) . "\n";
-        }
         $made = '';
-        foreach ($entries as $e) {
+        foreach ($this->run['conv']['entries'] ?? [] as $e) {
             $made .= "  {$e['ref']}: {$e['label']}" . ($e['reversed'] ? ' [REVERSED]' : '') . "\n";
         }
-        $made = $made !== '' ? "ENTRIES MADE IN THIS CHAT (use these refs to undo):\n" . $made : "ENTRIES MADE IN THIS CHAT: none yet\n";
-
-        $s = $this->db->query("SELECT
-                (SELECT COUNT(*) FROM members WHERE status = 'active') active_members,
-                (SELECT COUNT(*) FROM loans WHERE status IN ('active','npa')) active_loans,
-                (SELECT COALESCE(SUM(outstanding_principal),0) FROM loans WHERE status IN ('active','npa')) loan_outstanding,
-                (SELECT COUNT(*) FROM loan_installments li JOIN loans l ON l.id = li.loan_id
-                    WHERE l.status IN ('active','npa') AND li.status IN ('pending','overdue','partial') AND li.due_date < CURDATE()) overdue_emis,
-                (SELECT COUNT(*) FROM loan_applications WHERE status IN ('pending','under_review')) pending_applications,
-                (SELECT COALESCE(SUM(balance_amount),0) FROM fines WHERE status IN ('pending','partial')) pending_fines")->row();
+        $made = $made !== '' ? "ENTRIES MADE IN THIS CHAT (refs for reverse_entry):\n" . $made : '';
 
         return <<<PROMPT
-You are the smart office assistant inside "Windeep Finance", a member savings & loan society app. You talk to the ADMIN (staff), not to members.
-Be friendly and brief, like a helpful colleague. Remember the conversation: "he/his/same member/तोच/त्यांचे" means the member being discussed;
-"that/last entry/ती नोंद" means the most recent entry in ENTRIES MADE IN THIS CHAT.
-Today is {$today}. Currency is Indian Rupees (₹).
+You are the AI operations assistant inside "Windeep Finance", a member savings & loan society (cooperative) app.
+You work for the ADMIN staff ({$admin->full_name}, role {$admin->role}). Today is {$today}. Currency: Indian Rupees (₹).
+You have full read access to the live MySQL database and tools to make changes. Think like a careful senior accountant.
 
-LANGUAGE: The admin may write in Marathi (Devanagari), Hindi, English or a mix. Always write "reply" in the SAME language the admin used.
-Member names in the database are in English letters — when you put a name into an action, transliterate it to English letters
-(e.g. "रमेश पाटील" -> "Ramesh Patil"). Convert Devanagari digits to normal digits (५००० -> 5000).
-Marathi hints: भरले/जमा = paid/deposited, हप्ता/EMI = loan installment, बचत/सेव्हिंग = savings, दंड = fine, व्याज = interest,
-फक्त व्याज = interest only, रोख = cash, काल = yesterday, आज = today,
-थकबाकी = overdue (page overdue_loans), अर्ज = application (page loan_applications), सभासद = member, दाखवा/उघडा = show/open (use navigate).
-For "page" write ONLY the key, e.g. "overdue_loans".
+HOW TO WORK
+- Answer any question about the data by looking it up: use get_member / get_loan for one member or loan, and run_sql for
+  anything else (lists, totals, reports, comparisons, "who", "how many"). Call describe_tables when you need a table
+  that is not in the schema below or need column types / enum values. Never invent numbers — every figure must come from a tool.
+- Chain tools as needed (e.g. search → details → action). Fix and retry a failing SQL query yourself.
+- To CHANGE anything use the write tools. They return either "executed" (already saved) or "awaiting_admin_confirmation"
+  (a card with a Confirm button is shown to the admin). Never say something is saved / closed / sent unless the tool said "executed".
+  When awaiting confirmation, briefly summarise what will happen and ask the admin to press Confirm.
+- Prefer the dedicated tools (record_loan_payment, foreclose_loan, reverse_entry…) because they post the ledger correctly.
+  Use correct_record only for fixing a wrong field value that no other tool covers, and mention that ledger entries are not re-posted.
+- If a tool says the member/loan is ambiguous or missing, ask the admin a short question (show the options).
+- Don't ask about optional fields: default mode "cash", date today, deposit_type "regular", payment_type "emi".
+- Foreclosure: "regular" = principal + configured % of remaining interest + pending fines; "force_close" = only next month's
+  interest is collected, remaining interest and fines are waived. Call get_loan first to show the quote when the admin asks for an amount.
+- Emails: write a polite, professional email in the admin's language (or English if unsure), signed "Windeep Finance".
 
-WHAT YOU CAN DO
-1. Answer questions using the DATA below (never invent numbers; if data is missing say so and suggest @mentioning the member).
-2. Make entries: when the admin asks to add / pay / deposit / fine / activate / deactivate, return the action — the system SAVES IT
-   IMMEDIATELY, so never answer an entry request with a page link. If something is unclear (which member, how much), ask in "reply"
-   and return no action for it. Only create an entry when the admin clearly asks for it (not for questions).
-3. Open a page of the app for the admin.
-4. Read passbook / bank statement text or images: create ONE action per credit line that belongs to a member.
+LANGUAGE: The admin may write Marathi (Devanagari), Hindi, English or a mix. Reply in the SAME language.
+Names in the DB are in English letters — transliterate before searching ("रमेश पाटील" → "Ramesh Patil"). Convert Devanagari digits (५००० → 5000).
+Marathi hints: भरले/जमा = paid/deposited, हप्ता = EMI, बचत = savings, दंड = fine, व्याज = interest, रोख = cash, काल = yesterday,
+थकबाकी = overdue, अर्ज = application, सभासद = member, बंद करा = close, रद्द/काढून टाका = cancel/delete (reverse_entry), दुरुस्ती = correction.
 
-ALWAYS answer with ONE JSON object only, no other text:
-{"reply": "short message for the admin", "actions": [ ... ]}
+OUTPUT: Markdown. Use tables for lists of records, **bold** for key amounts. Be brief and friendly, like a helpful colleague.
+Open app pages with open_page (keys: {$pages}).
 
-Action formats (omit fields you don't know; dates as YYYY-MM-DD):
-{"type":"loan_payment","member":"name or MEMB code","amount":5000,"date":"{$today}","mode":"cash|upi|bank_transfer|cheque","payment_type":"emi|interest_only","reference":"","remarks":""}
-{"type":"savings_deposit","member":"name or MEMB code","amount":1000,"date":"{$today}","mode":"cash","deposit_type":"regular|onetime","reference":"","remarks":""}
-{"type":"fine","member":"name or MEMB code","amount":100,"date":"{$today}","remarks":"reason (required)"}
-{"type":"member_status","member":"name or MEMB code","status":"active|inactive|blocked|suspended","remarks":"reason"}
-{"type":"reverse_entry","entry":"E1","remarks":"reason"}   ← undo an entry made in this chat
-{"type":"reverse_entry","kind":"savings_deposit|fine|loan_payment","member":"name or MEMB code","amount":2000,"date":"YYYY-MM-DD","remarks":"reason"}   ← undo an older entry
-{"type":"update_member","member":"name or MEMB code","changes":{"phone":"9876543210","city":"Pune"}}   ← edit member details.
-   Allowed fields: phone, alternate_phone, email, address, address_line2, city, state, pincode, occupation, nominee_name,
-   nominee_relationship, nominee_phone, bank_name, bank_account_number, bank_ifsc, father_name, notes
-{"type":"navigate","page":"one of: {$this->_join($pages)}"}
+DATA RULES
+- Members: name = first_name + middle_name + last_name; member_code like MEMB000123; skip rows with members.deleted_at NOT NULL.
+- Active loans: loans.status IN ('active','npa'). Outstanding = loans.outstanding_principal (+ outstanding_interest).
+- Overdue EMIs: loan_installments.status IN ('pending','overdue','partial') AND due_date < CURDATE(); due = emi_amount - total_paid.
+- Payments: loan_payments / savings_transactions — ignore rows with is_reversed = 1.
+- Savings balance: savings_accounts.current_balance; dues: savings_schedule (due_amount - paid_amount) with status pending/partial/overdue.
+- Fines unpaid: fines.balance_amount where status IN ('pending','partial').
 
-To activate / deactivate / block a member use member_status (निष्क्रिय/बंद = inactive, सक्रिय/चालू = active, ब्लॉक = blocked) — do NOT just navigate.
-NEVER write in "reply" that something is done, saved, cancelled or deleted — the system adds the real result itself.
-ACT, DON'T INTERVIEW: when the member and amount are known, return the action right away. Never ask about optional fields —
-use defaults: mode "cash", deposit_type "regular", reference "", date today. Only ask when the member or the amount is really unknown.
-When the admin asks about a member's data (balance, loan, dues), answer from the DATA section.
-Rules: Use "actions": [] when nothing needs to be entered. If the admin didn't say loan vs savings, use "loan_payment" when the amount matches
-the member's EMI, otherwise ask in "reply". If the date isn't given, use today.
-Delete / undo / cancel / remove / चुकीची / रद्द करा / काढून टाका = reverse_entry. Withdrawals and editing other records are not possible
-from chat — say so briefly and add a navigate action.
-
-DATA — society summary: active members {$s->active_members}, active loans {$s->active_loans}, loan outstanding ₹{$s->loan_outstanding},
-overdue EMIs {$s->overdue_emis}, pending loan applications {$s->pending_applications}, pending fines ₹{$s->pending_fines}.
-{$ctx}
+{$schema}
 {$made}
 PROMPT;
     }
 
-    private function _join(array $a) { return implode(', ', $a); }
-
-    /** Compact text overview of one member for the prompt. */
-    private function _member_context($member_id) {
-        $m = $this->Member_model->get_by_id($member_id);
-        if (!$m) return '';
-        $out = "DATA — member {$m->member_code} " . $this->_member_name($m) . " (phone {$m->phone}, status {$m->status}):\n";
-
-        foreach ($this->_loan_options($member_id, true) as $l) {
-            $out .= "  Loan {$l['loan_number']} [{$l['status']}] EMI ₹{$l['emi']} outstanding principal ₹{$l['outstanding']}"
-                  . ($l['next_due'] ? ", next due {$l['next_due']} ₹{$l['next_amount']}" : '')
-                  . ($l['overdue'] ? ", {$l['overdue']} EMI(s) overdue" : '') . "\n";
+    /** Columns of the core tables + enum values + names of the other tables. */
+    private function _schema_brief() {
+        $db = $this->db->database;
+        $rows = $this->db->query("SELECT TABLE_NAME t, COLUMN_NAME c, COLUMN_TYPE ty FROM information_schema.COLUMNS
+                                  WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME, ORDINAL_POSITION", [$db])->result();
+        $cols = $enums = [];
+        foreach ($rows as $r) {
+            $cols[$r->t][] = $r->c;
+            if (in_array($r->t, self::CORE_TABLES, true) && stripos($r->ty, 'enum(') === 0) {
+                $enums[] = $r->t . '.' . $r->c . ': ' . str_replace("'", '', substr($r->ty, 5, -1));
+            }
         }
-        foreach ($this->_account_options($member_id) as $a) {
-            $out .= "  Savings {$a['account_number']} monthly ₹{$a['monthly']} balance ₹{$a['balance']}, pending dues ₹{$a['dues']}\n";
+        $out = "DATABASE SCHEMA (MySQL/MariaDB) — core tables:\n";
+        foreach (self::CORE_TABLES as $t) {
+            if (isset($cols[$t])) $out .= "  {$t}(" . implode(',', $cols[$t]) . ")\n";
         }
-        $fines = $this->db->select_sum('balance_amount')->where('member_id', $member_id)
-            ->where_in('status', ['pending', 'partial'])->get('fines')->row();
-        $out .= '  Pending fines ₹' . number_format((float) ($fines->balance_amount ?? 0), 2, '.', '') . "\n";
-
-        $pay = $this->db->select('lp.total_amount, lp.payment_date, l.loan_number')->from('loan_payments lp')
-            ->join('loans l', 'l.id = lp.loan_id')->where('l.member_id', $member_id)->where('lp.is_reversed', 0)
-            ->order_by('lp.payment_date', 'DESC')->limit(3)->get()->result();
-        foreach ($pay as $p) {
-            $out .= "  Recent loan payment {$p->payment_date} ₹{$p->total_amount} ({$p->loan_number})\n";
-        }
+        if ($enums) $out .= "Enum values:\n  " . implode("\n  ", $enums) . "\n";
+        $other = array_diff(array_keys($cols), self::CORE_TABLES, self::SQL_BLOCKED_TABLES);
+        $out .= "Other tables (use describe_tables): " . implode(', ', $other) . "\n";
         return $out;
     }
+
+    // ───────────────────────────── Tools ─────────────────────────────
+
+    private function _tool_defs() {
+        $s = function ($desc, $enum = null) { $p = ['type' => 'string', 'description' => $desc]; if ($enum) $p['enum'] = $enum; return $p; };
+        $n = function ($desc) { return ['type' => 'number', 'description' => $desc]; };
+        $member = $s('Member code (MEMB…), name, phone or numeric member id');
+        $changes = ['type' => 'array', 'description' => 'Fields to change',
+                    'items' => ['type' => 'object', 'properties' => ['field' => $s('Column name'), 'value' => $s('New value ("NULL" to clear)')],
+                                'required' => ['field', 'value']]];
+        $obj = function ($props, $req = []) { return ['type' => 'object', 'properties' => $props, 'required' => $req]; };
+        $modes = ['cash', 'upi', 'bank_transfer', 'cheque'];
+
+        return [
+            ['name' => 'describe_tables', 'description' => 'Columns, types, keys and enum values of DB tables. Pass no tables to list every table with its row count.',
+             'parameters' => $obj(['tables' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Table names (max 10)']])],
+            ['name' => 'run_sql', 'description' => 'Run ONE read-only SQL query (SELECT / WITH / SHOW / DESCRIBE) on the live database. Returns up to 100 rows. Use for any list, total, report or search.',
+             'parameters' => $obj(['query' => $s('The SQL query'), 'purpose' => $s('Short description shown to the admin, e.g. "Overdue loans this month"')], ['query'])],
+            ['name' => 'get_member', 'description' => 'Full overview of one member: profile, loans, savings accounts, unpaid fines, recent payments. Also use it to search members.',
+             'parameters' => $obj(['member' => $member], ['member'])],
+            ['name' => 'get_loan', 'description' => 'Details of one loan: amounts, schedule status, next dues, recent payments, pending foreclosure request and foreclosure / force-close quotes.',
+             'parameters' => $obj(['loan' => $s('Loan number (e.g. LN0001) or numeric loan id'), 'member' => $s('Member, if the loan number is not known')])],
+            ['name' => 'open_page', 'description' => 'Show the admin a link to a page of the app.',
+             'parameters' => $obj(['page' => $s('Page key', array_keys($this->pages))], ['page'])],
+
+            ['name' => 'record_loan_payment', 'description' => 'Record an EMI / interest-only payment received on a member\'s loan (posts ledger).',
+             'parameters' => $obj(['member' => $member, 'loan_number' => $s('Loan number if the member has several loans'), 'amount' => $n('Amount in ₹'),
+                                   'date' => $s('YYYY-MM-DD, default today'), 'mode' => $s('Payment mode', $modes),
+                                   'payment_type' => $s('emi or interest_only', ['emi', 'interest_only']), 'reference' => $s('UTR / cheque no.'), 'remarks' => $s('Remarks')],
+                                  ['member', 'amount'])],
+            ['name' => 'record_savings_deposit', 'description' => 'Record a savings deposit for a member (posts ledger).',
+             'parameters' => $obj(['member' => $member, 'account_number' => $s('Savings account number if several'), 'amount' => $n('Amount in ₹'),
+                                   'date' => $s('YYYY-MM-DD'), 'mode' => $s('Payment mode', $modes),
+                                   'deposit_type' => $s('regular = monthly dues, onetime = extra', ['regular', 'onetime']), 'reference' => $s('Reference'), 'remarks' => $s('Remarks')],
+                                  ['member', 'amount'])],
+            ['name' => 'add_fine', 'description' => 'Add a fine (penalty) on a member.',
+             'parameters' => $obj(['member' => $member, 'amount' => $n('Amount in ₹'), 'reason' => $s('Reason (required)'), 'date' => $s('YYYY-MM-DD')],
+                                  ['member', 'amount', 'reason'])],
+            ['name' => 'update_member', 'description' => 'Change member contact / address / nominee / bank details. Allowed fields: ' . implode(', ', array_keys(self::MEMBER_EDITABLE)) . '. For other member columns use correct_record.',
+             'parameters' => $obj(['member' => $member, 'changes' => $changes], ['member', 'changes'])],
+            ['name' => 'change_member_status', 'description' => 'Activate / deactivate / block / suspend a member.',
+             'parameters' => $obj(['member' => $member, 'status' => $s('New status', self::MEMBER_STATUSES), 'reason' => $s('Reason')], ['member', 'status'])],
+            ['name' => 'reverse_entry', 'description' => 'Undo a wrong savings deposit or cancel a fine (with contra ledger entry). Identify it by entry ref from this chat (E1…), by record id, or by member + amount + date.',
+             'parameters' => $obj(['entry' => $s('Entry ref from this chat, e.g. E1'), 'kind' => $s('Record kind', ['savings_deposit', 'fine', 'loan_payment']),
+                                   'record_id' => $n('savings_transactions.id / fines.id'), 'member' => $member, 'amount' => $n('Amount'), 'date' => $s('YYYY-MM-DD'),
+                                   'reason' => $s('Reason')], ['reason'])],
+            ['name' => 'foreclose_loan', 'description' => 'Close a loan early: regular foreclosure or force close. Collects the settlement, closes the loan, cancels future EMIs, releases guarantors, posts ledger.',
+             'parameters' => $obj(['loan' => $s('Loan number or id'), 'member' => $s('Member, if loan not given'),
+                                   'closure_type' => $s('regular or force_close', ['regular', 'force_close']),
+                                   'interest_charge_pct' => $n('Override % of remaining interest charged (regular only)'),
+                                   'final_amount' => $n('Exact amount collected, if the admin states one'),
+                                   'payment_mode' => $s('Payment mode', $modes), 'payment_date' => $s('YYYY-MM-DD'),
+                                   'reference' => $s('UTR / cheque no.'), 'remarks' => $s('Reason / remarks')], ['closure_type'])],
+            ['name' => 'send_email', 'description' => 'Send an email to a member (by member code/name) or to an email address.',
+             'parameters' => $obj(['to' => $s('Member code / name, or an email address'), 'subject' => $s('Subject'), 'body' => $s('Plain-text email body')],
+                                  ['to', 'subject', 'body'])],
+            ['name' => 'correct_record', 'description' => 'Correct wrong values in ONE row of a table by its id (audit-logged, needs Confirm). Tables: ' . implode(', ', self::CORRECTABLE_TABLES) . '. Ledger is NOT re-posted.',
+             'parameters' => $obj(['table' => $s('Table', self::CORRECTABLE_TABLES), 'record_id' => $n('Row id'), 'changes' => $changes, 'reason' => $s('Why the correction is needed')],
+                                  ['table', 'record_id', 'changes', 'reason'])],
+        ];
+    }
+
+    /** Dispatch one tool call. Always returns an array (sent back to the model as JSON). */
+    private function _run_tool($name, array $args) {
+        try {
+            switch ($name) {
+                case 'describe_tables': return $this->_tool_describe((array) ($args['tables'] ?? []));
+                case 'run_sql':         return $this->_tool_sql((string) ($args['query'] ?? ''), (string) ($args['purpose'] ?? ''));
+                case 'get_member':      return $this->_tool_member((string) ($args['member'] ?? ''));
+                case 'get_loan':        return $this->_tool_loan($args);
+                case 'open_page':
+                    $card = $this->_resolve_action(['type' => 'navigate', 'page' => $args['page'] ?? ''], []);
+                    if (!$card) return ['error' => 'Unknown page.'];
+                    $this->run['cards'][] = $card;
+                    return ['status' => 'link_shown', 'page' => $card['label']];
+                case 'record_loan_payment':
+                case 'record_savings_deposit':
+                case 'add_fine':
+                case 'update_member':
+                case 'change_member_status':
+                case 'reverse_entry':   return $this->_tool_entry($name, $args);
+                case 'foreclose_loan':  return $this->_tool_foreclose($args);
+                case 'send_email':      return $this->_tool_email($args);
+                case 'correct_record':  return $this->_tool_correct($args);
+            }
+            return ['error' => 'Unknown tool ' . $name];
+        } catch (Exception $e) {
+            return ['error' => $e->getMessage()];
+        }
+    }
+
+    /** JSON for the model, kept under ~14k characters. */
+    private function _json_for_model($out) {
+        $j = json_encode($out, JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR);
+        if (mb_strlen($j) > 14000) {
+            $j = json_encode(['truncated' => true, 'note' => 'Result too large — narrow the query (fewer columns / rows or aggregate).',
+                              'partial' => mb_substr($j, 0, 12000)], JSON_UNESCAPED_UNICODE);
+        }
+        return $j;
+    }
+
+    // ── read tools ──
+
+    private function _tool_describe(array $tables) {
+        $db = $this->db->database;
+        if (!$tables) {
+            $rows = $this->db->query('SELECT TABLE_NAME t, TABLE_ROWS n FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME', [$db])->result();
+            $this->_step('table', 'Listed database tables');
+            $out = [];
+            foreach ($rows as $r) if (!in_array($r->t, self::SQL_BLOCKED_TABLES, true)) $out[$r->t] = (int) $r->n;
+            return ['tables' => $out];
+        }
+        $out = [];
+        foreach (array_slice($tables, 0, 10) as $t) {
+            $t = preg_replace('/[^a-z0-9_]/i', '', (string) $t);
+            if (in_array($t, self::SQL_BLOCKED_TABLES, true)) { $out[$t] = 'not accessible'; continue; }
+            $cols = $this->db->query('SELECT COLUMN_NAME c, COLUMN_TYPE ty, IS_NULLABLE nl, COLUMN_KEY k, COLUMN_DEFAULT d FROM information_schema.COLUMNS
+                                      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? ORDER BY ORDINAL_POSITION', [$db, $t])->result();
+            if (!$cols) { $out[$t] = 'table not found'; continue; }
+            $out[$t] = array_map(function ($c) {
+                return $c->c . ' ' . $c->ty . ($c->k === 'PRI' ? ' PK' : ($c->k ? ' ' . $c->k : '')) . ($c->nl === 'YES' ? ' NULL' : '')
+                     . ($c->d !== null ? ' default ' . $c->d : '');
+            }, $cols);
+        }
+        $this->_step('table', 'Read table structure', implode(', ', array_keys($out)));
+        return $out;
+    }
+
+    private function _tool_sql($q, $purpose) {
+        $q = trim(preg_replace('/;\s*$/', '', trim($q)));
+        $fail = function ($msg) use ($q, $purpose) {
+            $this->_step('database', ($purpose ?: 'Database query') . ' — rejected', $q . "\n→ " . $msg);
+            return ['error' => $msg];
+        };
+        if ($q === '') return $fail('Empty query.');
+        if (strpos($q, ';') !== false)                         return $fail('Only one statement is allowed.');
+        if (preg_match('#(--|/\*|\#)#', $q))                     return $fail('Comments are not allowed in queries.');
+        if (!preg_match('/^\s*(select|with|show|describe|desc|explain)\b/i', $q)) return $fail('Only read-only SELECT / SHOW / DESCRIBE queries are allowed. Use the write tools to change data.');
+        if (preg_match('/\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|rename|lock|unlock|call|handler|load_file|outfile|dumpfile|sleep|benchmark|get_lock|set)\b/i', $q)) {
+            return $fail('This query contains a keyword that is not allowed in read-only mode.');
+        }
+        foreach (self::SQL_BLOCKED_TABLES as $t) {
+            if (preg_match('/\b' . $t . '\b/i', $q)) return $fail('Table ' . $t . ' is not accessible.');
+        }
+        $is_select = (bool) preg_match('/^\s*(select|with)\b/i', $q);
+        if ($is_select && !preg_match('/\blimit\s+\d+(\s*(,|offset)\s*\d+)?\s*$/i', $q)) {
+            $q .= ' LIMIT 101';
+        }
+
+        $debug = $this->db->db_debug;
+        $this->db->db_debug = false;
+        $maria = stripos($this->db->version(), 'mariadb') !== false;
+        $t0 = microtime(true);
+        try {
+            if (!$maria) { try { $this->db->simple_query('SET SESSION max_execution_time = 10000'); } catch (Exception $e) {} }
+            $this->db->simple_query('START TRANSACTION READ ONLY');
+            $res = $this->db->query(($maria && $is_select ? 'SET STATEMENT max_statement_time = 10 FOR ' : '') . $q);
+            $err = $this->db->error();
+        } catch (Exception $e) {   // PHP 8.1+ mysqli throws instead of returning false
+            $res = false;
+            $err = ['code' => $e->getCode() ?: 1, 'message' => $e->getMessage()];
+        } finally {
+            try { $this->db->simple_query('ROLLBACK'); } catch (Exception $e) {}
+            $this->db->db_debug = $debug;
+        }
+        $ms = round((microtime(true) - $t0) * 1000);
+
+        if (!$res || !empty($err['code'])) {
+            return $fail('SQL error: ' . ($err['message'] ?? 'query failed'));
+        }
+        $rows = is_object($res) ? $res->result_array() : [];
+        $truncated = count($rows) > 100;
+        $rows = array_slice($rows, 0, 100);
+
+        // Never hand secrets to the model
+        foreach ($rows as &$r) {
+            foreach ($r as $k => &$v) {
+                if (preg_match('/pass|token|secret|otp|backup_code|api_key/i', $k)) $v = '[hidden]';
+                elseif (is_string($v) && mb_strlen($v) > 400) $v = mb_substr($v, 0, 400) . '…';
+            }
+            unset($v);
+            if (isset($r['setting_key'], $r['setting_value']) && preg_match('/key|pass|secret|token/i', $r['setting_key'])) $r['setting_value'] = '[hidden]';
+        }
+        unset($r);
+
+        $this->_step('database', ($purpose ?: 'Database query') . ' — ' . count($rows) . ($truncated ? '+' : '') . ' row(s), ' . $ms . ' ms', $q);
+        return ['row_count' => count($rows), 'truncated' => $truncated, 'columns' => $rows ? array_keys($rows[0]) : [],
+                'rows' => array_map('array_values', $rows)];
+    }
+
+    private function _tool_member($text) {
+        $found = $this->_find_members($text, 6);
+        if (!$found) { $this->_step('user', 'Member "' . $text . '" not found'); return ['error' => 'No member matches "' . $text . '".']; }
+        if (count($found) > 1) {
+            $this->_step('user', 'Searched members: ' . $text, count($found) . ' matches');
+            return ['status' => 'multiple_matches', 'members' => array_map(function ($m) {
+                return ['id' => (int) $m->id, 'code' => $m->member_code, 'name' => $this->_member_name($m), 'phone' => $m->phone, 'status' => $m->status];
+            }, $found)];
+        }
+        $m = $this->Member_model->get_by_id($found[0]->id);
+        $id = (int) $m->id;
+        $loans = $this->db->select('id, loan_number, status, principal_amount, interest_rate, tenure_months, emi_amount, outstanding_principal, outstanding_interest, disbursement_date, closure_date')
+            ->where('member_id', $id)->order_by('id', 'DESC')->limit(10)->get('loans')->result_array();
+        foreach ($loans as &$l) {
+            if (!in_array($l['status'], ['active', 'npa'], true)) continue;
+            $next = $this->db->select('installment_number, due_date, emi_amount, total_paid, status')->where('loan_id', $l['id'])
+                ->where_in('status', ['pending', 'overdue', 'partial'])->order_by('installment_number', 'ASC')->limit(1)->get('loan_installments')->row_array();
+            $l['next_installment'] = $next;
+            $l['overdue_emis'] = $this->db->where('loan_id', $l['id'])->where_in('status', ['pending', 'overdue', 'partial'])
+                ->where('due_date <', date('Y-m-d'))->count_all_results('loan_installments');
+        }
+        unset($l);
+        $out = [
+            'member' => ['id' => $id, 'code' => $m->member_code, 'name' => $this->_member_name($m), 'phone' => $m->phone, 'email' => $m->email,
+                         'status' => $m->status, 'join_date' => $m->join_date ?? null, 'city' => $m->city ?? null,
+                         'address' => trim(($m->address_line1 ?? '') . ' ' . ($m->address_line2 ?? '')), 'nominee' => $m->nominee_name ?? null,
+                         'bank' => trim(($m->bank_name ?? '') . ' ' . ($m->bank_account_number ?? '') . ' ' . ($m->bank_ifsc ?? ''))],
+            'loans' => $loans,
+            'savings_accounts' => $this->_account_options($id),
+            'unpaid_fines' => $this->db->select('id, fine_code, fine_date, fine_amount, balance_amount, status, remarks')->where('member_id', $id)
+                ->where_in('status', ['pending', 'partial'])->order_by('id', 'DESC')->limit(10)->get('fines')->result_array(),
+            'recent_loan_payments' => $this->db->select('lp.id, lp.payment_date, lp.total_amount, lp.payment_type, lp.payment_mode, l.loan_number')
+                ->from('loan_payments lp')->join('loans l', 'l.id = lp.loan_id')->where('l.member_id', $id)->where('lp.is_reversed', 0)
+                ->order_by('lp.payment_date', 'DESC')->limit(5)->get()->result_array(),
+            'recent_savings_transactions' => $this->db->select('st.id, st.transaction_date, st.transaction_type, st.amount, st.payment_mode, sa.account_number')
+                ->from('savings_transactions st')->join('savings_accounts sa', 'sa.id = st.savings_account_id')->where('sa.member_id', $id)
+                ->where('st.is_reversed', 0)->order_by('st.id', 'DESC')->limit(5)->get()->result_array(),
+        ];
+        $this->_step('user', 'Looked up member ' . $m->member_code . ' ' . $this->_member_name($m));
+        return $out;
+    }
+
+    /** Find a loan by number / id, or the single active loan of a member. Returns [loan|null, error|null]. */
+    private function _find_loan($loan_text, $member_text = '') {
+        $loan_text = trim($this->_latin_digits((string) $loan_text));
+        if ($loan_text !== '') {
+            $l = $this->db->where('loan_number', $loan_text)->get('loans')->row();
+            if (!$l && preg_match('/^\d{1,7}$/', $loan_text)) $l = $this->db->where('id', (int) $loan_text)->get('loans')->row();
+            if (!$l) {
+                $like = $this->db->like('loan_number', $loan_text)->limit(3)->get('loans')->result();
+                if (count($like) === 1) $l = $like[0];
+                elseif ($like) return [null, 'Several loans match "' . $loan_text . '": ' . implode(', ', array_column($like, 'loan_number'))];
+            }
+            return $l ? [$l, null] : [null, 'Loan "' . $loan_text . '" not found.'];
+        }
+        if (trim((string) $member_text) === '') return [null, 'Which loan? Give the loan number or member.'];
+        $ms = $this->_find_members($member_text, 3);
+        if (count($ms) !== 1) return [null, $ms ? 'Several members match "' . $member_text . '".' : 'Member "' . $member_text . '" not found.'];
+        $loans = $this->db->where('member_id', $ms[0]->id)->where_in('status', ['active', 'npa'])->get('loans')->result();
+        if (count($loans) === 1) return [$loans[0], null];
+        return [null, $loans ? 'Member has several active loans: ' . implode(', ', array_column($loans, 'loan_number')) . ' — which one?'
+                             : $this->_member_name($ms[0]) . ' has no active loan.'];
+    }
+
+    private function _tool_loan(array $args) {
+        list($l, $err) = $this->_find_loan($args['loan'] ?? '', $args['member'] ?? '');
+        if (!$l) return ['error' => $err];
+        $m = $this->Member_model->get_by_id($l->member_id);
+        $keys = ['id', 'loan_number', 'status', 'principal_amount', 'interest_rate', 'interest_type', 'tenure_months', 'emi_amount', 'total_interest',
+                 'total_payable', 'outstanding_principal', 'outstanding_interest', 'outstanding_fine', 'total_amount_paid', 'total_principal_paid',
+                 'total_interest_paid', 'disbursement_date', 'first_emi_date', 'last_emi_date', 'closure_date', 'closure_type', 'closure_remarks'];
+        $out = ['loan' => array_intersect_key((array) $l, array_flip($keys)),
+                'member' => $m ? ['id' => (int) $m->id, 'code' => $m->member_code, 'name' => $this->_member_name($m), 'phone' => $m->phone, 'email' => $m->email] : null];
+        $out['installments_by_status'] = $this->db->select('status, COUNT(*) n, SUM(emi_amount - total_paid) due', false)->where('loan_id', $l->id)
+            ->group_by('status')->get('loan_installments')->result_array();
+        $out['next_unpaid_installments'] = $this->db->select('id, installment_number, due_date, principal_amount, interest_amount, emi_amount, total_paid, status')
+            ->where('loan_id', $l->id)->where_in('status', ['pending', 'overdue', 'partial', 'upcoming'])->order_by('installment_number', 'ASC')->limit(4)
+            ->get('loan_installments')->result_array();
+        $out['recent_payments'] = $this->db->select('id, payment_code, payment_date, payment_type, total_amount, principal_component, interest_component, fine_component, payment_mode, is_reversed')
+            ->where('loan_id', $l->id)->order_by('id', 'DESC')->limit(5)->get('loan_payments')->result_array();
+        $out['pending_foreclosure_request'] = $this->db->where('loan_id', $l->id)->where('status', 'pending')->get('loan_foreclosure_requests')->row_array();
+        if (in_array($l->status, ['active', 'npa'], true)) {
+            $reg = $this->Loan_model->calculate_foreclosure_amount($l->id);
+            $fc  = $this->Loan_model->calculate_force_close_amount($l->id);
+            unset($reg['pending_fines_list'], $fc['pending_fines_list']);
+            $out['foreclosure_quote_regular'] = $reg;
+            $out['force_close_quote'] = $fc;
+        }
+        $this->_step('file-invoice', 'Looked up loan ' . $l->loan_number);
+        return $out;
+    }
+
+    // ── write tools ──
+
+    /** Pending proposals (token => card) in the session. */
+    private function _pending() { $p = $this->session->userdata(self::PENDING_KEY); return is_array($p) ? $p : []; }
+    private function _add_pending(array &$card) {
+        $card['token'] = bin2hex(random_bytes(8));
+        $p = $this->_pending();
+        $p[$card['token']] = $card + ['created' => time()];
+        $this->session->set_userdata(self::PENDING_KEY, array_slice($p, -25, null, true));
+    }
+
+    /** Tool result for a card that waits for the admin. */
+    private function _awaiting(array $card, array $extra = []) {
+        return ['status' => 'awaiting_admin_confirmation', 'note' => 'A confirmation card is shown to the admin. Nothing is saved until they press Confirm.',
+                'warnings' => array_values($card['warnings'] ?? [])] + $extra;
+    }
+
+    /** Payment / deposit / fine / member edit / status / reverse — the editable cards. */
+    private function _tool_entry($name, array $args) {
+        $num = function ($v) { return $v === null ? null : $this->_latin_digits((string) $v); };
+        $a = ['member' => $args['member'] ?? '', 'amount' => $num($args['amount'] ?? 0), 'date' => $args['date'] ?? '', 'mode' => $args['mode'] ?? 'cash',
+              'reference' => $args['reference'] ?? '', 'remarks' => $args['remarks'] ?? ($args['reason'] ?? '')];
+        switch ($name) {
+            case 'record_loan_payment':    $a += ['type' => 'loan_payment', 'payment_type' => $args['payment_type'] ?? 'emi']; break;
+            case 'record_savings_deposit': $a += ['type' => 'savings_deposit', 'deposit_type' => $args['deposit_type'] ?? 'regular']; break;
+            case 'add_fine':               $a += ['type' => 'fine']; break;
+            case 'change_member_status':   $a += ['type' => 'member_status', 'status' => $args['status'] ?? '']; break;
+            case 'update_member':
+                $ch = [];
+                foreach ((array) ($args['changes'] ?? []) as $k => $c) {
+                    if (is_array($c)) $ch[(string) ($c['field'] ?? '')] = (string) ($c['value'] ?? '');
+                    else $ch[(string) $k] = (string) $c;   // tolerate {"phone": "…"}
+                }
+                $a = ['type' => 'update_member', 'member' => $args['member'] ?? '', 'changes' => $ch];
+                break;
+            case 'reverse_entry':
+                $a = ['type' => 'reverse_entry', 'entry' => $args['entry'] ?? '', 'kind' => $args['kind'] ?? '', 'record_id' => (int) ($args['record_id'] ?? 0),
+                      'member' => $args['member'] ?? '', 'amount' => $num($args['amount'] ?? 0), 'date' => $args['date'] ?? '', 'remarks' => $args['reason'] ?? ''];
+                break;
+        }
+
+        $card = $this->_resolve_action($a, [], $this->run['conv']['entries']);
+        if (!$card) return ['error' => 'Could not understand the request.'];
+
+        // A specific loan / account named by the model
+        if ($card['type'] === 'loan_payment' && !empty($args['loan_number']) && !empty($card['loans'])) {
+            foreach ($card['loans'] as $l) if (strcasecmp($l['loan_number'], trim($args['loan_number'])) === 0) $card['loan_id'] = $l['id'];
+            if ($card['loan_id']) $card['warnings'] = array_values(array_filter($card['warnings'], function ($w) { return strpos($w, 'which one') === false; }));
+        }
+        if ($card['type'] === 'savings_deposit' && !empty($args['account_number']) && !empty($card['accounts'])) {
+            foreach ($card['accounts'] as $x) if (strcasecmp($x['account_number'], trim($args['account_number'])) === 0) $card['savings_account_id'] = $x['id'];
+            if ($card['savings_account_id']) $card['warnings'] = array_values(array_filter($card['warnings'], function ($w) { return strpos($w, 'which one') === false; }));
+        }
+
+        $titles = ['loan_payment' => 'Loan payment', 'savings_deposit' => 'Savings deposit', 'fine' => 'Fine', 'member_status' => 'Member status',
+                   'update_member' => 'Update member', 'reverse_entry' => 'Reverse entry'];
+        $label = $titles[$card['type']] . (isset($card['member_text']) && $card['member_text'] !== '' ? ' — ' . $card['member_text'] : '');
+
+        // Nothing to act on → let the model ask
+        if ($card['type'] === 'reverse_entry' && empty($card['target_id'])) {
+            $this->_step('undo', $label . ' — record not found');
+            return ['error' => implode(' ', $card['warnings']) ?: 'Record not found.'];
+        }
+        if ($card['type'] === 'reverse_entry' && $card['kind'] === 'loan_payment') {
+            $this->_step('undo', $label . ' — not supported');
+            return ['error' => 'Loan payments cannot be reversed from chat (it changes EMIs and interest). Offer open_page or correct_record if a single field is wrong.'];
+        }
+        if (in_array($card['type'], ['loan_payment', 'savings_deposit', 'fine', 'member_status', 'update_member'], true)
+            && empty($card['member_id']) && empty($card['member_candidates'])) {
+            $this->_step('user', $label . ' — member not found');
+            return ['error' => implode(' ', $card['warnings'])];
+        }
+        if ($card['type'] === 'member_status' && ($card['remarks'] ?? '') === '') {
+            $card['remarks'] = mb_substr('AI assistant: ' . $this->run['message'], 0, 255);
+        }
+
+        $ready = $this->run['auto'] && empty($card['warnings']) && !empty($card['member_id'])
+            && ($card['type'] !== 'loan_payment'    || !empty($card['loan_id']))
+            && ($card['type'] !== 'savings_deposit' || !empty($card['savings_account_id']))
+            && ($card['type'] !== 'reverse_entry'   || !empty($card['from_chat']) || !empty($card['unique']))
+            && ($card['type'] !== 'update_member'   || !empty($card['changes']));
+        if ($ready) {
+            $r = $this->_perform($card);
+            if (!$r['ok']) {
+                $this->_step('times-circle', $label . ' — failed', $r['message']);
+                return ['status' => 'failed', 'error' => $r['message']];
+            }
+            $card['executed'] = true;
+            $card['result'] = $r;
+            $ref = $this->_remember_entry($this->run['conv'], $card);
+            $this->run['cards'][] = $card;
+            $this->_step('check-circle', $label . ' — saved', $r['message']);
+            return ['status' => 'executed', 'message' => $r['message'], 'entry' => $ref];
+        }
+
+        $this->_add_pending($card);
+        $this->run['cards'][] = $card;
+        $this->_step('hand-paper', $label . ' — waiting for Confirm');
+        $extra = [];
+        if (!empty($card['member_candidates']) && count($card['member_candidates']) > 1) $extra['member_options'] = array_column($card['member_candidates'], 'label');
+        if (!empty($card['loans']) && empty($card['loan_id'])) $extra['loan_options'] = array_column($card['loans'], 'loan_number');
+        if (!empty($card['accounts']) && empty($card['savings_account_id'])) $extra['account_options'] = array_column($card['accounts'], 'account_number');
+        return $this->_awaiting($card, $extra);
+    }
+
+    private function _tool_foreclose(array $args) {
+        if (!$this->_can('loans_approve')) return ['error' => 'You do not have permission to close loans (loans_approve).'];
+        list($l, $err) = $this->_find_loan($args['loan'] ?? '', $args['member'] ?? '');
+        if (!$l) return ['error' => $err];
+        if (!in_array($l->status, ['active', 'npa'], true)) return ['error' => 'Loan ' . $l->loan_number . ' is ' . $l->status . ' — only active loans can be closed.'];
+
+        $type = ($args['closure_type'] ?? '') === 'force_close' ? 'force_close' : 'regular';
+        $pct  = ($type === 'regular' && isset($args['interest_charge_pct']) && $args['interest_charge_pct'] !== '') ? (float) $args['interest_charge_pct'] : null;
+        if ($pct !== null && ($pct < 0 || $pct > 100)) return ['error' => 'Interest charge % must be between 0 and 100.'];
+        $q = $type === 'force_close' ? $this->Loan_model->calculate_force_close_amount($l->id) : $this->Loan_model->calculate_foreclosure_amount($l->id, $pct);
+        if (!$q) return ['error' => 'Could not calculate the settlement.'];
+        $calc  = round((float) $q['total_amount'], 2);
+        $final = (float) ($args['final_amount'] ?? 0) > 0 ? round((float) $args['final_amount'], 2) : $calc;
+        $m = $this->Member_model->get_by_id($l->member_id);
+
+        $rows = [['Loan', $l->loan_number . ' (' . $l->status . ')'], ['Member', $m ? $m->member_code . ' — ' . $this->_member_name($m) : '#' . $l->member_id],
+                 ['Outstanding principal', '₹' . number_format((float) $q['outstanding_principal'], 2)]];
+        if ($type === 'force_close') {
+            $rows[] = ['Next month interest (charged)', '₹' . number_format((float) $q['next_month_interest'], 2)];
+            $rows[] = ['Interest waived', '₹' . number_format((float) $q['waived_interest'], 2)];
+            $rows[] = ['Fines waived', '₹' . number_format((float) $q['waived_fines'], 2)];
+        } else {
+            $rows[] = ['Remaining interest', '₹' . number_format((float) $q['total_interest'], 2)];
+            $rows[] = ['Interest charge', number_format((float) $q['interest_charge_pct'], 2) . '% = ₹' . number_format((float) $q['interest_charge'], 2)];
+            $rows[] = ['Pending fines', '₹' . number_format((float) $q['pending_fines'], 2)];
+        }
+        $rows[] = ['Calculated settlement', '₹' . number_format($calc, 2)];
+        $rows[] = ['Amount to collect', '₹' . number_format($final, 2)];
+
+        $card = ['type' => 'foreclose_loan', 'title' => $type === 'force_close' ? 'Force close loan' : 'Foreclose loan',
+                 'loan_id' => (int) $l->id, 'member_id' => (int) $l->member_id, 'closure_type' => $type, 'interest_charge_pct' => $pct,
+                 'final_amount' => $final, 'calculated' => $calc,
+                 'payment_mode' => $this->_payment_mode($args['payment_mode'] ?? 'cash'),
+                 'payment_date' => $this->_valid_date($args['payment_date'] ?? '') ?: date('Y-m-d'),
+                 'reference' => mb_substr((string) ($args['reference'] ?? ''), 0, 100),
+                 'remarks' => mb_substr(trim((string) ($args['remarks'] ?? '')), 0, 255) ?: 'Closed via AI assistant',
+                 'rows' => $rows, 'warnings' => [], 'danger' => true];
+        $card['rows'][] = ['Mode / date', $card['payment_mode'] . ' · ' . $card['payment_date']];
+        if (abs($final - $calc) >= 0.01) $card['warnings'][] = 'Amount differs from the calculated settlement (₹' . number_format($calc, 2) . ').';
+        if ($card['payment_date'] > date('Y-m-d')) return ['error' => 'Payment date cannot be in the future.'];
+
+        $this->_add_pending($card);
+        $this->run['cards'][] = $card;
+        $this->_step('lock', $card['title'] . ' ' . $l->loan_number . ' — waiting for Confirm');
+        return $this->_awaiting($card, ['quote' => array_diff_key($q, ['pending_fines_list' => 1]), 'amount_to_collect' => $final]);
+    }
+
+    private function _tool_email(array $args) {
+        $to = trim((string) ($args['to'] ?? ''));
+        $subject = mb_substr(trim((string) ($args['subject'] ?? '')), 0, 200);
+        $body = trim((string) ($args['body'] ?? ''));
+        if ($subject === '' || $body === '') return ['error' => 'Subject and body are required.'];
+        $member = null;
+        if (filter_var($to, FILTER_VALIDATE_EMAIL)) {
+            $email = $to;
+            $member = $this->db->where('email', $to)->where('deleted_at', null)->get('members')->row();
+        } else {
+            $ms = $this->_find_members($to, 3);
+            if (count($ms) !== 1) return ['error' => $ms ? 'Several members match "' . $to . '" — which one?' : 'No member or email "' . $to . '".'];
+            $member = $this->Member_model->get_by_id($ms[0]->id);
+            $email = trim((string) $member->email);
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) return ['error' => $this->_member_name($member) . ' has no valid email address on file.'];
+        }
+        $card = ['type' => 'send_email', 'title' => 'Send email', 'to' => $email, 'member_id' => $member ? (int) $member->id : null,
+                 'subject' => $subject, 'body' => mb_substr($body, 0, 10000), 'warnings' => [],
+                 'rows' => [['To', $email . ($member ? ' (' . $member->member_code . ' — ' . $this->_member_name($member) . ')' : '')], ['Subject', $subject]]];
+        $this->_add_pending($card);
+        $this->run['cards'][] = $card;
+        $this->_step('envelope', 'Email to ' . $email . ' — waiting for Confirm');
+        return $this->_awaiting($card);
+    }
+
+    private function _tool_correct(array $args) {
+        if (!in_array($this->admin_data->role, ['super_admin', 'admin'], true)) return ['error' => 'Only admins can correct records.'];
+        $table = (string) ($args['table'] ?? '');
+        $id = (int) ($args['record_id'] ?? 0);
+        $reason = mb_substr(trim((string) ($args['reason'] ?? '')), 0, 255);
+        if (!in_array($table, self::CORRECTABLE_TABLES, true)) return ['error' => 'Table ' . $table . ' cannot be corrected from chat.'];
+        if ($reason === '') return ['error' => 'Give a reason for the correction.'];
+        $row = $this->db->where('id', $id)->get($table)->row_array();
+        if (!$row) return ['error' => 'No row with id ' . $id . ' in ' . $table . '.'];
+
+        $changes = [];
+        $warnings = [];
+        foreach ((array) ($args['changes'] ?? []) as $k => $c) {
+            $field = is_array($c) ? (string) ($c['field'] ?? '') : (string) $k;
+            $value = is_array($c) ? ($c['value'] ?? null) : $c;
+            if (!array_key_exists($field, $row)) return ['error' => 'Column ' . $field . ' does not exist in ' . $table . '.'];
+            if (in_array($field, ['id', 'created_at', 'created_by'], true) || preg_match('/pass|token|secret/i', $field)) {
+                return ['error' => 'Column ' . $field . ' cannot be changed.'];
+            }
+            $value = ($value === null || strtoupper(trim((string) $value)) === 'NULL') ? null : $this->_latin_digits_keep((string) $value);
+            if ((string) $row[$field] === (string) $value && ($row[$field] === null) === ($value === null)) continue;
+            $changes[] = ['field' => $field, 'old' => $row[$field], 'new' => $value];
+            if (preg_match('/amount|balance|principal|interest|paid|outstanding|fine|emi|payable/i', $field)) $money = true;
+        }
+        if (!$changes) return ['error' => 'Nothing to change — the values are already the same.'];
+        if (!empty($money)) $warnings[] = 'Money field edited directly — ledger / GL entries and totals elsewhere are not adjusted automatically.';
+
+        $card = ['type' => 'correct_record', 'title' => 'Correct ' . $table . ' #' . $id, 'table' => $table, 'record_id' => $id,
+                 'changes' => $changes, 'reason' => $reason, 'warnings' => $warnings, 'danger' => true,
+                 'rows' => [['Reason', $reason]]];
+        $this->_add_pending($card);
+        $this->run['cards'][] = $card;
+        $this->_step('pen', 'Correction of ' . $table . ' #' . $id . ' — waiting for Confirm');
+        return $this->_awaiting($card, ['changes' => $changes]);
+    }
+
+    /** Devanagari digits → Latin, without stripping commas (free-text values). */
+    private function _latin_digits_keep($s) {
+        return strtr((string) $s, ['०' => '0', '१' => '1', '२' => '2', '३' => '3', '४' => '4', '५' => '5', '६' => '6', '७' => '7', '८' => '8', '९' => '9']);
+    }
+
+    // ── performing confirmed proposals ──
+
+    private function _perform_foreclose(array $c) {
+        if (!$this->_can('loans_approve')) return $this->_fail('You do not have permission to close loans.');
+        $admin_id = (int) $this->session->userdata('admin_id');
+        $loan = $this->db->where('id', (int) $c['loan_id'])->get('loans')->row();
+        if (!$loan || !in_array($loan->status, ['active', 'npa'], true)) return $this->_fail('Loan is no longer active.');
+
+        // DB errors must come back as a message (and a rollback), not as CI's HTML error page
+        $debug = $this->db->db_debug;
+        $this->db->db_debug = false;
+        $this->db->trans_begin();
+        try {
+            return $this->_foreclose_in_transaction($loan, $c, $admin_id);
+        } catch (Exception $e) {
+            $this->db->trans_rollback();
+            return $this->_fail('Could not close the loan: ' . $e->getMessage());
+        } finally {
+            $this->db->db_debug = $debug;
+        }
+    }
+
+    private function _foreclose_in_transaction($loan, array $c, $admin_id) {
+        $req = $this->db->where('loan_id', $loan->id)->where('status', 'pending')->get('loan_foreclosure_requests')->row();
+        if ($req) {
+            if ($req->closure_type !== $c['closure_type']) {
+                $this->db->where('id', $req->id)->update('loan_foreclosure_requests', ['closure_type' => $c['closure_type']]);
+            }
+            $req_id = (int) $req->id;
+        } else {
+            $this->db->insert('loan_foreclosure_requests', [
+                'loan_id' => $loan->id, 'member_id' => $loan->member_id, 'foreclosure_amount' => $c['calculated'],
+                'closure_type' => $c['closure_type'], 'reason' => $c['remarks'], 'settlement_date' => $c['payment_date'],
+                'status' => 'pending', 'requested_at' => date('Y-m-d H:i:s'),
+            ]);
+            $req_id = (int) $this->db->insert_id();
+        }
+        $res = $this->Loan_model->process_foreclosure_request($req_id, $admin_id, 'approve', 'AI assistant: ' . $c['remarks'], [
+            'payment_mode'        => $c['payment_mode'],
+            'transaction_id'      => $c['reference'] !== '' ? $c['reference'] : null,
+            'payment_date'        => $c['payment_date'],
+            'interest_charge_pct' => $c['interest_charge_pct'] === null ? '' : $c['interest_charge_pct'],
+            'final_amount'        => $c['final_amount'],
+        ]);
+        if (empty($res['success'])) {
+            $this->db->trans_rollback();
+            return $this->_fail($res['message'] ?? 'Could not close the loan.');
+        }
+        if (!empty($res['payment_id'])) {
+            $this->load->model('Ledger_model');
+            $payment = $this->db->where('id', $res['payment_id'])->get('loan_payments')->row();
+            if ($c['closure_type'] === 'force_close' && $payment) {
+                // The payment row keeps the waived principal / interest (so a reversal can restore the loan),
+                // but only the cash actually collected (next month's interest) is income in the ledger.
+                $payment = clone $payment;
+                $payment->principal_component = 0;
+                $payment->interest_component  = $payment->total_amount;
+                $payment->fine_component      = 0;
+            }
+            $posted = $payment ? $this->Ledger_model->post_loan_payment($payment, $loan->member_id,
+                ($c['closure_type'] === 'force_close' ? 'Force close settlement for ' : 'Foreclosure settlement for ') . $loan->loan_number, $admin_id) : false;
+            if (!$posted) {
+                $this->db->trans_rollback();
+                return $this->_fail('Nothing was saved — the ledger entry for the settlement could not be posted (see application log).');
+            }
+        }
+        if ($this->db->trans_status() === false) {
+            $err = $this->db->error();
+            $this->db->trans_rollback();
+            log_message('error', 'AI foreclose of loan ' . $loan->id . ' rolled back: ' . ($err['message'] ?? ''));
+            return $this->_fail('Nothing was saved — database error while closing the loan'
+                                . (!empty($err['message']) ? ': ' . $err['message'] : '') . '.');
+        }
+        $this->db->trans_commit();
+        $this->log_audit('foreclose', 'loans', 'loans', $loan->id, ['status' => $loan->status, 'outstanding_principal' => $loan->outstanding_principal],
+                         ['status' => 'foreclosed', 'closure_type' => $c['closure_type'], 'collected' => $c['final_amount']], 'AI assistant: ' . $c['remarks']);
+        return $this->_done(($c['closure_type'] === 'force_close' ? 'Force closed ' : 'Foreclosed ') . $loan->loan_number
+                            . ' — settlement ₹' . number_format((float) $c['final_amount'], 2) . ' collected.', [
+            'link' => site_url('admin/loans/view/' . $loan->id), 'link_text' => 'Open loan',
+        ]);
+    }
+
+    private function _perform_email(array $c) {
+        $this->load->helper('email');
+        $html = '<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6">' . nl2br(htmlspecialchars($c['body'])) . '</div>';
+        $r = send_email($c['to'], $c['subject'], $html);
+        if (empty($r['success'])) return $this->_fail('Email not sent: ' . ($r['message'] ?? 'unknown error'));
+        $this->log_activity('AI assistant email sent', 'To ' . $c['to'] . ': ' . $c['subject'], 'ai_assistant');
+        return $this->_done('Email sent to ' . $c['to'] . ' — "' . $c['subject'] . '".');
+    }
+
+    private function _perform_correct(array $c) {
+        if (!in_array($this->admin_data->role, ['super_admin', 'admin'], true)) return $this->_fail('Only admins can correct records.');
+        if (!in_array($c['table'], self::CORRECTABLE_TABLES, true)) return $this->_fail('Table not allowed.');
+        $row = $this->db->where('id', (int) $c['record_id'])->get($c['table'])->row_array();
+        if (!$row) return $this->_fail('Record no longer exists.');
+        $data = $old = [];
+        foreach ($c['changes'] as $ch) {
+            if ((string) $row[$ch['field']] !== (string) $ch['old']) {
+                return $this->_fail($ch['field'] . ' was changed by someone else since this card was made — ask again.');
+            }
+            $data[$ch['field']] = $ch['new'];
+            $old[$ch['field']] = $row[$ch['field']];
+        }
+        if (array_key_exists('updated_at', $row) && !isset($data['updated_at'])) $data['updated_at'] = date('Y-m-d H:i:s');
+        $debug = $this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $ok = $this->db->where('id', (int) $c['record_id'])->update($c['table'], $data);
+            $err = $this->db->error();
+        } catch (Exception $e) {
+            $ok = false;
+            $err = ['code' => 1, 'message' => $e->getMessage()];
+        } finally {
+            $this->db->db_debug = $debug;
+        }
+        if (!$ok || !empty($err['code'])) return $this->_fail('Could not save: ' . ($err['message'] ?? 'database error'));
+        $this->log_audit('update', $c['table'], $c['table'], (int) $c['record_id'], $old, $data, 'AI correction: ' . $c['reason']);
+        $list = array_map(function ($ch) { return $ch['field'] . ' ' . ($ch['old'] ?? 'NULL') . ' → ' . ($ch['new'] ?? 'NULL'); }, $c['changes']);
+        return $this->_done('Corrected ' . $c['table'] . ' #' . $c['record_id'] . ': ' . implode(', ', $list) . '.');
+    }
+
 
     // ───────────────────────────── Resolving AI actions ─────────────────────────────
 
@@ -1007,6 +1723,24 @@ PROMPT;
         if ($entry) {
             $card = array_merge($card, ['kind' => $entry['kind'], 'target_id' => $entry['id'], 'member_id' => $entry['member_id'],
                                         'label' => $entry['label'], 'from_chat' => true]);
+        } elseif (!empty($a['record_id']) && in_array($a['kind'] ?? '', ['savings_deposit', 'fine', 'loan_payment'], true)) {
+            // Exact record picked by the agent (e.g. after a run_sql lookup)
+            $id = (int) $a['record_id'];
+            $row = $a['kind'] === 'savings_deposit'
+                ? $this->db->select('st.id, st.amount, st.transaction_date d, sa.account_number ref, sa.member_id')->from('savings_transactions st')
+                    ->join('savings_accounts sa', 'sa.id = st.savings_account_id')->where('st.id', $id)->get()->row()
+                : ($a['kind'] === 'fine'
+                    ? $this->db->select('id, fine_amount amount, fine_date d, fine_code ref, member_id')->where('id', $id)->get('fines')->row()
+                    : $this->db->select('lp.id, lp.total_amount amount, lp.payment_date d, l.loan_number ref, l.member_id')->from('loan_payments lp')
+                        ->join('loans l', 'l.id = lp.loan_id')->where('lp.id', $id)->get()->row());
+            if (!$row) {
+                $card['warnings'][] = 'Record #' . $id . ' not found.';
+                return $card + ['kind' => $a['kind'], 'target_id' => null, 'member_id' => null, 'label' => ''];
+            }
+            $m = $this->Member_model->get_by_id($row->member_id);
+            $card += ['kind' => $a['kind'], 'target_id' => (int) $row->id, 'member_id' => (int) $row->member_id, 'unique' => true,
+                      'label' => ucfirst(str_replace('_', ' ', $a['kind'])) . ' ₹' . number_format((float) $row->amount, 2) . ' on ' . $row->d
+                                 . ' (' . $row->ref . ')' . ($m ? ' — ' . $this->_member_name($m) : '')];
         } else {
             $kind = in_array($a['kind'] ?? '', ['savings_deposit', 'fine', 'loan_payment'], true) ? $a['kind'] : 'savings_deposit';
             $members = !empty($a['member']) ? $this->_find_members((string) $a['member'], 3)
@@ -1141,6 +1875,10 @@ PROMPT;
         if (preg_match('/^MEMB\d+$/i', $text)) {
             return $this->db->where('member_code', strtoupper($text))->get('members')->result();
         }
+        if (preg_match('/^\d{1,6}$/', $text)) {   // numeric member id (phones are 10 digits)
+            $r = $this->db->where('id', (int) $text)->where('deleted_at', null)->get('members')->result();
+            if ($r) return $r;
+        }
 
         $words = array_filter(preg_split('/\s+/', $text), function ($w) { return mb_strlen($w) >= 1; });
         $this->db->select('id, member_code, first_name, middle_name, last_name, phone, status')->from('members');
@@ -1159,54 +1897,6 @@ PROMPT;
         return function_exists('member_full_name')
             ? member_full_name($m)
             : trim(($m->first_name ?? '') . ' ' . ($m->last_name ?? ''));
-    }
-
-    /**
-     * Find one member named in free text: tries each pair of consecutive Latin words ("yogesh auchare"),
-     * then single words of 4+ letters. Returns a member id only when exactly one member matches.
-     */
-    private function _spot_member($text) {
-        preg_match_all('/[A-Za-z]{3,}/', (string) $text, $m);
-        $words = $m[0];
-        $stop = ['the','and','for','add','pay','paid','cash','upi','bank','loan','emi','saving','savings','account','deposit','fine',
-                 'jama','kara','karo','rokh','bachat','khatyat','yanchya','member','inactive','active','delete','undo','show','today'];
-        $words = array_values(array_filter($words, function ($w) use ($stop) { return !in_array(strtolower($w), $stop, true); }));
-        for ($i = 0; $i < count($words) - 1; $i++) {
-            $r = $this->_find_members($words[$i] . ' ' . $words[$i + 1], 2);
-            if (count($r) === 1) return (int) $r[0]->id;
-        }
-        foreach ($words as $w) {
-            if (strlen($w) < 4) continue;
-            $r = $this->_find_members($w, 2);
-            if (count($r) === 1) return (int) $r[0]->id;
-        }
-        return null;
-    }
-
-    private function _wants_undo($text) {
-        $t = mb_strtolower((string) $text);
-        foreach (['undo', 'delete', 'remove', 'reverse', 'cancel that', 'cancel this', 'cancel last', 'wrong entry',
-                  'रद्द', 'काढून', 'काढा', 'हटवा', 'चुकीची', 'चुकीचे', 'चुकून', 'डिलीट', 'मिटवा'] as $w) {
-            if (mb_strpos($t, $w) !== false) return true;
-        }
-        return false;
-    }
-
-    /** Status the admin explicitly asked for, from keywords (checked negative-first: "inactive" contains "active"). */
-    private function _status_from_text($text) {
-        $t = mb_strtolower((string) $text);
-        $rules = [
-            'inactive'  => ['inactive', 'in-active', 'deactivate', 'deactive', 'disable', 'निष्क्रिय', 'बंद कर', 'बंद करा'],
-            'blocked'   => ['block', 'ब्लॉक'],
-            'suspended' => ['suspend', 'निलंबित'],
-            'active'    => ['activate', 'active', 'enable', 'सक्रिय', 'चालू कर', 'चालू करा'],
-        ];
-        foreach ($rules as $status => $words) {
-            foreach ($words as $w) {
-                if (mb_strpos($t, $w) !== false) return $status;
-            }
-        }
-        return null;
     }
 
     private function _latin_digits($s) {
@@ -1242,6 +1932,7 @@ PROMPT;
             'gemini_model'    => $get('ai_gemini_model', 'AI_GEMINI_MODEL', 'gemini-2.0-flash'),
             'deepseek_model'  => $get('ai_deepseek_model', 'AI_DEEPSEEK_MODEL', 'deepseek-chat'),
             'openrouter_model'=> $get('ai_openrouter_model', 'AI_OPENROUTER_MODEL', 'deepseek/deepseek-chat'),
+            'aicredits_model' => $get('ai_aicredits_model', 'AI_AICREDITS_MODEL', 'gpt-4o-mini'),
             // Budget & limits: .env only (not editable from the app)
             'monthly_cap_inr' => (string) max(0, (float) env('AI_MONTHLY_BUDGET_INR', '4000')) ,   // billed budget per month
             'markup'          => (string) max(1, (float) env('AI_MARKUP', '2')),
@@ -1254,13 +1945,15 @@ PROMPT;
             'gemini_key'      => $get('ai_gemini_key', 'AI_GEMINI_KEY'),
             'deepseek_key'    => $get('ai_deepseek_key', 'AI_DEEPSEEK_KEY'),
             'openrouter_key'  => $get('ai_openrouter_key', 'AI_OPENROUTER_KEY'),
+            'aicredits_key'   => $get('ai_aicredits_key', 'AI_AICREDITS_KEY'),
         ];
         if ($public) {
             $cfg['openai_key_set'] = $cfg['openai_key'] !== '';
             $cfg['gemini_key_set'] = $cfg['gemini_key'] !== '';
             $cfg['deepseek_key_set'] = $cfg['deepseek_key'] !== '';
             $cfg['openrouter_key_set'] = $cfg['openrouter_key'] !== '';
-            unset($cfg['openai_key'], $cfg['gemini_key'], $cfg['deepseek_key'], $cfg['openrouter_key']);
+            $cfg['aicredits_key_set'] = $cfg['aicredits_key'] !== '';
+            unset($cfg['openai_key'], $cfg['gemini_key'], $cfg['deepseek_key'], $cfg['openrouter_key'], $cfg['aicredits_key']);
         }
         return $cfg;
     }
@@ -1269,8 +1962,9 @@ PROMPT;
         $c = $this->_config();
         $map = ['ai_provider' => 'provider', 'ai_local_url' => 'local_url', 'ai_local_model' => 'local_model',
                 'ai_openai_model' => 'openai_model', 'ai_gemini_model' => 'gemini_model', 'ai_deepseek_model' => 'deepseek_model',
-                'ai_openrouter_model' => 'openrouter_model', 'ai_openai_key' => 'openai_key', 'ai_gemini_key' => 'gemini_key',
-                'ai_deepseek_key' => 'deepseek_key', 'ai_openrouter_key' => 'openrouter_key'];
+                'ai_openrouter_model' => 'openrouter_model', 'ai_aicredits_model' => 'aicredits_model',
+                'ai_openai_key' => 'openai_key', 'ai_gemini_key' => 'gemini_key',
+                'ai_deepseek_key' => 'deepseek_key', 'ai_openrouter_key' => 'openrouter_key', 'ai_aicredits_key' => 'aicredits_key'];
         foreach ($map as $field => $key) {
             if (isset($override[$field]) && trim((string) $override[$field]) !== '') $c[$key] = trim((string) $override[$field]);
         }
@@ -1284,6 +1978,8 @@ PROMPT;
                 return $this->ai_client->configure(['provider' => 'deepseek', 'model' => $c['deepseek_model'], 'api_key' => $c['deepseek_key']]);
             case 'openrouter':
                 return $this->ai_client->configure(['provider' => 'openrouter', 'model' => $c['openrouter_model'], 'api_key' => $c['openrouter_key']]);
+            case 'aicredits':
+                return $this->ai_client->configure(['provider' => 'aicredits', 'model' => $c['aicredits_model'], 'api_key' => $c['aicredits_key']]);
             default:
                 return $this->ai_client->configure(['provider' => 'local', 'base_url' => $c['local_url'], 'model' => $c['local_model'], 'timeout' => 180]);
         }

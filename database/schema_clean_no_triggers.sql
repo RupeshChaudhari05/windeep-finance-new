@@ -958,6 +958,7 @@ CREATE TABLE `loans` (
     `closure_type` enum(
         'regular',
         'foreclosure',
+        'force_close',
         'write_off',
         'settlement'
     ) DEFAULT NULL,

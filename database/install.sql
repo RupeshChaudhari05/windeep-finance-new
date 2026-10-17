@@ -1167,6 +1167,7 @@ CREATE TABLE `loans` (
     `closure_type` ENUM(
         'regular',
         'foreclosure',
+        'force_close',
         'write_off',
         'settlement'
     ) DEFAULT NULL,
@@ -1231,8 +1232,8 @@ CREATE TABLE `loan_installments` (
         'overdue',
         'skipped',
         'interest_only',
-        'waived'
-    ) DEFAULT 'upcoming',
+        'waived',
+    'cancelled') DEFAULT 'upcoming',
     `paid_date` DATE DEFAULT NULL,
     `is_late` TINYINT(1) DEFAULT 0,
     `days_late` INT(11) DEFAULT 0,

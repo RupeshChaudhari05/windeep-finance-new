@@ -552,6 +552,7 @@ CREATE TABLE IF NOT EXISTS `loans` (
 `closure_type` ENUM(
     'regular',
     'foreclosure',
+    'force_close',
     'write_off',
     'settlement'
 ),
