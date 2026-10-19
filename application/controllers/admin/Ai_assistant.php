@@ -265,9 +265,9 @@ class Ai_assistant extends Admin_Controller {
     }
 
     /** Estimated USD cost of one call for the configured model (0 for self-hosted / unknown models). */
-    private function _cost_usd($provider, $model, $in, $out) {
+    private function _cost_usd($provider, $model, $in, $out, $cached = 0) {
         foreach (self::MODEL_CATALOG[$provider] ?? [] as $m) {
-            if ($m['id'] === $model) return ($in * $m['in'] + $out * $m['out']) / 1000000;
+            if ($m['id'] === $model) return (($in - 0.5 * $cached) * $m['in'] + $out * $m['out']) / 1000000;
         }
         return 0.0;
     }
@@ -386,9 +386,20 @@ class Ai_assistant extends Admin_Controller {
         $this->run = ['auto' => $this->input->post('auto') !== '0', 'message' => $message, 'cards' => [], 'steps' => [], 'log' => [], 'conv' => $conv];
 
         $messages = [['role' => 'system', 'content' => $this->_system_prompt()]];
-        foreach (array_slice($conv['messages'], -16) as $h) {
-            $messages[] = ['role' => $h['role'], 'content' => mb_substr((string) ($h['memory'] ?? $h['text']), 0, 4000)];
+        // History: last 12 messages; only the 2 latest assistant turns keep their tool log (follow-ups like "his loan")
+        $hist = array_slice($conv['messages'], -12);
+        $recent = 0;
+        for ($i = count($hist) - 1; $i >= 0; $i--) {
+            $h = $hist[$i];
+            if ($h['role'] === 'assistant') {
+                $full = $recent++ < 2;
+                $hist[$i] = ['role' => 'assistant', 'content' => mb_substr((string) ($full ? ($h['memory'] ?? $h['text']) : $h['text']), 0, $full ? 2500 : 700)];
+            } else {
+                $hist[$i] = ['role' => 'user', 'content' => mb_substr((string) $h['text'], 0, 1500)];
+            }
         }
+        foreach ($hist as $h) if (trim($h['content']) !== '') $messages[] = $h;
+        $messages[] = ['role' => 'system', 'content' => $this->_context_prompt()];
         $messages[] = ['role' => 'user', 'content' => ($message !== '' ? $message : 'Read this passbook / statement image and create the entries.') . $hint];
 
         $opts = ['temperature' => 0.1, 'max_tokens' => (int) $cfg['max_tokens']];
@@ -396,7 +407,7 @@ class Ai_assistant extends Admin_Controller {
             $opts['images'] = [$image];
         }
 
-        $tin = $tout = 0;
+        $tin = $tout = $tcached = 0;
         $reply = null;
         $error = null;
         $nudged = false;
@@ -411,6 +422,7 @@ class Ai_assistant extends Admin_Controller {
                 $res = $client->chat_tools($messages, $tools, $opts);
                 $tin  += $client->last_usage['in'];
                 $tout += $client->last_usage['out'];
+                $tcached += $client->last_usage['cached'] ?? 0;
                 $messages[] = $res['message'];
 
                 if (!$res['tool_calls']) {
@@ -469,7 +481,7 @@ class Ai_assistant extends Admin_Controller {
         $this->_save_conv($conv);
 
         $this->_log_chat($message, $log, $cards, ['provider' => $cfg['provider'], 'model' => $model,
-                                                    'tokens_in' => $tin, 'tokens_out' => $tout, 'cost_usd' => $this->_cost_usd($cfg['provider'], $model, $tin, $tout)]);
+                                                    'tokens_in' => $tin, 'tokens_out' => $tout, 'cost_usd' => $this->_cost_usd($cfg['provider'], $model, $tin, $tout, $tcached)]);
 
         $usage = $this->_usage();
         if ($usage['cap_inr'] > 0 && $usage['month_cost_inr'] >= $usage['cap_inr'] * $usage['warn_pct'] / 100) {
@@ -520,6 +532,7 @@ class Ai_assistant extends Admin_Controller {
     private function _tool_status($name, array $a) {
         $labels = [
             'describe_tables' => 'Reading the database structure…',
+            'get_report'      => 'Preparing the ' . str_replace('_', ' ', (string) ($a['report'] ?? '')) . ' report…',
             'run_sql'         => 'Querying the database' . (!empty($a['purpose']) ? ': ' . $a['purpose'] : '') . '…',
             'get_member'      => 'Looking up member ' . ($a['member'] ?? '') . '…',
             'get_loan'        => 'Looking up loan ' . ($a['loan'] ?? ($a['member'] ?? '')) . '…',
@@ -624,6 +637,7 @@ class Ai_assistant extends Admin_Controller {
         if ($type === 'foreclose_loan') return $this->_perform_foreclose($f);
         if ($type === 'send_email')     return $this->_perform_email($f);
         if ($type === 'correct_record') return $this->_perform_correct($f);
+        if ($type === 'passbook_import') return $this->_perform_passbook($f);
         if ($type === 'update_member') {
             return $this->_perform_update_member((int) $in('member_id'), $in('changes'));
         }
@@ -779,6 +793,8 @@ class Ai_assistant extends Admin_Controller {
         foreach ($cards as $c) {
             if (!empty($c['executed'])) {
                 $out[] = ['type' => $c['type'], 'executed' => true, 'result' => $c['result']];
+            } elseif (($c['type'] ?? '') === 'data_table') {
+                $out[] = ['rows' => array_slice($c['rows'], 0, 15), 'more' => $c['more'] || count($c['rows']) > 15] + $c;
             } elseif (($c['type'] ?? '') === 'navigate' || !empty($c['token'])) {
                 $out[] = $c;   // pending cards stay confirmable after a reload
             }
@@ -892,60 +908,189 @@ class Ai_assistant extends Admin_Controller {
         return in_array($permission, $perms, true);
     }
 
+    // ───────────────────────────── Passbook Excel import ─────────────────────────────
+
+    /** Download the sample Excel the admin fills with passbook entries. */
+    public function passbook_template() {
+        $this->load->library('Passbook_import');
+        $book = $this->passbook_import->template();
+        header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        header('Content-Disposition: attachment; filename="Passbook_Entries_Template.xlsx"');
+        header('Cache-Control: max-age=0');
+        (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($book))->save('php://output');
+        exit;
+    }
+
+    /**
+     * POST file (xlsx / xls / csv). Reads and checks every row, then shows a preview card — nothing is saved
+     * until the admin confirms (execute() with the card's token).
+     */
+    public function passbook_upload() {
+        if (!$this->_can_passbook()) return $this->error_response('You do not have permission to record collections.', [], 403);
+        $f = $_FILES['file'] ?? null;
+        if (!$f || $f['error'] !== UPLOAD_ERR_OK || !is_uploaded_file($f['tmp_name'])) return $this->error_response('Please choose the Excel file again.');
+        $ext = strtolower(pathinfo($f['name'], PATHINFO_EXTENSION));
+        if (!in_array($ext, ['xlsx', 'xls', 'csv'], true)) return $this->error_response('Only .xlsx, .xls or .csv files can be imported.');
+        if ($f['size'] > 5 * 1024 * 1024) return $this->error_response('File is too large (max 5 MB).');
+
+        // Keep the uploaded file for audit
+        $dir = FCPATH . 'uploads/ai_passbook/';
+        if (!is_dir($dir)) @mkdir($dir, 0755, true);
+        $path = $dir . date('Ymd_His') . '_' . (int) $this->session->userdata('admin_id') . '.' . $ext;
+        if (!move_uploaded_file($f['tmp_name'], $path)) return $this->error_response('Could not store the uploaded file.');
+        @set_time_limit(180);
+
+        $this->load->library('Passbook_import');
+        try {
+            $rows = $this->passbook_import->read($path);
+        } catch (Exception $e) {
+            return $this->error_response('Could not read the file: ' . $e->getMessage());
+        }
+        if (!$rows) return $this->error_response('No entries found. Fill the "Passbook" sheet of the template (one row per entry).');
+
+        $plan = $this->passbook_import->resolve($rows, function (array $names) { return $this->_transliterate($names); });
+        $sum = $plan['summary'];
+        $name = mb_substr(basename($f['name']), 0, 120);
+
+        $entries = array_map(function ($r) {
+            return ['row' => $r['row'], 'date' => $r['date'], 'member' => $r['member_label'], 'amount' => $r['amount'], 'mode' => $r['mode'],
+                    'alloc' => implode(' + ', array_map(function ($a) { return $a['label'] . ' ₹' . number_format($a['amount'], 2); }, $r['allocations'])),
+                    'status' => $r['status'], 'issues' => array_merge($r['issues'], $r['notes'])];
+        }, $plan['rows']);
+        $card = ['type' => 'passbook_import', 'title' => 'Passbook import — ' . $name, 'file' => $name, 'summary' => $sum,
+                 'entries' => $entries, 'warnings' => []];
+        if ($sum['ready'] > 0) {
+            $this->_add_pending($card, ['plan' => $plan['rows'], 'stored_file' => basename($path)]);
+        }
+
+        $reply = "📄 **{$name}** — {$sum['rows']} row(s) checked:\n"
+               . "- ✅ **{$sum['ready']}** ready to save (₹" . number_format($sum['amount_ready'], 2) . ")\n"
+               . ($sum['review'] ? "- ⚠️ **{$sum['review']}** need attention (see the reason on each row — fix the Excel and upload again, or tell me)\n" : '')
+               . ($sum['duplicate'] ? "- ♻️ **{$sum['duplicate']}** already recorded — will be skipped\n" : '')
+               . ($sum['ready'] ? "\nPress **Save entries** to record them (same rules as Bank Mapping)." : "\nNothing can be saved yet.");
+
+        // The model sees the problem rows on the next turn, so the admin can sort them out in chat
+        $issues = [];
+        foreach ($plan['rows'] as $r) {
+            if ($r['status'] !== 'ready') $issues[] = 'row ' . $r['row'] . ': ' . $r['date'] . ' ' . $r['member'] . ' ₹' . $r['amount'] . ' ' . $r['type']
+                                                    . ' → ' . $r['status'] . ' (' . implode('; ', $r['issues']) . ')';
+        }
+        $conv = $this->_conv();
+        $conv['messages'][] = ['role' => 'user', 'text' => '📄 ' . $name, 'image' => false];
+        $conv['messages'][] = ['role' => 'assistant', 'text' => $reply, 'cards' => [$card],
+                               'memory' => $reply . ($issues ? "\n[Rows not ready:\n" . implode("\n", array_slice($issues, 0, 40)) . ']' : '')];
+        $this->_save_conv($conv);
+        $this->log_activity('AI passbook file checked', $name . ': ' . json_encode($sum), 'ai_assistant');
+
+        $this->json_response(['success' => true, 'reply' => $reply, 'actions' => [$card]]);
+    }
+
+    private function _can_passbook() {
+        return in_array($this->admin_data->role, ['super_admin', 'admin'], true) || $this->_can('savings_collect');
+    }
+
+    private function _perform_passbook(array $c) {
+        if (!$this->_can_passbook()) return $this->_fail('You do not have permission to record collections.');
+        if (empty($c['plan'])) return $this->_fail('This import has expired — upload the file again.');
+        $this->load->library('Passbook_import');
+        $res = $this->passbook_import->execute($c['plan'], (int) $this->session->userdata('admin_id'), $c['file'] ?? '');
+        $this->log_audit('import', 'bank_transactions', 'bank_transactions', 0, null,
+                         ['file' => $c['file'] ?? '', 'saved' => $res['saved'], 'failed' => $res['failed'], 'amount' => $res['amount'], 'imports' => $res['import_codes']],
+                         'AI passbook import');
+        $rows = [];
+        foreach ($c['entries'] ?? [] as $e) {
+            $r = $res['results'][$e['row']] ?? null;
+            $rows[] = ['row' => $e['row'], 'member' => $e['member'], 'amount' => $e['amount'],
+                       'status' => $r ? $r['status'] : ($e['status'] === 'ready' ? 'failed' : 'skipped'),
+                       'message' => $r ? $r['message'] : implode('; ', $e['issues'])];
+        }
+        $msg = 'Passbook import: ' . $res['saved'] . ' entr' . ($res['saved'] === 1 ? 'y' : 'ies') . ' saved (₹' . number_format($res['amount'], 2) . ')'
+             . ($res['failed'] ? ', ' . $res['failed'] . ' failed' : '') . '.';
+        if (!$res['saved']) return ['ok' => false, 'message' => $msg . ' ' . implode(' | ', array_unique(array_column(array_filter($rows, function ($r) { return $r['status'] === 'failed'; }), 'message'))), 'data' => []];
+        return $this->_done($msg, ['results' => $rows, 'link' => site_url('admin/bank/mapping'), 'link_text' => 'Open Bank Mapping']);
+    }
+
+    /** English spelling of Devanagari member names (one small model call per file). */
+    private function _transliterate(array $names) {
+        $cfg = $this->_config();
+        $client = $this->_client();
+        $raw = $client->chat([
+            ['role' => 'system', 'content' => 'Transliterate Indian person names (Marathi / Hindi in Devanagari) to the usual English spelling used in Indian records. '
+                                             . 'Reply with JSON only: {"names": {"<original>": "<English>"}}'],
+            ['role' => 'user', 'content' => json_encode(array_slice($names, 0, 100), JSON_UNESCAPED_UNICODE)],
+        ], ['json' => true, 'temperature' => 0, 'max_tokens' => 1500]);
+        $model = $cfg[$cfg['provider'] . '_model'] ?? '';
+        $tok = $client->last_usage;
+        $this->_log_chat('[passbook transliteration] ' . implode(', ', array_slice($names, 0, 20)), $raw, [],
+                         ['provider' => $cfg['provider'], 'model' => $model, 'tokens_in' => $tok['in'], 'tokens_out' => $tok['out'],
+                          'cost_usd' => $this->_cost_usd($cfg['provider'], $model, $tok['in'], $tok['out'])]);
+        $j = Ai_client::extract_json($raw);
+        return is_array($j['names'] ?? null) ? $j['names'] : [];
+    }
+
     // ───────────────────────────── Prompt & schema ─────────────────────────────
 
+    /**
+     * Static instructions + schema. Kept byte-identical between calls (no date, user or chat state) so the
+     * provider's automatic prompt cache can reuse it — per-turn facts go in _context_prompt().
+     */
     private function _system_prompt() {
-        $today  = date('Y-m-d');
-        $admin  = $this->admin_data;
         $schema = $this->_schema_brief();
         $pages  = implode(', ', array_keys($this->pages));
-
-        $made = '';
-        foreach ($this->run['conv']['entries'] ?? [] as $e) {
-            $made .= "  {$e['ref']}: {$e['label']}" . ($e['reversed'] ? ' [REVERSED]' : '') . "\n";
-        }
-        $made = $made !== '' ? "ENTRIES MADE IN THIS CHAT (refs for reverse_entry):\n" . $made : '';
-
         return <<<PROMPT
-You are the AI operations assistant inside "Windeep Finance", a member savings & loan society (cooperative) app.
-You work for the ADMIN staff ({$admin->full_name}, role {$admin->role}). Today is {$today}. Currency: Indian Rupees (₹).
-You have full read access to the live MySQL database and tools to make changes. Think like a careful senior accountant.
+You are the AI operations assistant of "Windeep Finance", a member savings & loan society. You work for the ADMIN staff,
+with live read access to the MySQL database and tools to make changes. Think like a careful senior accountant. Currency ₹.
 
 HOW TO WORK
-- Answer any question about the data by looking it up: use get_member / get_loan for one member or loan, and run_sql for
-  anything else (lists, totals, reports, comparisons, "who", "how many"). Call describe_tables when you need a table
-  that is not in the schema below or need column types / enum values. Never invent numbers — every figure must come from a tool.
-- Chain tools as needed (e.g. search → details → action). Fix and retry a failing SQL query yourself.
-- To CHANGE anything use the write tools. They return either "executed" (already saved) or "awaiting_admin_confirmation"
-  (a card with a Confirm button is shown to the admin). Never say something is saved / closed / sent unless the tool said "executed".
-  When awaiting confirmation, briefly summarise what will happen and ask the admin to press Confirm.
-- Prefer the dedicated tools (record_loan_payment, foreclose_loan, reverse_entry…) because they post the ledger correctly.
-  Use correct_record only for fixing a wrong field value that no other tool covers, and mention that ledger entries are not re-posted.
-- If a tool says the member/loan is ambiguous or missing, ask the admin a short question (show the options).
-- Don't ask about optional fields: default mode "cash", date today, deposit_type "regular", payment_type "emi".
-- Foreclosure: "regular" = principal + configured % of remaining interest + pending fines; "force_close" = only next month's
-  interest is collected, remaining interest and fines are waived. Call get_loan first to show the quote when the admin asks for an amount.
-- Emails: write a polite, professional email in the admin's language (or English if unsure), signed "Windeep Finance".
+- Every figure must come from a tool; never invent numbers.
+- Pick the cheapest tool: get_report for standard reports (summary, overdue, collections, dues, applications, unmapped bank
+  entries, pending fines); get_member / get_loan for one member or loan; run_sql for anything else; describe_tables only for
+  tables or enum values not listed below. Fix and retry a failing query yourself.
+- Results of run_sql / get_report are shown to the admin as a table with an Excel download. Do NOT repeat the rows —
+  reply with a short summary (count, totals, the top 3-5 names) and any insight. For counts and totals use the tool's
+  row_count / totals_of_all_rows (exact) — never add up rows yourself. State the period of period-based figures.
+  A one-row result (e.g. the summary) is already shown as a list — give only 3-4 highlights or concerns.
+- To CHANGE anything use the write tools. They return "executed" (saved) or "awaiting_admin_confirmation" (a Confirm card is
+  shown). Never say something is saved / closed / sent unless the tool said "executed"; when awaiting, summarise in one line.
+- Prefer the dedicated tools (they post the ledger). correct_record only fixes a wrong field no other tool covers — say that
+  ledger entries are not re-posted.
+- Ambiguous or missing member / loan → ask one short question with the options.
+- Defaults (never ask): mode cash, date today, deposit_type regular, payment_type emi.
+- Foreclosure: regular = principal + configured % of remaining interest + pending fines; force_close = only next month's interest,
+  remaining interest and fines waived. Show the quote from get_loan when the admin asks for an amount.
+- Bulk passbook entries: the admin fills the "Passbook Excel template" (link under the chat box) and uploads it with 📎; a
+  "Save entries" card follows. Help fix rows that were not ready, or record them one by one.
+- Emails: polite and professional, in the admin's language, signed "Windeep Finance".
 
-LANGUAGE: The admin may write Marathi (Devanagari), Hindi, English or a mix. Reply in the SAME language.
-Names in the DB are in English letters — transliterate before searching ("रमेश पाटील" → "Ramesh Patil"). Convert Devanagari digits (५००० → 5000).
-Marathi hints: भरले/जमा = paid/deposited, हप्ता = EMI, बचत = savings, दंड = fine, व्याज = interest, रोख = cash, काल = yesterday,
-थकबाकी = overdue, अर्ज = application, सभासद = member, बंद करा = close, रद्द/काढून टाका = cancel/delete (reverse_entry), दुरुस्ती = correction.
+LANGUAGE: Reply in the admin's language (Marathi / Hindi / English / mix). DB names are in English letters — transliterate before
+searching ("रमेश पाटील" → "Ramesh Patil"); Devanagari digits → normal (५००० → 5000).
+Marathi: भरले/जमा paid, हप्ता EMI, बचत savings, दंड fine, व्याज interest, रोख cash, काल yesterday, थकबाकी overdue, अर्ज application,
+सभासद member, बंद करा close, रद्द/काढून टाका cancel (reverse_entry), दुरुस्ती correction.
 
-OUTPUT: Markdown. Use tables for lists of records, **bold** for key amounts. Be brief and friendly, like a helpful colleague.
-Open app pages with open_page (keys: {$pages}).
+OUTPUT: short Markdown, **bold** key amounts. Pages for open_page: {$pages}.
 
 DATA RULES
-- Members: name = first_name + middle_name + last_name; member_code like MEMB000123; skip rows with members.deleted_at NOT NULL.
-- Active loans: loans.status IN ('active','npa'). Outstanding = loans.outstanding_principal (+ outstanding_interest).
-- Overdue EMIs: loan_installments.status IN ('pending','overdue','partial') AND due_date < CURDATE(); due = emi_amount - total_paid.
-- Payments: loan_payments / savings_transactions — ignore rows with is_reversed = 1.
-- Savings balance: savings_accounts.current_balance; dues: savings_schedule (due_amount - paid_amount) with status pending/partial/overdue.
-- Fines unpaid: fines.balance_amount where status IN ('pending','partial').
+- Member name = first_name middle_name last_name; member_code like MEMB000123; ignore members.deleted_at NOT NULL.
+- Active loans: loans.status IN ('active','npa'); outstanding = outstanding_principal (+ outstanding_interest).
+- Overdue EMI: loan_installments.status IN ('pending','overdue','partial') AND due_date < CURDATE(); due = emi_amount - total_paid.
+- Ignore loan_payments / savings_transactions with is_reversed = 1.
+- Savings balance savings_accounts.current_balance; dues savings_schedule (due_amount - paid_amount), status pending/partial/overdue.
+- Unpaid fines: fines.balance_amount, status IN ('pending','partial').
 
 {$schema}
-{$made}
 PROMPT;
+    }
+
+    /** Per-turn facts, sent right before the admin's message (after the cached prefix). */
+    private function _context_prompt() {
+        $admin = $this->admin_data;
+        $out = 'Today is ' . date('Y-m-d (l)') . '. Admin: ' . $admin->full_name . ' (' . $admin->role . ').';
+        $made = '';
+        foreach ($this->run['conv']['entries'] ?? [] as $e) {
+            $made .= "\n  {$e['ref']}: {$e['label']}" . ($e['reversed'] ? ' [REVERSED]' : '');
+        }
+        if ($made !== '') $out .= "\nEntries made in this chat (refs for reverse_entry):" . $made;
+        return $out;
     }
 
     /** Columns of the core tables + enum values + names of the other tables. */
@@ -955,6 +1100,7 @@ PROMPT;
                                   WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME, ORDINAL_POSITION", [$db])->result();
         $cols = $enums = [];
         foreach ($rows as $r) {
+            if (preg_match('/photo|image|_doc$|password|must_change|^(created_by|updated_by)$|consent_token|consent_ip/', $r->c)) continue;
             $cols[$r->t][] = $r->c;
             if (in_array($r->t, self::CORE_TABLES, true) && stripos($r->ty, 'enum(') === 0) {
                 $enums[] = $r->t . '.' . $r->c . ': ' . str_replace("'", '', substr($r->ty, 5, -1));
@@ -987,6 +1133,9 @@ PROMPT;
              'parameters' => $obj(['tables' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Table names (max 10)']])],
             ['name' => 'run_sql', 'description' => 'Run ONE read-only SQL query (SELECT / WITH / SHOW / DESCRIBE) on the live database. Returns up to 100 rows. Use for any list, total, report or search.',
              'parameters' => $obj(['query' => $s('The SQL query'), 'purpose' => $s('Short description shown to the admin, e.g. "Overdue loans this month"')], ['query'])],
+            ['name' => 'get_report', 'description' => 'Ready-made report, shown to the admin as a table (prefer over run_sql). summary = society totals + collections in the period; overdue = overdue EMIs by loan; collections = daily collections; dues = EMIs due in the next N days; savings_dues; applications = open loan applications; unmapped_bank; pending_fines.',
+             'parameters' => $obj(['report' => $s('Report', ['summary', 'overdue', 'collections', 'dues', 'savings_dues', 'applications', 'unmapped_bank', 'pending_fines']),
+                                   'from' => $s('YYYY-MM-DD; default 1st of this month. For "today" pass today as from and to'), 'to' => $s('YYYY-MM-DD, default today'), 'days' => $n('dues: days ahead, default 7')], ['report'])],
             ['name' => 'get_member', 'description' => 'Full overview of one member: profile, loans, savings accounts, unpaid fines, recent payments. Also use it to search members.',
              'parameters' => $obj(['member' => $member], ['member'])],
             ['name' => 'get_loan', 'description' => 'Details of one loan: amounts, schedule status, next dues, recent payments, pending foreclosure request and foreclosure / force-close quotes.',
@@ -1037,6 +1186,7 @@ PROMPT;
             switch ($name) {
                 case 'describe_tables': return $this->_tool_describe((array) ($args['tables'] ?? []));
                 case 'run_sql':         return $this->_tool_sql((string) ($args['query'] ?? ''), (string) ($args['purpose'] ?? ''));
+                case 'get_report':      return $this->_tool_report($args);
                 case 'get_member':      return $this->_tool_member((string) ($args['member'] ?? ''));
                 case 'get_loan':        return $this->_tool_loan($args);
                 case 'open_page':
@@ -1097,27 +1247,28 @@ PROMPT;
         return $out;
     }
 
-    private function _tool_sql($q, $purpose) {
-        $q = trim(preg_replace('/;\s*$/', '', trim($q)));
-        $fail = function ($msg) use ($q, $purpose) {
-            $this->_step('database', ($purpose ?: 'Database query') . ' — rejected', $q . "\n→ " . $msg);
-            return ['error' => $msg];
-        };
-        if ($q === '') return $fail('Empty query.');
-        if (strpos($q, ';') !== false)                         return $fail('Only one statement is allowed.');
-        if (preg_match('#(--|/\*|\#)#', $q))                     return $fail('Comments are not allowed in queries.');
-        if (!preg_match('/^\s*(select|with|show|describe|desc|explain)\b/i', $q)) return $fail('Only read-only SELECT / SHOW / DESCRIBE queries are allowed. Use the write tools to change data.');
+    /** Read-only guard. Returns [normalised query, error|null]. */
+    private function _sql_guard($q) {
+        $q = trim(preg_replace('/;\s*$/', '', trim((string) $q)));
+        if ($q === '') return [$q, 'Empty query.'];
+        if (strpos($q, ';') !== false) return [$q, 'Only one statement is allowed.'];
+        if (preg_match('#(--|/\*|\#)#', $q)) return [$q, 'Comments are not allowed in queries.'];
+        if (!preg_match('/^\s*(select|with|show|describe|desc|explain)\b/i', $q)) return [$q, 'Only read-only SELECT / SHOW / DESCRIBE queries are allowed. Use the write tools to change data.'];
         if (preg_match('/\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|rename|lock|unlock|call|handler|load_file|outfile|dumpfile|sleep|benchmark|get_lock|set)\b/i', $q)) {
-            return $fail('This query contains a keyword that is not allowed in read-only mode.');
+            return [$q, 'This query contains a keyword that is not allowed in read-only mode.'];
         }
         foreach (self::SQL_BLOCKED_TABLES as $t) {
-            if (preg_match('/\b' . $t . '\b/i', $q)) return $fail('Table ' . $t . ' is not accessible.');
+            if (preg_match('/\b' . $t . '\b/i', $q)) return [$q, 'Table ' . $t . ' is not accessible.'];
         }
+        return [$q, null];
+    }
+
+    /** Run a guarded query in a read-only transaction. Returns [rows (secrets hidden), error|null, ms, more_rows]. */
+    private function _sql_run($q, $limit) {
         $is_select = (bool) preg_match('/^\s*(select|with)\b/i', $q);
         if ($is_select && !preg_match('/\blimit\s+\d+(\s*(,|offset)\s*\d+)?\s*$/i', $q)) {
-            $q .= ' LIMIT 101';
+            $q .= ' LIMIT ' . ($limit + 1);
         }
-
         $debug = $this->db->db_debug;
         $this->db->db_debug = false;
         $maria = stripos($this->db->version(), 'mariadb') !== false;
@@ -1135,28 +1286,192 @@ PROMPT;
             $this->db->db_debug = $debug;
         }
         $ms = round((microtime(true) - $t0) * 1000);
+        if (!$res || !empty($err['code'])) return [[], 'SQL error: ' . ($err['message'] ?? 'query failed'), $ms, false];
 
-        if (!$res || !empty($err['code'])) {
-            return $fail('SQL error: ' . ($err['message'] ?? 'query failed'));
-        }
         $rows = is_object($res) ? $res->result_array() : [];
-        $truncated = count($rows) > 100;
-        $rows = array_slice($rows, 0, 100);
-
-        // Never hand secrets to the model
-        foreach ($rows as &$r) {
+        $more = count($rows) > $limit;
+        $rows = array_slice($rows, 0, $limit);
+        foreach ($rows as &$r) {   // never hand secrets to the model or the export
             foreach ($r as $k => &$v) {
                 if (preg_match('/pass|token|secret|otp|backup_code|api_key/i', $k)) $v = '[hidden]';
-                elseif (is_string($v) && mb_strlen($v) > 400) $v = mb_substr($v, 0, 400) . '…';
             }
             unset($v);
             if (isset($r['setting_key'], $r['setting_value']) && preg_match('/key|pass|secret|token/i', $r['setting_key'])) $r['setting_value'] = '[hidden]';
         }
         unset($r);
+        return [$rows, null, $ms, $more];
+    }
 
-        $this->_step('database', ($purpose ?: 'Database query') . ' — ' . count($rows) . ($truncated ? '+' : '') . ' row(s), ' . $ms . ' ms', $q);
-        return ['row_count' => count($rows), 'truncated' => $truncated, 'columns' => $rows ? array_keys($rows[0]) : [],
-                'rows' => array_map('array_values', $rows)];
+    /**
+     * run_sql / get_report: the admin gets the rows as a table card (with Excel export); the model only gets
+     * the first rows — it is told not to retype them, which saves most of the output tokens.
+     */
+    private function _tool_sql($q, $purpose) {
+        list($q, $err) = $this->_sql_guard($q);
+        if ($err) {
+            $this->_step('database', ($purpose ?: 'Database query') . ' — rejected', $q . "\n→ " . $err);
+            return ['error' => $err];
+        }
+        list($rows, $err, $ms, $more) = $this->_sql_run($q, 1000);
+        if ($err) {
+            $this->_step('database', ($purpose ?: 'Database query') . ' — failed', $q . "\n→ " . $err);
+            return ['error' => $err];
+        }
+        $cols = $rows ? array_keys($rows[0]) : [];
+        $this->_step('database', ($purpose ?: 'Database query') . ' — ' . count($rows) . ($more ? '+' : '') . ' row(s), ' . $ms . ' ms', $q);
+
+        // Exact totals of money / count columns over ALL rows, so the model never adds up a partial list
+        $totals = [];
+        if (count($rows) > 1) {
+            foreach ($cols as $col) {
+                if (!preg_match('/amount|due|balance|outstanding|collected|total|principal|interest|paid|fine|payments|deposits|unmapped|emis|months|entries/i', $col)) continue;
+                $sum = 0; $ok = true;
+                foreach ($rows as $r) { if ($r[$col] === null || $r[$col] === '') continue; if (!is_numeric($r[$col])) { $ok = false; break; } $sum += $r[$col]; }
+                if ($ok) $totals[$col] = round($sum, 2);
+            }
+        }
+
+        // Table card for the admin (single-value answers don't need one)
+        if (count($rows) > 1 || count($cols) > 2) {
+            $token = bin2hex(random_bytes(6));
+            $ex = $this->session->userdata('ai_exports');
+            $ex = is_array($ex) ? $ex : [];
+            $ex[$token] = ['sql' => $q, 'title' => $purpose ?: 'Query result'];
+            $this->session->set_userdata('ai_exports', array_slice($ex, -20, null, true));
+            $this->run['cards'][] = ['type' => 'data_table', 'title' => $purpose ?: 'Query result', 'columns' => $cols,
+                                     'rows' => array_map(function ($r) { return array_map(function ($v) {
+                                         return is_string($v) && mb_strlen($v) > 120 ? mb_substr($v, 0, 120) . '…' : $v; }, array_values($r)); }, array_slice($rows, 0, 100)),
+                                     'total_rows' => count($rows) . ($more ? '+' : ''), 'totals' => $totals,
+                                     'more' => $more || count($rows) > 100, 'export' => $token];
+        }
+
+        $model_rows = array_slice($rows, 0, 25);
+        foreach ($model_rows as &$r) foreach ($r as &$v) if (is_string($v) && mb_strlen($v) > 80) $v = mb_substr($v, 0, 80) . '…';
+        unset($r, $v);
+        return ['title' => $purpose, 'row_count' => count($rows) . ($more ? '+ (more than 1000)' : ''), 'totals_of_all_rows' => $totals ?: null,
+                'shown_to_admin_as_table' => count($rows) > 1 || count($cols) > 2,
+                'columns' => $cols, 'rows' => array_map('array_values', $model_rows),
+                'note' => count($rows) > 25 ? 'Only the first ' . count($model_rows) . ' of ' . count($rows) . ' rows are included here. Use row_count and totals_of_all_rows for totals — never add up these rows.' : null];
+    }
+
+    /** Ready-made reports: one tool call instead of describe → SQL → retry. Same read-only runner as run_sql. */
+    private function _tool_report(array $a) {
+        $name = (string) ($a['report'] ?? '');
+        $from = $this->_valid_date($a['from'] ?? '') ?: date('Y-m-01');
+        $to   = $this->_valid_date($a['to'] ?? '') ?: date('Y-m-d');
+        if ($from > $to) list($from, $to) = [$to, $from];
+        $days = max(1, min(90, (int) ($a['days'] ?? 7)));
+        $f = $this->db->escape($from);
+        $t = $this->db->escape($to);
+        $mname = "TRIM(CONCAT_WS(' ', m.first_name, NULLIF(m.middle_name, ''), m.last_name))";
+        $overdue = "l.status IN ('active','npa') AND li.status IN ('pending','overdue','partial') AND li.due_date < CURDATE()";
+
+        switch ($name) {
+            case 'summary':
+                $title = "Society summary (collections {$from} to {$to})";
+                $sql = "SELECT
+                    (SELECT COUNT(*) FROM members WHERE status = 'active' AND deleted_at IS NULL) active_members,
+                    (SELECT COUNT(*) FROM loans WHERE status IN ('active','npa')) active_loans,
+                    (SELECT ROUND(COALESCE(SUM(outstanding_principal), 0), 2) FROM loans WHERE status IN ('active','npa')) loan_outstanding,
+                    (SELECT COUNT(*) FROM loan_installments li JOIN loans l ON l.id = li.loan_id WHERE {$overdue}) overdue_emis,
+                    (SELECT ROUND(COALESCE(SUM(li.emi_amount - li.total_paid), 0), 2) FROM loan_installments li JOIN loans l ON l.id = li.loan_id WHERE {$overdue}) overdue_amount,
+                    (SELECT ROUND(COALESCE(SUM(total_amount), 0), 2) FROM loan_payments WHERE is_reversed = 0 AND payment_date BETWEEN {$f} AND {$t}) loan_collected,
+                    (SELECT ROUND(COALESCE(SUM(amount), 0), 2) FROM savings_transactions WHERE is_reversed = 0 AND transaction_type = 'deposit' AND transaction_date BETWEEN {$f} AND {$t}) savings_collected,
+                    (SELECT ROUND(COALESCE(SUM(current_balance), 0), 2) FROM savings_accounts WHERE status = 'active') savings_balance,
+                    (SELECT ROUND(COALESCE(SUM(balance_amount), 0), 2) FROM fines WHERE status IN ('pending','partial')) pending_fines,
+                    (SELECT COUNT(*) FROM loan_applications WHERE status IN ('pending','under_review','guarantor_pending','member_review','member_approved','needs_revision')) open_applications,
+                    (SELECT COUNT(*) FROM bank_transactions WHERE mapping_status IN ('unmapped','partial')) unmapped_bank_entries";
+                break;
+            case 'overdue':
+                $title = 'Overdue EMIs by loan';
+                $sql = "SELECT m.member_code, {$mname} member, m.phone, l.loan_number, COUNT(*) overdue_emis,
+                               ROUND(SUM(li.emi_amount - li.total_paid), 2) overdue_amount, MIN(li.due_date) oldest_due,
+                               DATEDIFF(CURDATE(), MIN(li.due_date)) days_overdue
+                        FROM loan_installments li JOIN loans l ON l.id = li.loan_id JOIN members m ON m.id = l.member_id
+                        WHERE {$overdue} GROUP BY l.id ORDER BY overdue_amount DESC";
+                break;
+            case 'collections':
+                $title = "Collections {$from} to {$to}";
+                $sql = "SELECT d date, ROUND(SUM(loan), 2) loan_payments, ROUND(SUM(sav), 2) savings_deposits, ROUND(SUM(fine), 2) fines,
+                               ROUND(SUM(loan + sav + fine), 2) total, SUM(n) entries
+                        FROM (SELECT payment_date d, total_amount loan, 0 sav, 0 fine, 1 n FROM loan_payments WHERE is_reversed = 0 AND payment_date BETWEEN {$f} AND {$t}
+                              UNION ALL SELECT transaction_date, 0, amount, 0, 1 FROM savings_transactions WHERE is_reversed = 0 AND transaction_type = 'deposit' AND transaction_date BETWEEN {$f} AND {$t}
+                              UNION ALL SELECT payment_date, 0, 0, paid_amount, 1 FROM fines WHERE paid_amount > 0 AND payment_date BETWEEN {$f} AND {$t}) x
+                        GROUP BY d ORDER BY d";
+                break;
+            case 'dues':
+                $title = "EMIs due in the next {$days} day(s)";
+                $sql = "SELECT li.due_date, m.member_code, {$mname} member, m.phone, l.loan_number, li.installment_number emi_no,
+                               ROUND(li.emi_amount - li.total_paid, 2) due
+                        FROM loan_installments li JOIN loans l ON l.id = li.loan_id JOIN members m ON m.id = l.member_id
+                        WHERE l.status IN ('active','npa') AND li.status IN ('pending','upcoming','partial','overdue')
+                          AND li.due_date BETWEEN CURDATE() AND CURDATE() + INTERVAL {$days} DAY
+                        ORDER BY li.due_date, member";
+                break;
+            case 'savings_dues':
+                $title = 'Savings dues (unpaid months up to today)';
+                $sql = "SELECT m.member_code, {$mname} member, m.phone, sa.account_number, COUNT(*) months,
+                               ROUND(SUM(ss.due_amount - COALESCE(ss.paid_amount, 0)), 2) due, MIN(ss.due_date) oldest_due
+                        FROM savings_schedule ss JOIN savings_accounts sa ON sa.id = ss.savings_account_id JOIN members m ON m.id = sa.member_id
+                        WHERE sa.status = 'active' AND ss.status IN ('pending','partial','overdue') AND ss.due_date <= CURDATE()
+                        GROUP BY sa.id ORDER BY due DESC";
+                break;
+            case 'applications':
+                $title = 'Open loan applications';
+                $sql = "SELECT la.application_number, m.member_code, {$mname} member, la.requested_amount, la.requested_tenure_months tenure,
+                               la.purpose, la.status, la.application_date
+                        FROM loan_applications la JOIN members m ON m.id = la.member_id
+                        WHERE la.status IN ('pending','under_review','guarantor_pending','member_review','member_approved','needs_revision')
+                        ORDER BY la.application_date";
+                break;
+            case 'unmapped_bank':
+                $title = 'Unmapped bank transactions';
+                $sql = "SELECT bt.id, bt.transaction_date, ba.account_name bank, bt.transaction_type, bt.amount,
+                               COALESCE(bt.unmapped_amount, bt.amount) unmapped, bt.description, bt.reference_number, bt.mapping_status
+                        FROM bank_transactions bt LEFT JOIN bank_accounts ba ON ba.id = bt.bank_account_id
+                        WHERE bt.mapping_status IN ('unmapped','partial') ORDER BY bt.transaction_date DESC";
+                break;
+            case 'pending_fines':
+                $title = 'Pending fines';
+                $sql = "SELECT f.id, f.fine_code, m.member_code, {$mname} member, f.fine_type, f.fine_date, f.fine_amount, f.balance_amount, f.status, f.remarks
+                        FROM fines f JOIN members m ON m.id = f.member_id WHERE f.status IN ('pending','partial') ORDER BY f.fine_date";
+                break;
+            default:
+                return ['error' => 'Unknown report. Use one of: summary, overdue, collections, dues, savings_dues, applications, unmapped_bank, pending_fines.'];
+        }
+        return $this->_tool_sql(preg_replace('/\s+/', ' ', $sql), $title);
+    }
+
+    /** GET t = token of a table card. Re-runs its read-only query (up to 5000 rows) and downloads it as Excel. */
+    public function export() {
+        $ex = $this->session->userdata('ai_exports');
+        $e = is_array($ex) ? ($ex[(string) $this->input->get('t')] ?? null) : null;
+        if (!$e) show_error('This table has expired — ask the assistant again.', 404);
+        list($q, $err) = $this->_sql_guard(preg_replace('/\s+LIMIT\s+\d+\s*$/i', '', $e['sql']));
+        $rows = [];
+        if (!$err) list($rows, $err) = $this->_sql_run($q, 5000);
+        if ($err) show_error(htmlspecialchars($err), 400);
+
+        require_once FCPATH . 'vendor/autoload.php';
+        $book = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $s = $book->getActiveSheet()->setTitle('Result');
+        $s->setCellValue('A1', $e['title'] . ' — ' . date('d/m/Y H:i'));
+        $s->getStyle('A1')->getFont()->setBold(true)->setSize(13);
+        if ($rows) {
+            $s->fromArray(array_keys($rows[0]), null, 'A3');
+            $s->fromArray(array_map('array_values', $rows), null, 'A4', true);
+            $last = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(count($rows[0]));
+            $s->getStyle('A3:' . $last . '3')->getFont()->setBold(true);
+            $s->setAutoFilter('A3:' . $last . (3 + count($rows)));
+            for ($i = 1; $i <= count($rows[0]); $i++) $s->getColumnDimensionByColumn($i)->setAutoSize(true);
+            $s->freezePane('A4');
+        }
+        $this->log_activity('AI table exported', $e['title'] . ' (' . count($rows) . ' rows)', 'ai_assistant');
+        $name = trim(substr(preg_replace('/[^A-Za-z0-9_-]+/', '_', $e['title']), 0, 60), '_');
+        header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        header('Content-Disposition: attachment; filename="' . ($name ?: 'AI_result') . '_' . date('Ymd') . '.xlsx"');
+        (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($book))->save('php://output');
+        exit;
     }
 
     private function _tool_member($text) {
@@ -1255,10 +1570,10 @@ PROMPT;
 
     /** Pending proposals (token => card) in the session. */
     private function _pending() { $p = $this->session->userdata(self::PENDING_KEY); return is_array($p) ? $p : []; }
-    private function _add_pending(array &$card) {
+    private function _add_pending(array &$card, array $server_only = []) {
         $card['token'] = bin2hex(random_bytes(8));
         $p = $this->_pending();
-        $p[$card['token']] = $card + ['created' => time()];
+        $p[$card['token']] = $card + $server_only + ['created' => time()];
         $this->session->set_userdata(self::PENDING_KEY, array_slice($p, -25, null, true));
     }
 

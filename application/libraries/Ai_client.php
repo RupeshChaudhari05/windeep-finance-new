@@ -22,7 +22,7 @@ class Ai_client {
     private $timeout;
 
     /** Token counts of the last call: ['in' => int, 'out' => int] */
-    public $last_usage = ['in' => 0, 'out' => 0];
+    public $last_usage = ['in' => 0, 'out' => 0, 'cached' => 0];
 
     public function __construct($config = []) {
         $this->configure($config);
@@ -67,7 +67,7 @@ class Ai_client {
      * @throws Exception on transport / provider error
      */
     public function chat(array $messages, array $opts = []) {
-        $this->last_usage = ['in' => 0, 'out' => 0];
+        $this->last_usage = ['in' => 0, 'out' => 0, 'cached' => 0];
         if ($this->provider === 'gemini') {
             return $this->_gemini($messages, $opts);
         }
@@ -127,7 +127,7 @@ class Ai_client {
      * @return array ['content' => string, 'tool_calls' => [{id, name, args(array)}], 'message' => assistant message]
      */
     public function chat_tools(array $messages, array $tools, array $opts = []) {
-        $this->last_usage = ['in' => 0, 'out' => 0];
+        $this->last_usage = ['in' => 0, 'out' => 0, 'cached' => 0];
         return $this->provider === 'gemini'
             ? $this->_gemini_tools($messages, $tools, $opts)
             : $this->_openai_tools($messages, $tools, $opts);
@@ -164,7 +164,8 @@ class Ai_client {
             $msg = is_array($res['error']) ? ($res['error']['message'] ?? json_encode($res['error'])) : $res['error'];
             throw new Exception('AI error: ' . $msg);
         }
-        $this->last_usage = ['in' => (int) ($res['usage']['prompt_tokens'] ?? 0), 'out' => (int) ($res['usage']['completion_tokens'] ?? 0)];
+        $this->last_usage = ['in' => (int) ($res['usage']['prompt_tokens'] ?? 0), 'out' => (int) ($res['usage']['completion_tokens'] ?? 0),
+                             'cached' => (int) ($res['usage']['prompt_tokens_details']['cached_tokens'] ?? ($res['usage']['prompt_cache_hit_tokens'] ?? 0))];
 
         $msg = $res['choices'][0]['message'] ?? null;
         if (!is_array($msg)) {
@@ -274,6 +275,7 @@ class Ai_client {
         $this->last_usage = ['in' => (int) ($res['usageMetadata']['promptTokenCount'] ?? 0),
                              'out' => (int) (($res['usageMetadata']['candidatesTokenCount'] ?? 0) + ($res['usageMetadata']['thoughtsTokenCount'] ?? 0))];
 
+        $this->last_usage['cached'] = (int) ($res['usageMetadata']['cachedContentTokenCount'] ?? 0);
         $parts = $res['candidates'][0]['content']['parts'] ?? [];
         $text = '';
         $calls = [];

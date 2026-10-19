@@ -131,15 +131,15 @@ $model_label = (['local' => 'Local', 'openai' => 'ChatGPT', 'gemini' => 'Gemini'
             <div class="ai-suggest" id="aiSuggest"></div>
             <div class="ai-chips" id="aiChips"></div>
             <div class="ai-box">
-                <label class="ai-iconbtn mb-0 d-flex align-items-center justify-content-center" title="Passbook / statement photo">
-                    <i class="fas fa-paperclip"></i><input type="file" id="aiImage" accept="image/*" hidden>
+                <label class="ai-iconbtn mb-0 d-flex align-items-center justify-content-center" title="Passbook Excel (.xlsx / .csv) or statement photo">
+                    <i class="fas fa-paperclip"></i><input type="file" id="aiImage" accept="image/*,.xlsx,.xls,.csv" hidden>
                 </label>
                 <textarea id="aiText" rows="1" placeholder="काय करायचे ते लिहा… (उदा. योगेश औचरे बचत २००० रोख)"></textarea>
                 <button class="ai-iconbtn" id="aiMic" title="Speak in Marathi"><i class="fas fa-microphone"></i></button>
                 <button class="ai-send" id="aiSend" title="Send"><i class="fas fa-arrow-up"></i></button>
             </div>
             <div class="ai-meta">
-                <span id="aiImgPreview"></span>
+                <span><a href="<?= site_url('admin/ai_assistant/passbook_template') ?>" class="mr-2"><i class="fas fa-file-excel mr-1"></i>Passbook Excel template</a><span id="aiImgPreview"></span></span>
                 <span>@ किंवा नाव टाइप करा → सभासद सुचवले जातील · Enter = पाठवा · Shift+Enter = नवी ओळ</span>
             </div>
         </div>
@@ -260,7 +260,7 @@ $(function () {
         ['Force close / foreclose', 'quote + close a loan', 'Show the foreclosure and force-close amount for loan '],
         ['Email a member', 'reminder, statement, notice', 'Send an EMI reminder email to '],
         ['बचत जमा करा', 'उदा. योगेश औचरे बचत २००० रोख', 'योगेश औचरे यांच्या बचत खात्यात २००० रोख जमा करा'],
-        ['पासबुक नोंदी', 'मजकूर पेस्ट करा किंवा 📎 फोटो', 'खालील पासबुक नोंदी भरा:\n']
+        ['पासबुक Excel अपलोड', '📎 Excel निवडा — template खाली आहे', '__upload__']
     ];
 
     function csrf(d) { if (window.CSRF_NAME) d[window.CSRF_NAME] = window.CSRF_TOKEN; return d; }
@@ -311,6 +311,7 @@ $(function () {
         var $body = $row.find('.ai-body'), pending = 0, links = '';
         (cards || []).forEach(function (c) {
             if (c.type === 'navigate') { links += '<a class="ai-chipbtn mr-1" href="' + esc(c.url) + '"><i class="fas fa-arrow-right mr-1"></i>' + esc(c.label) + '</a>'; return; }
+            if (c.type === 'data_table') { $body.append(tableCardHtml(c)); return; }
             if (c.executed) { $body.append(savedHtml(c)); return; }
             if (c.stale) { $body.append('<div class="ai-entry stale"><div class="msg text-muted"><i class="fas fa-history mr-1"></i>' +
                 esc((TITLES[c.type] || '') + (c.title || '')) + ' — already handled.</div></div>'); return; }
@@ -320,11 +321,45 @@ $(function () {
         if (pending > 1) $body.append('<button class="btn btn-success btn-sm mt-2 ai-confirm-all"><i class="fas fa-check-double mr-1"></i>Confirm all (' + pending + ')</button>');
         down();
     }
+    // Query / report result: rendered here so the model doesn't have to retype it (saves output tokens)
+    function tableCardHtml(c) {
+        var num = /amount|due|balance|outstanding|collected|total|principal|interest|paid|fine|payments|deposits|unmapped/i;
+        var cols = c.columns || [];
+        var head = cols.map(function (h) { return '<th>' + esc(String(h).replace(/_/g, ' ')) + '</th>'; }).join('');
+        var body = (c.rows || []).map(function (r) {
+            return '<tr>' + r.map(function (v, i) {
+                var isNum = v !== null && v !== '' && !isNaN(v) && num.test(cols[i] || '');
+                return '<td' + (isNum ? ' style="text-align:right"' : '') + '>' + (v === null ? '<span class="text-muted">—</span>' : esc(isNum ? Number(v).toLocaleString('en-IN', {maximumFractionDigits: 2}) : v)) + '</td>';
+            }).join('') + '</tr>';
+        }).join('');
+        // A single summary row reads better as label → value
+        if ((c.rows || []).length === 1 && cols.length > 4) {
+            body = cols.map(function (h, i) {
+                var v = c.rows[0][i];
+                return '<tr><td class="text-muted">' + esc(String(h).replace(/_/g, ' ')) + '</td><td style="text-align:right"><b>' +
+                       esc(v !== null && !isNaN(v) && v !== '' ? Number(v).toLocaleString('en-IN', {maximumFractionDigits: 2}) : (v == null ? '—' : v)) + '</b></td></tr>';
+            }).join('');
+            head = '<th>Item</th><th style="text-align:right">Value</th>';
+        }
+        return '<div class="ai-entry"><div class="head"><i class="fas fa-table" style="color:var(--ai-brand2)"></i> ' + esc(c.title) +
+            '<small class="text-muted font-weight-normal ml-1">' + (c.rows || []).length + (c.more ? '+' : '') + ' row(s)</small>' +
+            (c.export ? '<a class="ai-chipbtn ml-auto" href="' + URL + '/export?t=' + encodeURIComponent(c.export) + '"><i class="fas fa-file-excel mr-1" style="color:#16a34a"></i>Excel</a>' : '') +
+            '</div><div class="ai-md"><div class="tbl" style="max-height:340px;overflow:auto;margin:0"><table><thead><tr>' + head + '</tr></thead><tbody>' + body +
+            '</tbody></table></div></div>' + (c.more ? '<div class="small text-muted mt-1">Showing the first rows — use Excel for the full list.</div>' : '') + '</div>';
+    }
     function savedHtml(c) {
         var r = c.result || {}, d = r.data || {};
         var undo = (d.kind === 'savings_deposit' || d.kind === 'fine')
             ? '<button class="ai-chipbtn red ai-undo" data-kind="' + d.kind + '" data-id="' + d.target_id + '"><i class="fas fa-undo mr-1"></i>Undo</button>' : '';
-        return '<div class="ai-entry saved"><div class="msg"><i class="fas fa-check-circle mr-1" style="color:var(--ai-ok)"></i>' + esc(r.message) + '</div>' +
+        var results = '';
+        if (d.results && d.results.length) {
+            var icon = {saved: '✅', failed: '❌', skipped: '⏭️'};
+            results = '<div class="ai-md"><div class="tbl" style="max-height:320px;overflow:auto"><table><thead><tr><th>Row</th><th>Member</th><th>Amount</th><th>Result</th></tr></thead><tbody>' +
+                d.results.map(function (x) {
+                    return '<tr><td>' + x.row + '</td><td>' + esc(x.member) + '</td><td>' + inr(x.amount) + '</td><td>' + (icon[x.status] || '') + ' ' + esc(x.message) + '</td></tr>';
+                }).join('') + '</tbody></table></div></div>';
+        }
+        return '<div class="ai-entry saved"><div class="msg"><i class="fas fa-check-circle mr-1" style="color:var(--ai-ok)"></i>' + esc(r.message) + '</div>' + results +
             '<div class="acts">' + (d.link ? '<a class="ai-chipbtn" target="_blank" href="' + esc(d.link) + '">' + esc(d.link_text) + '</a>' : '') + undo + '</div></div>';
     }
     function opt(v, label, sel) { return '<option value="' + esc(v) + '"' + (String(v) === String(sel) ? ' selected' : '') + '>' + esc(label) + '</option>'; }
@@ -336,6 +371,22 @@ $(function () {
                '<button class="btn btn-link btn-sm text-muted ai-skip">Skip</button></div><div class="res"></div>';
     }
     function cardHtml(a) {
+        if (a.type === 'passbook_import') {
+            var s = a.summary || {}, st = {ready: ['✅', 'Ready'], review: ['⚠️', 'Check'], duplicate: ['♻️', 'Duplicate']};
+            var body = (a.entries || []).map(function (e) {
+                return '<tr' + (e.status !== 'ready' ? ' style="background:#fff7ed"' : '') + '><td>' + e.row + '</td><td>' + esc(e.date || '') + '</td><td>' + esc(e.member) +
+                    '</td><td>' + inr(e.amount) + '</td><td>' + esc(e.mode) + '</td><td>' + esc(e.alloc || '—') + '</td><td>' + (st[e.status] || ['', e.status])[0] + ' ' +
+                    (st[e.status] || ['', e.status])[1] + (e.issues && e.issues.length ? '<div class="small text-muted" style="white-space:normal;min-width:180px">' +
+                    e.issues.map(esc).join('<br>') + '</div>' : '') + '</td></tr>';
+            }).join('');
+            return '<div class="ai-entry" data-type="passbook_import"><div class="head">📄 ' + esc(a.title) + '</div>' +
+                '<div class="mb-2"><span class="badge badge-success mr-1">' + (s.ready || 0) + ' ready · ' + inr(s.amount_ready) + '</span>' +
+                (s.review ? '<span class="badge badge-warning mr-1">' + s.review + ' need attention</span>' : '') +
+                (s.duplicate ? '<span class="badge badge-secondary">' + s.duplicate + ' duplicate (skipped)</span>' : '') + '</div>' +
+                '<div class="ai-md"><div class="tbl" style="max-height:360px;overflow:auto"><table><thead><tr><th>Row</th><th>Date</th><th>Member</th><th>Amount</th><th>Mode</th><th>Allocation</th><th>Status</th></tr></thead><tbody>' +
+                body + '</tbody></table></div></div>' +
+                (a.token ? actBtns('Save ' + (s.ready || 0) + ' entries', 'success') : '<div class="res text-muted small">Nothing ready to save — fix the rows and upload again.</div>') + '</div>';
+        }
         if (a.type === 'foreclose_loan' || a.type === 'send_email' || a.type === 'correct_record') {
             var kv = (a.rows || []).map(function (r) { return '<tr><td>' + esc(r[0]) + '</td><td>' + esc(r[1]) + '</td></tr>'; }).join('');
             var extra = '';
@@ -419,6 +470,7 @@ $(function () {
     });
     $log.on('click', '.ai-tile', function () {
         var t = TILES[$(this).data('i')][2];
+        if (t === '__upload__') { $('#aiImage').trigger('click'); return; }
         $txt.val(t).trigger('input').focus();
         if (!/[\n ]$/.test(t)) send();
     });
@@ -472,8 +524,28 @@ $(function () {
     }
     $('#aiChips').on('click', '.fa-times', function () { delete mentions[$(this).data('id')]; renderChips(); });
 
+    // Passbook Excel: checked on the server, shown as a preview card (nothing saved until "Save entries")
+    function uploadPassbook(f) {
+        if (busy) return;
+        if (f.size > 5 * 1024 * 1024) { toastr.error('File too large (max 5 MB).'); return; }
+        setBusy(true);
+        userRow('📄 ' + f.name);
+        var $t = botRow('<div class="ai-live"><span class="ai-typing"><span></span><span></span><span></span></span><span class="txt">Reading the Excel and checking every row…</span></div>');
+        var fd = new FormData(); fd.append('file', f);
+        if (window.CSRF_NAME) fd.append(window.CSRF_NAME, window.CSRF_TOKEN);
+        $.ajax({url: URL + '/passbook_upload', type: 'POST', data: fd, processData: false, contentType: false, dataType: 'json'})
+            .done(function (r) {
+                $t.remove();
+                if (!r.success) { botRow(esc(r.message || 'Error'), 'ai-err'); return; }
+                renderCards(botRow(md(r.reply)), r.actions);
+            })
+            .fail(function (x) { $t.remove(); botRow(esc((x.responseJSON && x.responseJSON.message) || ('Upload failed (HTTP ' + x.status + ').')), 'ai-err'); })
+            .always(function () { setBusy(false); });
+    }
+
     $('#aiImage').on('change', function () {
         var f = this.files[0]; if (!f) return;
+        if (/\.(xlsx|xls|csv)$/i.test(f.name)) { this.value = ''; uploadPassbook(f); return; }
         if (f.size > 8 * 1024 * 1024) { toastr.error('Image too large (max 8 MB).'); return; }
         var rd = new FileReader();
         rd.onload = function () {
@@ -612,7 +684,7 @@ $(function () {
         $card.data('busy', 1);
         var $btn = $card.find('.ai-confirm').prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i>');
         var type = $card.data('type');
-        var d = /^(foreclose_loan|send_email|correct_record)$/.test(type) ? {type: type}
+        var d = /^(foreclose_loan|send_email|correct_record|passbook_import)$/.test(type) ? {type: type}
             : type === 'reverse_entry'
             ? {type: 'reverse_entry', kind: $card.data('kind'), target_id: $card.data('id'), remarks: $card.find('.f-remarks').val()}
             : type === 'update_member'
