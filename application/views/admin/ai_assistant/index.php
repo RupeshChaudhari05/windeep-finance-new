@@ -260,6 +260,7 @@ $(function () {
         ['Force close / foreclose', 'quote + close a loan', 'Show the foreclosure and force-close amount for loan '],
         ['Email a member', 'reminder, statement, notice', 'Send an EMI reminder email to '],
         ['बचत जमा करा', 'उदा. योगेश औचरे बचत २००० रोख', 'योगेश औचरे यांच्या बचत खात्यात २००० रोख जमा करा'],
+        ['बँक नोंदी map करा', 'unmapped बँक जमा नोंदी सभासदांशी जोडा', 'बँकेतील unmapped जमा नोंदी सभासदांशी map करा'],
         ['पासबुक Excel अपलोड', '📎 Excel निवडा — template खाली आहे', '__upload__']
     ];
 
@@ -374,7 +375,8 @@ $(function () {
         if (a.type === 'passbook_import') {
             var s = a.summary || {}, st = {ready: ['✅', 'Ready'], review: ['⚠️', 'Check'], duplicate: ['♻️', 'Duplicate']};
             var body = (a.entries || []).map(function (e) {
-                return '<tr' + (e.status !== 'ready' ? ' style="background:#fff7ed"' : '') + '><td>' + e.row + '</td><td>' + esc(e.date || '') + '</td><td>' + esc(e.member) +
+                return '<tr' + (e.status !== 'ready' ? ' style="background:#fff7ed"' : '') + '><td>' + (a.bank ? '#' : '') + e.row + '</td><td>' + esc(e.date || '') + '</td><td>' + esc(e.member) +
+                    (e.payer ? '<div class="small text-muted" style="white-space:normal">bank: ' + esc(e.payer) + '</div>' : '') +
                     '</td><td>' + inr(e.amount) + '</td><td>' + esc(e.mode) + '</td><td>' + esc(e.alloc || '—') + '</td><td>' + (st[e.status] || ['', e.status])[0] + ' ' +
                     (st[e.status] || ['', e.status])[1] + (e.issues && e.issues.length ? '<div class="small text-muted" style="white-space:normal;min-width:180px">' +
                     e.issues.map(esc).join('<br>') + '</div>' : '') + '</td></tr>';
@@ -385,7 +387,7 @@ $(function () {
                 (s.duplicate ? '<span class="badge badge-secondary">' + s.duplicate + ' duplicate (skipped)</span>' : '') + '</div>' +
                 '<div class="ai-md"><div class="tbl" style="max-height:360px;overflow:auto"><table><thead><tr><th>Row</th><th>Date</th><th>Member</th><th>Amount</th><th>Mode</th><th>Allocation</th><th>Status</th></tr></thead><tbody>' +
                 body + '</tbody></table></div></div>' +
-                (a.token ? actBtns('Save ' + (s.ready || 0) + ' entries', 'success') : '<div class="res text-muted small">Nothing ready to save — fix the rows and upload again.</div>') + '</div>';
+                (a.token ? actBtns((a.bank ? 'Map ' : 'Save ') + (s.ready || 0) + ' entries', 'success') : '<div class="res text-muted small">Nothing ready to save — fix the rows and upload again.</div>') + '</div>';
         }
         if (a.type === 'foreclose_loan' || a.type === 'send_email' || a.type === 'correct_record') {
             var kv = (a.rows || []).map(function (r) { return '<tr><td>' + esc(r[0]) + '</td><td>' + esc(r[1]) + '</td></tr>'; }).join('');

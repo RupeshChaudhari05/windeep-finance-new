@@ -256,7 +256,15 @@ class Loans extends Admin_Controller {
 
         // Part payment history
         $data['part_payment_history'] = $this->Loan_model->get_part_payment_history($id);
-
+        $data['disb_parts'] = $this->Loan_model->get_disbursement_parts($id);
+        $data['disb_done'] = $this->Loan_model->disbursed_amount($loan);
+        $data['disb_pending'] = $this->Loan_model->pending_disbursement($loan);
+        // Unmapped bank DEBIT lines the next part can be linked to
+        $data['disb_bank_lines'] = (!empty($loan->is_tranche) && $data['disb_pending'] > 0)
+            ? $this->db->select('id, transaction_date, amount, mapped_amount, description, reference_number')->where('transaction_type', 'debit')
+                       ->where_in('mapping_status', ['unmapped', 'partial'])->where('amount - COALESCE(mapped_amount, 0) <=', $data['disb_pending'] + 1, false)
+                       ->order_by('transaction_date', 'DESC')->limit(60)->get('bank_transactions')->result()
+            : [];
         $this->load_view('admin/loans/view', $data);
     }
     
@@ -665,7 +673,8 @@ class Loans extends Admin_Controller {
                 'approved_tenure_months' => $this->input->post('approved_tenure_months'),
                 'approved_interest_rate' => $this->input->post('approved_interest_rate'),
                 'remarks' => $this->input->post('remarks'),
-                'loan_product_id' => $this->input->post('loan_product_id') ?: null
+                'loan_product_id' => $this->input->post('loan_product_id') ?: null,
+                'disburse_in_parts' => $this->input->post('disburse_in_parts') ? 1 : 0
             ];
 
             // Loan product is required at approval time
@@ -899,7 +908,8 @@ class Loans extends Admin_Controller {
                     'disbursement_date' => $this->input->post('disbursement_date'),
                     'first_emi_date' => $this->input->post('first_emi_date'),
                     'disbursement_mode' => $this->input->post('disbursement_mode'),
-                    'reference_number' => $this->input->post('reference_number')
+                    'reference_number' => $this->input->post('reference_number'),
+                    'first_amount' => $this->input->post('first_amount')
                 ];
                 
                 $loan_id = $this->Loan_model->disburse_loan($id, $disbursement_data, $this->session->userdata('admin_id'));
@@ -916,9 +926,9 @@ class Loans extends Admin_Controller {
                     $this->Ledger_model->post_transaction(
                         'loan_disbursement',
                         $loan_id,
-                        $loan->principal_amount,
+                        $this->Loan_model->disbursed_amount($loan),
                         $loan->member_id,
-                        'Loan disbursement: ' . $loan->loan_number,
+                        'Loan disbursement' . (!empty($loan->is_tranche) ? ' part 1' : '') . ': ' . $loan->loan_number,
                         $this->session->userdata('admin_id'),
                         $disb_date
                     );
@@ -988,6 +998,26 @@ class Loans extends Admin_Controller {
         $this->load_view('admin/loans/disburse', $data);
     }
     
+    /**
+     * Release the next part of a part-disbursed loan (POST amount, date, mode, reference, remarks, bank_transaction_id).
+     */
+    public function add_disbursement($loan_id) {
+        $this->check_permission('loans_approve');
+        if ($this->input->method() !== 'post') redirect('admin/loans/view/' . (int) $loan_id);
+        try {
+            $part_id = $this->Loan_model->add_disbursement_part((int) $loan_id, [
+                'amount' => $this->input->post('amount'), 'date' => $this->input->post('date'), 'mode' => $this->input->post('mode'),
+                'reference' => $this->input->post('reference'), 'remarks' => $this->input->post('remarks'),
+                'bank_transaction_id' => $this->input->post('bank_transaction_id') ?: null, 'source' => 'loan_page',
+            ], $this->session->userdata('admin_id'));
+            $this->log_activity('Loan part disbursed', 'Loan #' . (int) $loan_id . ' part #' . $part_id, 'loans');
+            $this->session->set_flashdata('success', 'Disbursement part saved.');
+        } catch (Exception $e) {
+            $this->session->set_flashdata('error', $e->getMessage());
+        }
+        redirect('admin/loans/view/' . (int) $loan_id);
+    }
+
     /**
      * Collect EMI Payment
      */

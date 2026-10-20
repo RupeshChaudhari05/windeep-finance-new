@@ -532,6 +532,7 @@ class Ai_assistant extends Admin_Controller {
     private function _tool_status($name, array $a) {
         $labels = [
             'describe_tables' => 'Reading the database structure…',
+            'map_bank_entries' => 'Matching unmapped bank entries to members…',
             'get_report'      => 'Preparing the ' . str_replace('_', ' ', (string) ($a['report'] ?? '')) . ' report…',
             'run_sql'         => 'Querying the database' . (!empty($a['purpose']) ? ': ' . $a['purpose'] : '') . '…',
             'get_member'      => 'Looking up member ' . ($a['member'] ?? '') . '…',
@@ -989,6 +990,51 @@ class Ai_assistant extends Admin_Controller {
         return in_array($this->admin_data->role, ['super_admin', 'admin'], true) || $this->_can('savings_collect');
     }
 
+    /**
+     * map_bank_entries: suggestions for the unmapped bank CREDITS — member found from the bank text (identifiers, UPI id,
+     * payer / "paid for" names, earlier mappings, amount), allocation by the passbook rules. Shown as a "Save" card;
+     * on confirm each line is mapped with Bank_model::apply_mappings (or linked to the manual entry that already exists).
+     */
+    private function _tool_bank_map(array $a) {
+        if (!$this->_can_passbook()) return ['error' => 'You do not have permission to map bank entries.'];
+        $this->load->library('Passbook_import');
+        $from = $this->_valid_date($a['from'] ?? '');
+        $to   = $this->_valid_date($a['to'] ?? '');
+        $rows = $this->passbook_import->bank_rows(['from' => $from, 'to' => $to, 'limit' => (int) ($a['limit'] ?? 100),
+                                                   'ids' => !empty($a['ids']) ? (array) $a['ids'] : []]);
+        $debits = $this->db->where('transaction_type', 'debit')->where_in('mapping_status', ['unmapped', 'partial'])->count_all_results('bank_transactions');
+        if (!$rows) {
+            $this->_step('university', 'No unmapped bank credits');
+            return ['status' => 'nothing_to_map', 'unmapped_debits' => $debits];
+        }
+        $plan = $this->passbook_import->resolve($rows);
+        $sum = $plan['summary'];
+        $link = 0;
+        foreach ($plan['rows'] as $r) if ($r['allocations'] && strpos($r['allocations'][0]['type'], 'link_') === 0) $link++;
+
+        $entries = array_map(function ($r) {
+            $why = !empty($r['match']) ? ['🔎 ' . $r['match'] . (isset($r['confidence']) ? ' (' . $r['confidence'] . ')' : '')] : [];
+            return ['row' => $r['row'], 'date' => $r['date'], 'member' => $r['member_label'], 'amount' => $r['amount'], 'mode' => $r['mode'],
+                    'alloc' => implode(' + ', array_map(function ($x) { return $x['label'] . ' ₹' . number_format($x['amount'], 2); }, $r['allocations'])),
+                    'status' => $r['status'], 'issues' => array_merge($r['issues'], $r['notes'], $why), 'payer' => mb_substr($r['payer'], 0, 40)];
+        }, $plan['rows']);
+        $card = ['type' => 'passbook_import', 'title' => 'Bank mapping suggestions — ' . $sum['rows'] . ' unmapped credit(s)', 'file' => 'Bank mapping (AI)',
+                 'summary' => $sum, 'entries' => $entries, 'warnings' => [], 'bank' => true];
+        if ($sum['ready'] > 0) $this->_add_pending($card, ['plan' => $plan['rows']]);
+        $this->run['cards'][] = $card;
+        $this->_step('university', 'Bank mapping: ' . $sum['ready'] . ' of ' . $sum['rows'] . ' credits ready');
+
+        $review = [];
+        foreach ($plan['rows'] as $r) {
+            if ($r['status'] !== 'ready') $review[] = '#' . $r['row'] . ' ' . $r['date'] . ' ₹' . $r['amount'] . ' payer "' . mb_substr($r['payer'], 0, 30) . '": ' . implode('; ', $r['issues']);
+        }
+        return ['status' => $sum['ready'] ? 'awaiting_admin_confirmation' : 'nothing_ready', 'credits_checked' => $sum['rows'], 'ready' => $sum['ready'],
+                'ready_amount' => round($sum['amount_ready'], 2), 'of_which_link_to_existing_manual_entries' => $link, 'need_review' => $sum['review'],
+                'unmapped_debits_not_handled' => $debits,
+                'note' => 'A card lists every line with the matched member and the reason; the admin presses Save. Debits (expenses / disbursements) are mapped on the Bank Mapping screen.',
+                'review_rows' => array_slice($review, 0, 25)];
+    }
+
     private function _perform_passbook(array $c) {
         if (!$this->_can_passbook()) return $this->_fail('You do not have permission to record collections.');
         if (empty($c['plan'])) return $this->_fail('This import has expired — upload the file again.');
@@ -996,7 +1042,7 @@ class Ai_assistant extends Admin_Controller {
         $res = $this->passbook_import->execute($c['plan'], (int) $this->session->userdata('admin_id'), $c['file'] ?? '');
         $this->log_audit('import', 'bank_transactions', 'bank_transactions', 0, null,
                          ['file' => $c['file'] ?? '', 'saved' => $res['saved'], 'failed' => $res['failed'], 'amount' => $res['amount'], 'imports' => $res['import_codes']],
-                         'AI passbook import');
+                         !empty($c['bank']) ? 'AI bank mapping' : 'AI passbook import');
         $rows = [];
         foreach ($c['entries'] ?? [] as $e) {
             $r = $res['results'][$e['row']] ?? null;
@@ -1004,7 +1050,7 @@ class Ai_assistant extends Admin_Controller {
                        'status' => $r ? $r['status'] : ($e['status'] === 'ready' ? 'failed' : 'skipped'),
                        'message' => $r ? $r['message'] : implode('; ', $e['issues'])];
         }
-        $msg = 'Passbook import: ' . $res['saved'] . ' entr' . ($res['saved'] === 1 ? 'y' : 'ies') . ' saved (₹' . number_format($res['amount'], 2) . ')'
+        $msg = (!empty($c['bank']) ? 'Bank mapping: ' : 'Passbook import: ') . $res['saved'] . ' entr' . ($res['saved'] === 1 ? 'y' : 'ies') . ' saved (₹' . number_format($res['amount'], 2) . ')'
              . ($res['failed'] ? ', ' . $res['failed'] . ' failed' : '') . '.';
         if (!$res['saved']) return ['ok' => false, 'message' => $msg . ' ' . implode(' | ', array_unique(array_column(array_filter($rows, function ($r) { return $r['status'] === 'failed'; }), 'message'))), 'data' => []];
         return $this->_done($msg, ['results' => $rows, 'link' => site_url('admin/bank/mapping'), 'link_text' => 'Open Bank Mapping']);
@@ -1058,6 +1104,10 @@ HOW TO WORK
 - Defaults (never ask): mode cash, date today, deposit_type regular, payment_type emi.
 - Foreclosure: regular = principal + configured % of remaining interest + pending fines; force_close = only next month's interest,
   remaining interest and fines waived. Show the quote from get_loan when the admin asks for an amount.
+- Loans can be "disbursed in parts": EMI is on the sanctioned amount, money is released in parts (get_loan → disbursement).
+  Later parts are added on the loan page (Add disbursement) or by mapping the bank debit in Bank Mapping.
+- Bank mapping: map_bank_entries matches unmapped bank credits to members and shows a Save card. Summarise ready / link /
+  review counts and the main review reasons; for review lines help the admin decide (who paid, which loan).
 - Bulk passbook entries: the admin fills the "Passbook Excel template" (link under the chat box) and uploads it with 📎; a
   "Save entries" card follows. Help fix rows that were not ready, or record them one by one.
 - Emails: polite and professional, in the admin's language, signed "Windeep Finance".
@@ -1136,6 +1186,9 @@ PROMPT;
             ['name' => 'get_report', 'description' => 'Ready-made report, shown to the admin as a table (prefer over run_sql). summary = society totals + collections in the period; overdue = overdue EMIs by loan; collections = daily collections; dues = EMIs due in the next N days; savings_dues; applications = open loan applications; unmapped_bank; pending_fines.',
              'parameters' => $obj(['report' => $s('Report', ['summary', 'overdue', 'collections', 'dues', 'savings_dues', 'applications', 'unmapped_bank', 'pending_fines']),
                                    'from' => $s('YYYY-MM-DD; default 1st of this month. For "today" pass today as from and to'), 'to' => $s('YYYY-MM-DD, default today'), 'days' => $n('dues: days ahead, default 7')], ['report'])],
+            ['name' => 'map_bank_entries', 'description' => 'Suggest mappings for UNMAPPED bank CREDIT lines (Bank Transactions): finds the member from the bank text / UPI id / payer name / history and allocates to EMI / savings, or links to an existing manual entry. Shows a Save card. Use when the admin asks to map / reconcile bank entries.',
+             'parameters' => $obj(['from' => $s('YYYY-MM-DD, optional'), 'to' => $s('YYYY-MM-DD, optional'), 'limit' => $n('Max lines, default 100'),
+                                   'ids' => ['type' => 'array', 'items' => ['type' => 'number'], 'description' => 'Only these bank transaction ids']])],
             ['name' => 'get_member', 'description' => 'Full overview of one member: profile, loans, savings accounts, unpaid fines, recent payments. Also use it to search members.',
              'parameters' => $obj(['member' => $member], ['member'])],
             ['name' => 'get_loan', 'description' => 'Details of one loan: amounts, schedule status, next dues, recent payments, pending foreclosure request and foreclosure / force-close quotes.',
@@ -1187,6 +1240,7 @@ PROMPT;
                 case 'describe_tables': return $this->_tool_describe((array) ($args['tables'] ?? []));
                 case 'run_sql':         return $this->_tool_sql((string) ($args['query'] ?? ''), (string) ($args['purpose'] ?? ''));
                 case 'get_report':      return $this->_tool_report($args);
+                case 'map_bank_entries': return $this->_tool_bank_map($args);
                 case 'get_member':      return $this->_tool_member((string) ($args['member'] ?? ''));
                 case 'get_loan':        return $this->_tool_loan($args);
                 case 'open_page':
@@ -1555,6 +1609,10 @@ PROMPT;
         $out['recent_payments'] = $this->db->select('id, payment_code, payment_date, payment_type, total_amount, principal_component, interest_component, fine_component, payment_mode, is_reversed')
             ->where('loan_id', $l->id)->order_by('id', 'DESC')->limit(5)->get('loan_payments')->result_array();
         $out['pending_foreclosure_request'] = $this->db->where('loan_id', $l->id)->where('status', 'pending')->get('loan_foreclosure_requests')->row_array();
+        $out['disbursement'] = ['in_parts' => !empty($l->is_tranche), 'sanctioned' => (float) $l->principal_amount,
+                                'disbursed' => $this->Loan_model->disbursed_amount($l), 'left_to_disburse' => $this->Loan_model->pending_disbursement($l),
+                                'parts' => $this->db->select('tranche_no, disbursement_date, disbursement_amount, net_amount, status, bank_transaction_id IS NOT NULL AS bank_mapped', false)
+                                                     ->where('loan_id', $l->id)->order_by('tranche_no')->get('disbursement_tracking')->result_array()];
         if (in_array($l->status, ['active', 'npa'], true)) {
             $reg = $this->Loan_model->calculate_foreclosure_amount($l->id);
             $fc  = $this->Loan_model->calculate_force_close_amount($l->id);

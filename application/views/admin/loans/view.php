@@ -66,8 +66,9 @@
                 <div class="info-box bg-primary mb-2">
                     <span class="info-box-icon"><i class="fas fa-money-bill"></i></span>
                     <div class="info-box-content">
-                        <span class="info-box-text">Principal Amount</span>
+                        <span class="info-box-text">Principal Amount<?= !empty($loan->is_tranche) ? ' (sanctioned)' : '' ?></span>
                         <span class="info-box-number"><?= format_amount($loan->principal_amount, 0) ?></span>
+                        <?php if (!empty($loan->is_tranche)): ?><small>Disbursed <?= format_amount($disb_done, 0) ?> · left <?= format_amount($disb_pending, 0) ?></small><?php endif; ?>
                     </div>
                 </div>
                 
@@ -103,6 +104,99 @@
                     </div>
                 </div>
                 
+                <?php if (!empty($loan->is_tranche) || count($disb_parts ?? []) > 1): ?>
+                <!-- Disbursement in parts -->
+                <div class="card card-outline card-primary mb-2" id="disbursementCard">
+                    <div class="card-header py-2">
+                        <h3 class="card-title"><i class="fas fa-layer-group mr-1"></i> Disbursement in parts</h3>
+                    </div>
+                    <div class="card-body p-2">
+                        <?php $pct = $loan->principal_amount > 0 ? min(100, round($disb_done / $loan->principal_amount * 100)) : 100; ?>
+                        <table class="table table-sm mb-2">
+                            <tr><td>Sanctioned (EMI on this)</td><td class="text-right"><strong><?= format_amount($loan->principal_amount, 0) ?></strong></td></tr>
+                            <tr><td>Disbursed</td><td class="text-right text-success"><strong><?= format_amount($disb_done, 0) ?></strong></td></tr>
+                            <tr><td>Left to disburse</td><td class="text-right <?= $disb_pending > 0 ? 'text-danger' : '' ?>"><strong><?= format_amount($disb_pending, 0) ?></strong></td></tr>
+                        </table>
+                        <div class="progress progress-sm mb-2"><div class="progress-bar bg-success" style="width: <?= $pct ?>%"></div></div>
+                        <table class="table table-sm table-striped mb-2" style="font-size:12px">
+                            <thead><tr><th>#</th><th>Date</th><th class="text-right">Amount</th><th>Bank</th></tr></thead>
+                            <tbody>
+                            <?php foreach ($disb_parts as $p): ?>
+                                <tr class="<?= $p->status !== 'completed' ? 'text-muted' : '' ?>">
+                                    <td><?= (int) $p->tranche_no ?></td>
+                                    <td><?= format_date($p->disbursement_date) ?></td>
+                                    <td class="text-right">
+                                        <?= format_amount($p->disbursement_amount, 0) ?>
+                                        <?php if ((float) $p->processing_fee > 0): ?><br><small class="text-muted">fee <?= format_amount($p->processing_fee, 0) ?> · paid <?= format_amount($p->net_amount, 0) ?></small><?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <?php if ($p->status !== 'completed'): ?><span class="badge badge-secondary"><?= htmlspecialchars($p->status) ?></span>
+                                        <?php elseif ($p->bank_transaction_id): ?><span class="badge badge-success" title="<?= htmlspecialchars((string) $p->bank_description) ?>"><i class="fas fa-link"></i> mapped</span>
+                                        <?php else: ?><span class="badge badge-warning" title="Map the bank debit in Bank Mapping → Loan disbursement">not mapped</span><?php endif; ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                        <?php if (!empty($loan->is_tranche) && $disb_pending > 0 && in_array($loan->status, ['active', 'npa'], true)): ?>
+                        <button type="button" class="btn btn-primary btn-sm btn-block" data-toggle="modal" data-target="#addDisbursementModal">
+                            <i class="fas fa-plus mr-1"></i> Add disbursement
+                        </button>
+                        <?php endif; ?>
+                    </div>
+                </div>
+
+                <?php if (!empty($loan->is_tranche) && $disb_pending > 0): ?>
+                <div class="modal fade" id="addDisbursementModal" tabindex="-1">
+                    <div class="modal-dialog"><div class="modal-content">
+                        <form method="post" action="<?= site_url('admin/loans/add_disbursement/' . $loan->id) ?>">
+                            <div class="modal-header"><h5 class="modal-title">Add disbursement — <?= htmlspecialchars($loan->loan_number) ?></h5>
+                                <button type="button" class="close" data-dismiss="modal">&times;</button></div>
+                            <div class="modal-body">
+                                <p class="small text-muted mb-2">Left to disburse: <strong><?= format_amount($disb_pending) ?></strong>. EMI does not change.</p>
+                                <div class="form-group">
+                                    <label>Bank debit line (optional — maps it in Bank Mapping)</label>
+                                    <select name="bank_transaction_id" id="disbBankLine" class="form-control" data-no-search="1">
+                                        <option value="">— not from bank / map later —</option>
+                                        <?php foreach ($disb_bank_lines as $b): $left = (float) $b->amount - (float) $b->mapped_amount; ?>
+                                        <option value="<?= $b->id ?>" data-amount="<?= $left ?>" data-date="<?= $b->transaction_date ?>">
+                                            <?= format_date($b->transaction_date) ?> · <?= format_amount($left) ?> · <?= htmlspecialchars(mb_substr((string) $b->description, 0, 60)) ?>
+                                        </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group col-6"><label>Amount *</label>
+                                        <input type="number" step="0.01" min="1" max="<?= $disb_pending ?>" name="amount" id="disbAmount" class="form-control" required></div>
+                                    <div class="form-group col-6"><label>Date *</label>
+                                        <input type="date" name="date" id="disbDate" class="form-control" max="<?= date('Y-m-d') ?>" min="<?= $loan->disbursement_date ?>" value="<?= date('Y-m-d') ?>" required></div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group col-6"><label>Mode</label>
+                                        <select name="mode" class="form-control" data-no-search="1">
+                                            <option value="bank_transfer">Bank transfer</option><option value="cheque">Cheque</option><option value="upi">UPI</option><option value="cash">Cash</option>
+                                        </select></div>
+                                    <div class="form-group col-6"><label>Reference</label><input type="text" name="reference" class="form-control" maxlength="100"></div>
+                                </div>
+                                <div class="form-group mb-0"><label>Remarks</label><input type="text" name="remarks" class="form-control" maxlength="255"></div>
+                            </div>
+                            <div class="modal-footer"><button type="submit" class="btn btn-primary"><i class="fas fa-check mr-1"></i> Save disbursement</button></div>
+                        </form>
+                    </div></div>
+                </div>
+                <script>
+                document.addEventListener('DOMContentLoaded', function () {
+                    var sel = document.getElementById('disbBankLine');
+                    if (!sel) return;
+                    sel.addEventListener('change', function () {
+                        var o = sel.options[sel.selectedIndex];
+                        if (o && o.dataset.amount) { document.getElementById('disbAmount').value = o.dataset.amount; document.getElementById('disbDate').value = o.dataset.date; }
+                    });
+                });
+                </script>
+                <?php endif; ?>
+                <?php endif; ?>
+
                 <?php if ($overdue_count > 0): ?>
                 <div class="card card-danger">
                     <div class="card-body py-2">

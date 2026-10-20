@@ -282,6 +282,14 @@
                     </div>
                     <?php endif; ?>
                     
+                    <div class="form-group mb-3">
+                        <div class="custom-control custom-checkbox">
+                            <input class="custom-control-input" type="checkbox" name="disburse_in_parts" id="disburse_in_parts" value="1" <?= !empty($application->disburse_in_parts) ? 'checked' : '' ?>>
+                            <label class="custom-control-label" for="disburse_in_parts"><strong>Disburse in parts</strong> (additional disbursements)</label>
+                        </div>
+                        <small class="text-muted d-block">EMI and schedule stay on the full approved amount. At disbursement you enter only the amount given now; later parts are added on the loan page or in Bank Mapping.</small>
+                    </div>
+
                     <div class="form-group">
                         <label>Approval Remarks</label>
                         <textarea name="remarks" class="form-control" rows="3" placeholder="Optional notes"></textarea>

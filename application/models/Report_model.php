@@ -66,12 +66,7 @@ class Report_model extends MY_Model {
         $stats['active_loans'] = $this->db->where('status', 'active')
                                           ->count_all_results('loans');
         
-        $stats['disbursed_this_month'] = $this->db->select_sum('principal_amount')
-                                                   ->where('MONTH(disbursement_date)', date('m'))
-                                                   ->where('YEAR(disbursement_date)', date('Y'))
-                                                   ->get('loans')
-                                                   ->row()
-                                                   ->principal_amount ?? 0;
+        $stats['disbursed_this_month'] = $this->disbursed_sum(date('Y-m-01'), date('Y-m-t'));
         
         $stats['collected_this_month'] = $this->db->select_sum('total_amount')
                                                    ->where('MONTH(payment_date)', date('m'))
@@ -229,6 +224,21 @@ class Report_model extends MY_Model {
     /**
      * Get Disbursement Report
      */
+    /**
+     * Money actually disbursed in a period: every disbursement part by its own date (a loan disbursed in parts counts
+     * 1 L in June and 4 L in August), plus loans created outside the disbursement screen that have no parts.
+     */
+    public function disbursed_sum($from, $to, $product_id = null) {
+        $p = $product_id ? ' AND l.loan_product_id = ' . (int) $product_id : '';
+        $row = $this->db->query("SELECT COALESCE(SUM(x.amt), 0) s FROM (
+                SELECT dt.disbursement_amount amt, dt.disbursement_date d FROM disbursement_tracking dt JOIN loans l ON l.id = dt.loan_id
+                 WHERE dt.status = 'completed'{$p}
+                UNION ALL
+                SELECT l.principal_amount, l.disbursement_date FROM loans l
+                 WHERE NOT EXISTS (SELECT 1 FROM disbursement_tracking t WHERE t.loan_id = l.id){$p}
+            ) x WHERE x.d BETWEEN ? AND ?", [$from, $to])->row();
+        return round((float) ($row->s ?? 0), 2);
+    }
     public function get_disbursement_report($from_date, $to_date) {
         $report = [];
         
@@ -241,9 +251,11 @@ class Report_model extends MY_Model {
         ->where('disbursement_date <=', $to_date)
         ->get('loans')
         ->row();
-        
+        // Actual money released in the period (parts of part-disbursed loans by their own date)
+        $report['summary']->total_disbursed = $this->disbursed_sum($from_date, $to_date);
+
         $report['by_product'] = $this->db->select('
-            lp.product_name,
+            lp.product_name, l.loan_product_id,
             COUNT(*) as count,
             SUM(l.principal_amount) as total_disbursed
         ')
@@ -254,6 +266,9 @@ class Report_model extends MY_Model {
         ->group_by('l.loan_product_id')
         ->get()
         ->result();
+        foreach ($report['by_product'] as $row) {
+            $row->total_disbursed = $this->disbursed_sum($from_date, $to_date, $row->loan_product_id);
+        }
         
         $report['details'] = $this->db->select('
             l.*, lp.product_name, m.member_code, m.first_name, m.last_name
@@ -462,12 +477,7 @@ class Report_model extends MY_Model {
                                                  ->where('disbursement_date <=', $end_date)
                                                  ->count_all_results('loans'),
             
-            'loans_disbursed_amount' => $this->db->select_sum('principal_amount')
-                                                  ->where('disbursement_date >=', $start_date)
-                                                  ->where('disbursement_date <=', $end_date)
-                                                  ->get('loans')
-                                                  ->row()
-                                                  ->principal_amount ?? 0,
+            'loans_disbursed_amount' => $this->disbursed_sum($start_date, $end_date),
             
             'loans_collected' => $this->db->select_sum('total_amount')
                                           ->where('payment_date >=', $start_date)
@@ -518,12 +528,7 @@ class Report_model extends MY_Model {
                                           ->row()
                                           ->amount ?? 0;
             
-            $data['loans_disbursed'][] = $this->db->select_sum('principal_amount')
-                                                   ->where('MONTH(disbursement_date)', $m)
-                                                   ->where('YEAR(disbursement_date)', $year)
-                                                   ->get('loans')
-                                                   ->row()
-                                                   ->principal_amount ?? 0;
+            $data['loans_disbursed'][] = $this->disbursed_sum(sprintf('%04d-%02d-01', $year, $m), date('Y-m-t', strtotime(sprintf('%04d-%02d-01', $year, $m))));
             
             $data['loans_collected'][] = $this->db->select_sum('total_amount')
                                                    ->where('MONTH(payment_date)', $m)
@@ -686,12 +691,7 @@ class Report_model extends MY_Model {
         // Loan disbursements this week
         $summary[] = [
             'metric' => 'Loan Disbursements',
-            'value' => $this->db->select_sum('disbursed_amount')
-                               ->where('DATE(disbursement_date) >=', $start_date)
-                               ->where('DATE(disbursement_date) <=', $end_date)
-                               ->get('loans')
-                               ->row()
-                               ->disbursed_amount ?? 0,
+            'value' => $this->disbursed_sum($start_date, $end_date),
             'type' => 'currency'
         ];
 

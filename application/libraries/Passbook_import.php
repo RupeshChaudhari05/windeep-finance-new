@@ -223,7 +223,9 @@ class Passbook_import {
             $r['mode'] = $this->_mode($r['mode'], $r['reference']);
             $r['type'] = $this->_type($r['type'], $r['remarks']);
             if ($r['type'] === null) $r['issues'][] = 'Unknown Type';
-            $r['bank_account'] = $r['mode'] === 'cash' ? $cash_acc : $bank_acc;
+            $r['bank_account'] = !empty($r['bank_txn_id'])
+                ? $db->where('id', $r['bank_account_id_fixed'])->get('bank_accounts')->row()
+                : ($r['mode'] === 'cash' ? $cash_acc : $bank_acc);
             if (!$r['bank_account']) $r['issues'][] = 'No active ' . ($r['mode'] === 'cash' ? '"Cash Account"' : 'bank account') . ' in Bank → Accounts';
 
             // Loan / savings account named on the row
@@ -237,15 +239,24 @@ class Passbook_import {
             // Member: column → loan / account → identifiers in remarks / reference (Bank Import rules)
             $member = null;
             $text = $r['member'];
+            if (!empty($r['bank_txn_id'])) {
+                $mt = $this->_match_bank($r);
+                $member = $mt['member'];
+                $r['confidence'] = $mt['confidence'];
+                $r['match'] = $mt['why'];
+                $r['paying_member_id'] = $mt['payer'] ? (int) $mt['payer']->id : null;
+                if (!$member) $r['issues'][] = 'Member not identified from "' . mb_substr($r['payer'], 0, 40) . '"' . ($mt['candidates'] ? ' — maybe: ' . implode(', ', $mt['candidates']) : '');
+                $text = 'bank';   // skip the column-based search below
+            }
             if ($text !== '' && isset($latin[$text]) && is_string($latin[$text])) $text = $latin[$text];
-            if ($text !== '') {
+            if ($text !== '' && empty($r['bank_txn_id'])) {
                 $found = $this->_members($text);
                 if (count($found) === 1) $member = $found[0];
                 elseif ($found) $r['issues'][] = count($found) . ' members match "' . $r['member'] . '" — use the member code';
                 elseif (!$loan && !$acc) $r['issues'][] = 'Member "' . $r['member'] . '" not found';
             }
             $owner = $loan ? (int) $loan->member_id : ($acc ? (int) $acc->member_id : null);
-            if (!$member && $owner && ($text === '' || count($this->_members($text)) === 0)) {
+            if (!$member && $owner && empty($r['bank_txn_id']) && ($text === '' || count($this->_members($text)) === 0)) {
                 $member = $db->where('id', $owner)->get('members')->row();
             }
             if (!$member && $text === '' && !$owner) {
@@ -256,11 +267,23 @@ class Passbook_import {
             $r['member_id'] = $member ? (int) $member->id : null;
             $r['member_label'] = $member ? $member->member_code . ' — ' . trim($member->first_name . ' ' . $member->last_name) : ($r['member'] ?: '—');
 
-            if ($member && !$r['issues']) $this->_allocate($r, $member, $loan, $acc);
+            if ($member && !$r['issues'] && !empty($r['bank_txn_id'])) {
+                if (preg_match('/\b(NEFT|IMPS|RTGS)[\s\-]*DR\b|^UPI\/DR\//i', $r['bank_text'])) {
+                    $r['issues'][] = 'Bank text says DR (money out) although the line is a credit — check it in Bank Mapping';
+                } elseif ($this->_link_existing($r)) {
+                    $r['notes'][] = 'Already entered manually — the bank line is only linked, no new payment';
+                } else {
+                    $monthly = $this->_monthly_dues($member->id);
+                    if ($r['amount'] > max(50000, 3 * $monthly)) $r['issues'][] = 'Large amount (monthly dues about ₹' . number_format($monthly, 2) . ') — check what it is for';
+                }
+            }
+            if ($member && !$r['issues'] && !$r['allocations']) $this->_allocate($r, $member, $loan, $acc);
 
             // Duplicates: same reference already imported / same entry already recorded / repeated in this file
             if (!$r['issues'] && $r['allocations']) {
-                if ($r['reference'] !== '' && $r['mode'] !== 'cash'
+                if (!empty($r['bank_txn_id'])) {
+                    if ($this->_already_recorded($r)) $r['issues'][] = 'A payment of this amount on this date is already recorded for this member (entered manually?) — map this line by hand';
+                } elseif ($r['reference'] !== '' && $r['mode'] !== 'cash'
                     && $db->group_start()->where('utr_number', $r['reference'])->or_where('reference_number', $r['reference'])->group_end()
                           ->where('transaction_type', 'credit')->where('amount >=', $r['amount'])->count_all_results('bank_transactions') > 0
                     && !isset($seen['ref:' . $r['date'] . $r['mode'] . $r['reference']])) {
@@ -323,9 +346,10 @@ class Passbook_import {
         switch ($r['type']) {
             case 'emi':
                 if ($acc && !$loan) { $r['issues'][] = $r['account'] . ' is a savings account, not a loan'; return; }
-                if (count($loans) !== 1) { $r['issues'][] = $loans ? 'Member has ' . count($loans) . ' active loans — fill Loan No' : 'Member has no active loan'; return; }
+                if (!$loans) { $r['issues'][] = 'Member has no active loan'; return; }
+                if (count($loans) > 1) { $this->_loans_alloc($r, $loans, $accs, $next, $emi_alloc, $sav_alloc, false); return; }
                 $due = $emi_alloc($loans[0], $r['amount']);
-                if ($due !== false && $r['amount'] + 0.01 < $due) $r['notes'][] = 'Less than EMI due ₹' . number_format($due, 2) . ' — shortfall is taken from savings (loan rule)';
+                if ($due !== false && $r['amount'] + 1 < $due) $r['notes'][] = 'Less than EMI due ₹' . number_format($due, 2) . ' — shortfall is taken from savings (loan rule)';
                 if ($due !== false && $r['amount'] > $due + 1) $r['notes'][] = 'More than EMI due ₹' . number_format($due, 2) . ' — excess goes to savings (loan rule)';
                 return;
             case 'savings':
@@ -340,26 +364,8 @@ class Passbook_import {
                 if ($r['amount'] > (float) $fine->balance_amount + 0.01) $r['notes'][] = 'More than the pending fine (₹' . number_format((float) $fine->balance_amount, 2) . ')';
                 return;
             case 'auto':
-                if (count($loans) > 1) { $r['issues'][] = 'Member has ' . count($loans) . ' active loans — set Type and Loan No'; return; }
-                if ($loans) {
-                    $inst = $next($loans[0]);
-                    $due = $inst ? round((float) $inst->emi_amount - (float) $inst->total_paid, 2) : 0;
-                    if ($inst && $r['amount'] + 0.01 < $due) {
-                        $r['issues'][] = '₹' . number_format($r['amount'], 2) . ' is less than the EMI due ₹' . number_format($due, 2) . ' — set Type emi (shortfall from savings) or savings';
-                        return;
-                    }
-                    if ($inst) {
-                        $rest = round($r['amount'] - $due, 2);
-                        if ($rest > 0.5 && count($accs) === 1) {
-                            $emi_alloc($loans[0], $due);
-                            $sav_alloc($accs[0], $rest);
-                        } else {
-                            $emi_alloc($loans[0], $r['amount']);
-                            if ($rest > 0.5) $r['notes'][] = 'Excess ₹' . number_format($rest, 2) . ' goes to savings by the loan rule';
-                        }
-                        return;
-                    }
-                }
+                if ($loans && $this->_loans_alloc($r, $loans, $accs, $next, $emi_alloc, $sav_alloc, true)) return;
+                if ($r['issues']) return;
                 if (count($accs) !== 1) { $r['issues'][] = $accs ? 'Member has ' . count($accs) . ' savings accounts — fill A/c No' : 'No active loan or savings account'; return; }
                 $sav_alloc($accs[0], $r['amount']);
                 return;
@@ -367,6 +373,48 @@ class Passbook_import {
                 $fee = $r['type'] === 'other_fee' ? 'other' : $r['type'];
                 $r['allocations'][] = ['type' => 'other_fee_' . $fee, 'related' => '', 'amount' => $r['amount'], 'label' => ucwords(str_replace('_', ' ', $fee))];
         }
+    }
+
+    /**
+     * EMIs due on the member's loans. Amount ≈ one loan's EMI → that loan; ≈ all EMIs (or more) → every EMI, rest to savings.
+     * ₹1 tolerance: bank payments are whole rupees (₹10,033 for an EMI of ₹10,033.37 counts as the EMI).
+     * @return bool true when allocated (or an issue was raised); false = no EMI due, caller decides (savings).
+     */
+    private function _loans_alloc(array &$r, array $loans, array $accs, $next, $emi_alloc, $sav_alloc, $auto) {
+        $dues = [];
+        foreach ($loans as $l) {
+            if (!in_array($l->status, ['active', 'npa'], true)) continue;
+            $i = $next($l);
+            if ($i) $dues[] = ['l' => $l, 'due' => round((float) $i->emi_amount - (float) $i->total_paid, 2)];
+        }
+        if (!$dues) return false;
+        $amt = $r['amount'];
+        $total = round(array_sum(array_column($dues, 'due')), 2);
+        $list = implode(', ', array_map(function ($d) { return $d['l']->loan_number . ' ₹' . number_format($d['due'], 2); }, $dues));
+
+        $one = array_values(array_filter($dues, function ($d) use ($amt) { return abs($amt - $d['due']) <= 1; }));
+        if (count($dues) > 1 && count($one) === 1 && abs($amt - $total) > 1) {
+            $emi_alloc($one[0]['l'], $amt);
+            $r['notes'][] = 'Matched the EMI of ' . $one[0]['l']->loan_number;
+            return true;
+        }
+        if ($amt + count($dues) >= $total) {
+            $rest = round($amt - $total, 2);
+            foreach ($dues as $k => $d) {
+                $x = $d['due'] + ($k === count($dues) - 1 && $rest < 0 ? $rest : 0);   // whole-rupee shortfall on the last EMI
+                $emi_alloc($d['l'], round($x, 2));
+            }
+            if ($rest > 0.5) {
+                if (count($accs) === 1) $sav_alloc($accs[0], $rest);
+                else $r['notes'][] = 'Excess ₹' . number_format($rest, 2) . ' goes to savings by the loan rule';
+            }
+            if (count($dues) > 1) $r['notes'][] = 'Paid the EMIs of all ' . count($dues) . ' loans';
+            return true;
+        }
+        $r['issues'][] = count($dues) === 1
+            ? '₹' . number_format($amt, 2) . ' is less than the EMI due ₹' . number_format($dues[0]['due'], 2) . ($auto ? ' — set Type emi (shortfall from savings) or savings' : '')
+            : '₹' . number_format($amt, 2) . ' does not match the EMIs due (' . $list . ') — fill Loan No';
+        return true;
     }
 
     private function _already_recorded(array $r) {
@@ -402,7 +450,8 @@ class Passbook_import {
         $groups = [];
         foreach ($rows as $r) {
             if ($r['status'] !== 'ready') continue;
-            $key = $r['reference'] !== '' ? $r['date'] . '|' . $r['mode'] . '|' . $r['reference'] . '|' . $r['bank_account_id'] : 'row' . $r['row'];
+            $key = !empty($r['bank_txn_id']) ? 'bt' . $r['bank_txn_id']
+                 : ($r['reference'] !== '' ? $r['date'] . '|' . $r['mode'] . '|' . $r['reference'] . '|' . $r['bank_account_id'] : 'row' . $r['row']);
             $groups[$key][] = $r;
         }
 
@@ -415,6 +464,16 @@ class Passbook_import {
             $total = round(array_sum(array_map(function ($r) { return array_sum(array_column($r['allocations'], 'amount')); }, $g)), 2);
             $db->trans_begin();
             try {
+                if (!empty($first['bank_txn_id'])) {
+                    $this->_map_existing($first, $g, $total, $admin_id);
+                    $db->trans_commit();
+                    foreach ($g as $r) {
+                        $res['results'][$r['row']] = ['status' => 'saved', 'message' => implode(' + ', array_map(function ($a) { return $a['label'] . ' ₹' . number_format($a['amount'], 2); }, $r['allocations']))];
+                        $res['saved']++;
+                    }
+                    $res['amount'] += $total;
+                    continue;
+                }
                 $acc_id = $first['bank_account_id'];
                 if (!isset($imports[$acc_id])) {
                     $code = 'AIPB-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -5));
@@ -497,15 +556,75 @@ class Passbook_import {
         return $res;
     }
 
+    /** Map an EXISTING bank credit (bank mapping suggestions). Same checks as the Bank Mapping screen. */
+    private function _map_existing(array $first, array $g, $total, $admin_id) {
+        $db = $this->CI->db;
+        $txn = $db->query('SELECT * FROM bank_transactions WHERE id = ? FOR UPDATE', [$first['bank_txn_id']])->row();
+        if (!$txn) throw new Exception('Bank transaction no longer exists');
+        if ($txn->mapping_status === 'mapped') throw new Exception('Already mapped by someone else');
+        $txn_amount = (float) $txn->amount;
+        $already = (float) $txn->mapped_amount;
+        if ($total > ceil($txn_amount - $already) + 0.01) throw new Exception('Amount is more than the unmapped balance of this bank line');
+
+        $mappings = [];
+        foreach ($g as $r) {
+            foreach ($r['allocations'] as $a) {
+                $mappings[] = ['paying_member_id' => $r['paying_member_id'] ?: $r['member_id'], 'paid_for_member_id' => $r['member_id'],
+                               'transaction_type' => $a['type'], 'related_account' => $a['related'], 'amount' => $a['amount'],
+                               'remarks' => mb_substr('AI mapping: ' . ($r['match'] ?? ''), 0, 255)];
+            }
+        }
+        $links = array_values(array_filter($mappings, function ($m) { return strpos($m['transaction_type'], 'link_') === 0; }));
+        if ($links) {
+            if (count($links) !== count($mappings)) throw new Exception('Mixed link / new entries are not supported — map this line by hand');
+            foreach ($links as $l) {
+                $table = $l['transaction_type'] === 'link_savings' ? 'savings_transactions' : 'loan_payments';
+                $rec = $db->where('id', (int) $l['related_account'])->where('bank_transaction_id IS NULL', null, false)->get($table)->row();
+                if (!$rec) throw new Exception('The manual entry is no longer unlinked — refresh the suggestions');
+                $db->where('id', $rec->id)->update($table, ['bank_transaction_id' => $txn->id]);
+                $db->insert('transaction_mappings', ['bank_transaction_id' => $txn->id, 'member_id' => $l['paid_for_member_id'],
+                    'mapping_type' => $l['transaction_type'] === 'link_savings' ? 'savings' : 'loan_payment', 'related_type' => $table, 'related_id' => $rec->id,
+                    'amount' => $l['amount'], 'narration' => mb_substr('Linked to existing entry — ' . $l['remarks'], 0, 255),
+                    'mapped_by' => $admin_id, 'mapped_at' => date('Y-m-d H:i:s')]);
+            }
+            $done = $already + $total;
+            $db->where('id', $txn->id)->update('bank_transactions', ['mapping_status' => $done >= $txn_amount - 1 ? 'mapped' : 'partial',
+                'mapped_amount' => $done, 'unmapped_amount' => max(0, $txn_amount - $done), 'mapped_by' => $admin_id, 'mapped_at' => date('Y-m-d H:i:s'),
+                'updated_by' => $admin_id, 'updated_at' => date('Y-m-d H:i:s')]);
+        } else {
+        $before_lp = $db->where('bank_transaction_id', $txn->id)->where('is_reversed', 0)->count_all_results('loan_payments');
+        $before_sv = $db->where('bank_transaction_id', $txn->id)->where('transaction_type', 'deposit')->count_all_results('savings_transactions');
+        $this->CI->Bank_model->apply_mappings($txn, $mappings, $admin_id, $already, $total, $txn_amount);
+
+        $need = ['emi' => 0, 'savings' => 0];
+        foreach ($mappings as $mp) if (isset($need[$mp['transaction_type']])) $need[$mp['transaction_type']]++;
+        if ($db->where('bank_transaction_id', $txn->id)->where('is_reversed', 0)->count_all_results('loan_payments') - $before_lp < $need['emi']) {
+            throw new Exception('The loan payment could not be recorded (check the loan / EMI).');
+        }
+        if ($db->where('bank_transaction_id', $txn->id)->where('transaction_type', 'deposit')->count_all_results('savings_transactions') - $before_sv < $need['savings']) {
+            throw new Exception('The savings deposit could not be recorded (check the savings account).');
+        }
+        $this->_fix_modes($txn->id, $first['mode'], $first['reference']);
+        }
+        $db->where('id', $txn->id)->update('bank_transactions', [
+            'detected_member_id'   => $first['member_id'],
+            'detection_confidence' => ($first['confidence'] ?? '') === 'high' ? 95 : 75,
+            'paid_by_member_id'    => $first['paying_member_id'] ?: $first['member_id'],
+            'paid_for_member_id'   => $first['member_id'],
+            'mapping_remarks'      => mb_substr('AI Assistant: ' . ($first['match'] ?? ''), 0, 255),
+        ]);
+        if ($db->trans_status() === false) throw new Exception($db->error()['message'] ?: 'database error');
+    }
+
     private function _fix_modes($txn_id, $mode, $reference) {
         if ($mode === 'bank_transfer') return;
         $db = $this->CI->db;
         foreach ($db->where('bank_transaction_id', $txn_id)->get('transaction_mappings')->result() as $m) {
             if (!$m->related_id) continue;
             if ($m->mapping_type === 'loan_payment') {
-                $db->where('id', $m->related_id)->update('loan_payments', ['payment_mode' => $mode, 'reference_number' => $reference ?: null]);
+                $db->where('id', $m->related_id)->update('loan_payments', ['payment_mode' => $mode, 'reference_number' => $reference !== '' ? mb_substr($reference, 0, 50) : null]);
             } elseif ($m->mapping_type === 'savings') {
-                $db->where('id', $m->related_id)->update('savings_transactions', ['payment_mode' => $mode, 'reference_number' => $reference ?: null]);
+                $db->where('id', $m->related_id)->update('savings_transactions', ['payment_mode' => $mode, 'reference_number' => $reference !== '' ? mb_substr($reference, 0, 50) : null]);
             } elseif ($m->mapping_type === 'fine') {
                 $db->where('id', $m->related_id)->where('payment_mode', 'bank_transfer')->update('fines', ['payment_mode' => $mode === 'upi' ? 'online' : $mode]);
             }
@@ -514,6 +633,261 @@ class Passbook_import {
            ->update('member_other_transactions', ['payment_mode' => $mode]);
         $db->where('bank_transaction_id', $txn_id)->where('payment_mode', 'bank_transfer')
            ->update('savings_transactions', ['payment_mode' => $mode]);
+    }
+
+    // ───────────────────────────── Bank mapping suggestions ─────────────────────────────
+
+    const NAME_STOP = ['MR', 'MRS', 'MS', 'MISS', 'SMT', 'SHRI', 'DR', 'KUM', 'UPI', 'PAYMENT', 'FROM', 'PHONEPE', 'PAYTM', 'SENT', 'USING',
+                       'NO', 'REMARKS', 'REMARK', 'EMI', 'LOAN', 'AMOUNT', 'MONTH', 'OF', 'THE', 'AU', 'JAGATPURA', 'PAY', 'BY', 'WHATSAPP',
+                       'GPAY', 'GOOGLE', 'TO', 'FOR', 'SAVING', 'SAVINGS', 'IMPS', 'NEFT', 'RTGS', 'CR', 'DR', 'SOLUTION', 'SOLUTIONS',
+                       'INSTALLMENT', 'BANK', 'TRANSFER', 'FUND', 'FUNDS', 'MOBILE', 'BANKING', 'NET', 'ONLINE', 'DEPOSIT', 'AND', 'JUNE',
+                       'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER', 'JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY',
+                       'FEES', 'FEE', 'MEMBER', 'MEMBERSHIP', 'INTEREST', 'BHIM', 'YONO', 'SBI', 'HDFC', 'ICICI', 'AXIS', 'KOTAK'];
+
+    private $member_index = null;
+    private $history = null;
+
+    /**
+     * Unmapped / partly mapped CREDIT lines of Bank Transactions as rows for resolve(). The member is found from
+     * the bank text (identifiers, payer / "paid for" names, UPI id, history of earlier mappings, amount).
+     */
+    public function bank_rows(array $f = []) {
+        $db = $this->CI->db;
+        $db->select('bt.*')->from('bank_transactions bt')->where('bt.transaction_type', 'credit')->where_in('bt.mapping_status', ['unmapped', 'partial']);
+        if (!empty($f['from'])) $db->where('bt.transaction_date >=', $f['from']);
+        if (!empty($f['to']))   $db->where('bt.transaction_date <=', $f['to']);
+        if (!empty($f['ids']))  $db->where_in('bt.id', array_map('intval', (array) $f['ids']));
+        $txns = $db->order_by('bt.transaction_date', 'ASC')->order_by('bt.id', 'ASC')->limit(max(1, min(150, (int) ($f['limit'] ?? 100))))->get()->result();
+
+        $rows = [];
+        foreach ($txns as $t) {
+            $p = $this->_parse_bank_text((string) $t->description, (string) $t->description2, (string) $t->reference_number);
+            $rows[] = [
+                'row' => (int) $t->id, 'date_raw' => $t->transaction_date, 'member' => '',
+                'amount' => round((float) $t->amount - (float) $t->mapped_amount, 2),
+                'type' => '', 'account' => '', 'mode' => $p['mode'],
+                'reference' => mb_substr(trim(explode('|', (string) ($t->utr_number ?: $t->reference_number))[0]), 0, 50),
+                'remarks' => $p['remark'], 'bank_txn_id' => (int) $t->id, 'bank_account_id_fixed' => (int) $t->bank_account_id,
+                'payer' => $p['payer'], 'vpa' => $p['vpa'], 'payer_acct' => $p['acct'], 'bank_text' => trim($t->description . ' ' . $t->description2),
+            ];
+        }
+        return $rows;
+    }
+
+    /** Payer name, remark, UPI id and payer account from the common Indian bank statement formats. */
+    private function _parse_bank_text($desc, $desc2, $ref) {
+        $all = trim($desc . ' ' . $desc2);
+        $out = ['payer' => '', 'remark' => '', 'vpa' => '', 'acct' => '', 'mode' => 'bank_transfer'];
+        if (preg_match('/[\w.\-]{2,}@[a-z]{2,}/i', $all . ' ' . $ref, $m)) $out['vpa'] = strtolower($m[0]);
+        if (preg_match('/^UPI\/(CR|DR)\/\d+\/([^\/]+)\/([A-Z]{4})?\/?(\d{6,})?\/?(.*)$/i', $all, $m)) {          // UPI/CR/rrn/NAME/BANK/ACCT/REMARK
+            $out['payer'] = $m[2]; $out['acct'] = $m[4] ?? ''; $out['remark'] = $m[5] ?? ''; $out['mode'] = 'upi';
+        } elseif (preg_match('/^\d{9,}\s*\|\s*([^|]+)\|?\s*(.*)$/', $all, $m)) {                                     // rrn | NAME | REMARK
+            $out['payer'] = $m[1]; $out['remark'] = $m[2]; $out['mode'] = 'upi';
+        } elseif (preg_match('/^(NEFT|RTGS|IMPS)[\s\-]*(CR)?-?\S*\s+-([^-]+)-(\S+)\s*(?:-(\**\d+))?\s*-?(.*)$/i', $all, $m)) {   // NEFT CR-ref -NAME -IFSC -…
+            $out['payer'] = $m[3]; $out['acct'] = isset($m[5]) ? ltrim($m[5], '*') : ''; $out['remark'] = $m[6] ?? '';
+        } else {
+            $out['payer'] = $all;
+            if (stripos($all, 'UPI') !== false) $out['mode'] = 'upi';
+        }
+        $out['remark'] = trim(preg_replace('/\bAU JAGATPURA\b/i', '', $out['remark']));
+        $out['payer'] = trim($out['payer']);
+        return $out;
+    }
+
+    private function _tokens($s) {
+        $s = strtoupper(preg_replace('/[^A-Za-z]+/', ' ', (string) $s));
+        return array_values(array_filter(preg_split('/\s+/', $s), function ($t) { return strlen($t) >= 2 && !in_array($t, self::NAME_STOP, true); }));
+    }
+
+    private function _members_index() {
+        if ($this->member_index !== null) return $this->member_index;
+        $this->member_index = [];
+        foreach ($this->CI->db->select('id, member_code, first_name, middle_name, last_name, phone, alternate_phone, status')
+                     ->where('deleted_at', null)->get('members')->result() as $m) {
+            $split = function ($v) { return array_values(array_filter(preg_split('/[\s\-]+/', strtoupper(trim((string) $v))))); };
+            $m->F = $split($m->first_name);
+            $m->M = $split($m->middle_name);
+            $m->L = $split($m->last_name);
+            $this->member_index[(int) $m->id] = $m;
+        }
+        return $this->member_index;
+    }
+
+    /** Spelling-insensitive form of an Indian name part: DEEPAK/DIPAK, GAWANDGAVE/GAVANDGAVE, SANTHOSH/SANTOSH, MUSALLAGI/MUSALAGI. */
+    private function _canon($t) {
+        $t = strtolower($t);
+        $t = str_replace(['ee', 'oo', 'w', 'ph', 'aa', 'ii', 'uu', 'y'], ['i', 'u', 'v', 'f', 'a', 'i', 'u', 'i'], $t);
+        $t = preg_replace('/([bcdfgjklmnpqrstvxz])h/', '$1', $t);
+        return preg_replace('/(.)\1+/', '$1', $t);
+    }
+
+    /** Member's monthly dues: next EMI of every active loan + monthly savings. */
+    private function _monthly_dues($member_id) {
+        $db = $this->CI->db;
+        $emi = 0;
+        foreach ($db->select('id')->where('member_id', $member_id)->where_in('status', ['active', 'npa'])->get('loans')->result() as $l) {
+            $i = $db->select('emi_amount')->where('loan_id', $l->id)->where_in('status', ['overdue', 'pending', 'partial', 'upcoming'])
+                    ->order_by('installment_number', 'ASC')->limit(1)->get('loan_installments')->row();
+            if ($i) $emi += (float) $i->emi_amount;
+        }
+        return $emi + (float) ($db->select_sum('monthly_amount')->where('member_id', $member_id)->where('status', 'active')->get('savings_accounts')->row()->monthly_amount ?? 0);
+    }
+
+    /**
+     * The payment was already keyed in by hand (same member, same date, not linked to any bank line, same total):
+     * link the bank line to those entries instead of recording the money twice.
+     */
+    private function _link_existing(array &$r) {
+        $db = $this->CI->db;
+        $lp = $db->select('lp.id, lp.total_amount amount, l.loan_number ref')->from('loan_payments lp')->join('loans l', 'l.id = lp.loan_id')
+            ->where('l.member_id', $r['member_id'])->where('lp.payment_date', $r['date'])->where('lp.is_reversed', 0)
+            ->where('lp.bank_transaction_id IS NULL', null, false)->get()->result();
+        $st = $db->select('st.id, st.amount, sa.account_number ref')->from('savings_transactions st')->join('savings_accounts sa', 'sa.id = st.savings_account_id')
+            ->where('sa.member_id', $r['member_id'])->where('st.transaction_date', $r['date'])->where('st.transaction_type', 'deposit')
+            ->where('st.is_reversed', 0)->where('st.bank_transaction_id IS NULL', null, false)->get()->result();
+        $items = array_merge(array_map(function ($x) { return ['link_loan_payment', $x]; }, $lp), array_map(function ($x) { return ['link_savings', $x]; }, $st));
+        if (!$items) return false;
+        $pick = null;
+        foreach ($items as $it) if (abs((float) $it[1]->amount - $r['amount']) <= 1) { $pick = [$it]; break; }
+        if (!$pick && abs(array_sum(array_map(function ($it) { return (float) $it[1]->amount; }, $items)) - $r['amount']) <= 1) $pick = $items;
+        if (!$pick) return false;
+        $left = $r['amount'];   // the bank line decides the amount (whole rupees vs paise in the manual entry)
+        foreach ($pick as $k => $it) {
+            $amt = $k === count($pick) - 1 ? $left : min($left, round((float) $it[1]->amount, 2));
+            $left = round($left - $amt, 2);
+            $r['allocations'][] = ['type' => $it[0], 'related' => (string) $it[1]->id, 'amount' => round($amt, 2),
+                                   'label' => 'Link existing ' . ($it[0] === 'link_savings' ? 'deposit ' : 'payment ') . $it[1]->ref];
+        }
+        return true;
+    }
+
+    /** 0-6: surname 2, first name 2, middle name 1, +1 when every part matched. Joined names (YOGESHKISANDATKHILE) too. */
+    private function _name_score(array $toks, $m) {
+        if (!$toks || !$m->F) return 0;
+        $ct = array_map([$this, '_canon'], $toks);
+        $hit = function ($parts) use ($ct) {
+            foreach ($parts as $p) {
+                $p = $this->_canon($p);
+                foreach ($ct as $t) {
+                    if ($t === $p) return true;
+                    if (strlen($p) >= 5 && strlen($t) >= 5 && levenshtein($t, $p) <= 1) return true;   // NETKAE ~ NETKAR
+                }
+            }
+            return false;
+        };
+        if (count($toks) === 1 && strlen($toks[0]) >= 9) {   // name written without spaces
+            $j = $ct[0];
+            $f = strpos($j, $this->_canon($m->F[0])) !== false;
+            $l = $m->L && strpos($j, $this->_canon(end($m->L))) !== false;
+            if ($f && $l) return 4 + ($m->M && strpos($j, $this->_canon($m->M[0])) !== false ? 2 : 0);
+            return 0;
+        }
+        $F = $hit($m->F); $L = $m->L ? $hit($m->L) : false; $M = $m->M ? $hit($m->M) : false;
+        $score = ($L ? 2 : 0) + ($F ? 2 : 0) + ($M ? 1 : 0);
+        if ($F && $L && (!$m->M || $M)) $score++;
+        return $score;
+    }
+
+    /** payer key (vpa / account / name) → member ids it was mapped to before. */
+    private function _history() {
+        if ($this->history !== null) return $this->history;
+        $this->history = [];
+        $q = $this->CI->db->select('bt.description, bt.description2, bt.reference_number, tm.member_id')->from('transaction_mappings tm')
+            ->join('bank_transactions bt', 'bt.id = tm.bank_transaction_id')->where('tm.is_reversed', 0)->where('tm.member_id IS NOT NULL', null, false)
+            ->where('bt.transaction_type', 'credit')->get()->result();
+        foreach ($q as $h) {
+            $p = $this->_parse_bank_text((string) $h->description, (string) $h->description2, (string) $h->reference_number);
+            foreach (array_filter(['vpa:' . $p['vpa'], 'acct:' . $p['acct'], 'name:' . implode(' ', $this->_tokens($p['payer']))], function ($k) { return !preg_match('/:$/', $k); }) as $k) {
+                $this->history[$k][(int) $h->member_id] = true;
+            }
+        }
+        return $this->history;
+    }
+
+    /** Does the amount equal this member's EMI due, monthly savings, or both? */
+    private function _amount_fits($member_id, $amount) {
+        $db = $this->CI->db;
+        $emi = 0;
+        foreach ($db->select('id')->where('member_id', $member_id)->where_in('status', ['active', 'npa'])->get('loans')->result() as $l) {
+            $i = $db->select('emi_amount, total_paid')->where('loan_id', $l->id)->where_in('status', ['overdue', 'pending', 'partial', 'upcoming'])
+                    ->order_by('installment_number', 'ASC')->limit(1)->get('loan_installments')->row();
+            if ($i) $emi += (float) $i->emi_amount - (float) $i->total_paid;
+        }
+        $sav = (float) ($db->select_sum('monthly_amount')->where('member_id', $member_id)->where('status', 'active')->get('savings_accounts')->row()->monthly_amount ?? 0);
+        foreach (array_filter([$emi, $sav, $emi + $sav]) as $x) if (abs($amount - $x) <= 1) return true;
+        return false;
+    }
+
+    /**
+     * Who is this bank credit for?
+     * @return array [member|null, payer|null, confidence high|medium|low, why, candidates[]]
+     */
+    private function _match_bank(array $r) {
+        $idx = $this->_members_index();
+        $text = $r['bank_text'] . ' ' . $r['reference'];
+        $label = function ($m) { return $m->member_code . ' ' . trim($m->first_name . ' ' . $m->last_name); };
+        $res = function ($m, $conf, $why, $payer = null, $cands = []) { return ['member' => $m, 'payer' => $payer, 'confidence' => $conf, 'why' => $why, 'candidates' => $cands]; };
+
+        // 1. Explicit identifiers (Bank Import rules) and a mobile number inside the UPI id
+        $m = $this->_detect($text);
+        if ($m) return $res($idx[(int) $m->id] ?? $m, 'high', 'code / phone / account number in the bank text');
+        if ($r['vpa'] && preg_match('/^(?:91)?([6-9]\d{9})@/', $r['vpa'], $mm)) {
+            foreach ($idx as $x) if ($x->phone === $mm[1] || $x->alternate_phone === $mm[1]) return $res($x, 'high', 'mobile ' . $mm[1] . ' in UPI id');
+        }
+
+        $rank = function (array $toks) use ($idx, $r) {
+            $c = [];
+            foreach ($idx as $x) { $s = $this->_name_score($toks, $x); if ($s >= 2) $c[] = ['m' => $x, 's' => $s]; }
+            usort($c, function ($a, $b) { return $b['s'] - $a['s']; });
+            return $c;
+        };
+        $payer_c = $rank($this->_tokens($r['payer']));
+        $payer = ($payer_c && $payer_c[0]['s'] >= 4 && (count($payer_c) === 1 || $payer_c[1]['s'] < $payer_c[0]['s'])) ? $payer_c[0]['m'] : null;
+
+        // 2. "Paid for" name in the remark (e.g. parent paying for a child)
+        $rem_c = $rank($this->_tokens($r['remarks']));
+        if ($rem_c && $rem_c[0]['s'] >= 4 && (count($rem_c) === 1 || $rem_c[1]['s'] < $rem_c[0]['s'])) {
+            $m = $rem_c[0]['m'];
+            if (!$payer || $payer->id !== $m->id) {
+                $conf = ($rem_c[0]['s'] >= 5 || $this->_amount_fits($m->id, $r['amount'])) ? 'high' : 'medium';
+                return $res($m, $conf, 'name in remark "' . $r['remarks'] . '"' . ($payer ? ', paid by ' . $label($payer) : ''), $payer);
+            }
+        }
+
+        // 3. History of this payer (UPI id / account / name)
+        $hist = $this->_history();
+        $seen = [];
+        foreach (['vpa:' . $r['vpa'], 'acct:' . $r['payer_acct'], 'name:' . implode(' ', $this->_tokens($r['payer']))] as $k) {
+            if (!preg_match('/:$/', $k) && isset($hist[$k])) $seen += $hist[$k];
+        }
+
+        // 4. Payer name, ties broken by amount and history
+        if ($payer_c && $payer_c[0]['s'] >= 4) {
+            $top = array_values(array_filter($payer_c, function ($c) use ($payer_c) { return $c['s'] === $payer_c[0]['s']; }));
+            if (count($top) > 1) {
+                $fit = array_values(array_filter($top, function ($c) use ($r, $seen) { return isset($seen[$c['m']->id]) || $this->_amount_fits($c['m']->id, $r['amount']); }));
+                if (count($fit) === 1) return $res($fit[0]['m'], 'medium', 'payer name "' . $r['payer'] . '" (several members; picked by amount / history)');
+                return $res(null, 'low', 'payer name matches several members', null, array_map(function ($c) use ($label) { return $label($c['m']); }, array_slice($top, 0, 4)));
+            }
+            $m = $top[0]['m'];
+            $fits = $this->_amount_fits($m->id, $r['amount']);
+            if ($seen && !isset($seen[$m->id]) && count($seen) === 1) {   // this payer always paid for someone else
+                $other = $idx[(int) key($seen)] ?? null;
+                if ($other && $this->_amount_fits($other->id, $r['amount'])) return $res($other, 'medium', 'earlier payments of ' . $r['payer'] . ' were for this member; amount fits', $m);
+            }
+            $conf = ($top[0]['s'] >= 5 || $fits || isset($seen[$m->id])) ? 'high' : 'medium';
+            return $res($m, $conf, 'payer name "' . $r['payer'] . '"' . ($fits ? ' + amount matches dues' : '') . (isset($seen[$m->id]) ? ' + mapped before' : ''));
+        }
+
+        // 5. History only
+        if (count($seen) === 1 && isset($idx[(int) key($seen)])) return $res($idx[(int) key($seen)], 'medium', 'same payer was mapped to this member before');
+        if (count($seen) > 1) {
+            $fit = array_values(array_filter(array_keys($seen), function ($id) use ($r) { return $this->_amount_fits($id, $r['amount']); }));
+            if (count($fit) === 1 && isset($idx[$fit[0]])) return $res($idx[$fit[0]], 'medium', 'payer paid for several members before; amount fits this one');
+        }
+
+        $cands = array_map(function ($c) use ($label) { return $label($c['m']); }, array_slice(array_merge($rem_c, $payer_c), 0, 3));
+        return $res(null, 'low', 'no clear match', null, array_values(array_unique($cands)));
     }
 
     // ───────────────────────────── Helpers ─────────────────────────────

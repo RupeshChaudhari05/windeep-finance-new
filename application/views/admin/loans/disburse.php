@@ -153,6 +153,18 @@
                         <small class="text-muted">Usually 1 month from disbursement</small>
                     </div>
                     
+                    <?php if (!empty($application->disburse_in_parts)): ?>
+                    <div class="alert alert-info py-2">
+                        <i class="fas fa-layer-group mr-1"></i> <strong>Disburse in parts.</strong> EMI is on the full <?= format_amount($application->approved_amount, 0) ?>.
+                        Enter only the amount given now — the full processing fee<?= $processing_fee > 0 ? ' (' . format_amount($processing_fee) . ')' : '' ?> is deducted from this part.
+                    </div>
+                    <div class="form-group">
+                        <label>Amount disbursed now (part 1) <span class="text-danger">*</span></label>
+                        <input type="number" step="0.01" min="<?= round($processing_fee + 1, 2) ?>" max="<?= $application->approved_amount ?>" name="first_amount" id="first_amount" class="form-control" required>
+                        <small class="text-muted">Member receives <b id="first_net">—</b> · left to disburse later <b id="first_left">—</b></small>
+                    </div>
+                    <?php endif; ?>
+
                     <div class="form-group">
                         <label>Disbursement Mode <span class="text-danger">*</span></label>
                         <select name="disbursement_mode" id="disbursement_mode" class="form-control" required>
@@ -254,6 +266,12 @@ $(document).ready(function() {
         if (!confirm('Are you sure you want to disburse this loan? This action cannot be undone.')) {
             e.preventDefault();
         }
+    });
+    // Disburse in parts: preview of the first part
+    $('#first_amount').on('input', function () {
+        var a = parseFloat(this.value) || 0, fee = <?= (float) $processing_fee ?>, total = <?= (float) $application->approved_amount ?>;
+        $('#first_net').text(a > 0 ? '₹' + (a - fee).toLocaleString('en-IN', {maximumFractionDigits: 2}) : '—');
+        $('#first_left').text(a > 0 ? '₹' + Math.max(0, total - a).toLocaleString('en-IN', {maximumFractionDigits: 2}) : '—');
     });
 });
 </script>

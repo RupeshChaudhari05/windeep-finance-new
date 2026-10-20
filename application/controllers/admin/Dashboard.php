@@ -355,7 +355,7 @@ class Dashboard extends Admin_Controller {
                           ->limit(50)
                           ->get()
                           ->result();
-        $totals = $this->db->select('SUM(outstanding_principal) as total_principal, SUM(outstanding_interest) as total_interest, COUNT(*) as total_loans, SUM(principal_amount) as total_disbursed')
+        $totals = $this->db->select('SUM(outstanding_principal) as total_principal, SUM(outstanding_interest) as total_interest, COUNT(*) as total_loans, SUM(COALESCE(disbursed_amount, principal_amount)) as total_disbursed, SUM(principal_amount) as total_sanctioned', false)
                            ->where('status', 'active')
                            ->get('loans')
                            ->row();
@@ -441,13 +441,18 @@ class Dashboard extends Admin_Controller {
         $month = date('m');
         $year = date('Y');
         
-        $disbursed = $this->db->select('l.id, l.loan_number, l.principal_amount, l.disbursement_date, l.emi_amount, l.tenure_months, m.member_code, m.first_name, m.last_name, lp.product_name')
-                              ->from('loans l')
+        // One row per disbursement part released this month (a loan disbursed in parts shows each part on its date)
+        $disbursed = $this->db->select("l.id, CONCAT(l.loan_number, IF(l.is_tranche = 1, CONCAT(' · part ', dt.tranche_no), '')) loan_number,
+                                        dt.disbursement_amount principal_amount, dt.disbursement_date, l.emi_amount, l.tenure_months,
+                                        m.member_code, m.first_name, m.last_name, lp.product_name", false)
+                              ->from('disbursement_tracking dt')
+                              ->join('loans l', 'l.id = dt.loan_id')
                               ->join('members m', 'm.id = l.member_id')
                               ->join('loan_products lp', 'lp.id = l.loan_product_id', 'left')
-                              ->where('MONTH(l.disbursement_date)', $month)
-                              ->where('YEAR(l.disbursement_date)', $year)
-                              ->order_by('l.disbursement_date', 'DESC')
+                              ->where('dt.status', 'completed')
+                              ->where('MONTH(dt.disbursement_date)', $month)
+                              ->where('YEAR(dt.disbursement_date)', $year)
+                              ->order_by('dt.disbursement_date', 'DESC')
                               ->get()
                               ->result();
         $this->json_response(['data' => $disbursed]);

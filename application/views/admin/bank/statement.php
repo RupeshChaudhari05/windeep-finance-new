@@ -1478,7 +1478,11 @@ $(document).ready(function() {
                     html += '<div class="border rounded p-2 mb-2 disb-loan-item" data-loan-id="' + loan.id + '" style="cursor: pointer;">';
                     html += '<div class="d-flex justify-content-between align-items-center">';
                     html += '<div><strong>' + loan.loan_number + '</strong><br><small class="text-muted">' + (loan.member_code || '') + ' - ' + (loan.member_name || '') + '</small></div>';
-                    html += '<div class="text-right"><span class="badge badge-primary">' + CS + parseFloat(loan.net_disbursement || loan.loan_amount || 0).toLocaleString('en-IN') + '</span><br><small>Date: ' + (loan.disbursement_date || loan.created_at || '') + '</small></div>';
+                    // An unmapped part (link) or, for a loan disbursed in parts, the amount still to release (new part)
+                    var badge = loan.unmapped_part !== null && loan.unmapped_part !== undefined
+                        ? '<span class="badge badge-primary">' + CS + parseFloat(loan.unmapped_part).toLocaleString('en-IN') + '</span><br><small>unmapped part · ' + (loan.disbursement_date || '') + '</small>'
+                        : '<span class="badge badge-info">' + CS + parseFloat(loan.pending_disbursement || 0).toLocaleString('en-IN') + ' left</span><br><small>new part (disbursed in parts)</small>';
+                    html += '<div class="text-right">' + badge + '</div>';
                     html += '</div></div>';
                 });
                 $('#disb_loans_list').html(html);

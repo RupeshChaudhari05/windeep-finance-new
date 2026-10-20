@@ -1499,16 +1499,24 @@ class Bank_model extends MY_Model {
                     break;
 
                 case 'disbursement':
-                    if ($mapping->related_id) {
-                        // Mark disbursement_tracking as reversed
-                        if ($this->db->table_exists('disbursement_tracking')) {
-                            $this->db->where('id', $mapping->related_id)
-                                     ->update('disbursement_tracking', [
-                                         'status' => 'reversed',
-                                         'remarks' => 'Reversed: ' . $reason,
-                                         'updated_at' => date('Y-m-d H:i:s')
-                                     ]);
+                    $part = $mapping->related_id ? $this->db->where('id', $mapping->related_id)->get('disbursement_tracking')->row() : null;
+                    if ($part && $part->source === 'bank_mapping' && $part->status === 'completed') {
+                        // This part only existed because of the bank line → undo it (loan total + ledger)
+                        $this->db->where('id', $part->id)->update('disbursement_tracking', ['status' => 'reversed', 'remarks' => 'Reversed: ' . $reason, 'updated_at' => date('Y-m-d H:i:s')]);
+                        $loan = $this->db->where('id', $part->loan_id)->get('loans')->row();
+                        if ($loan && $loan->disbursed_amount !== null) {
+                            $this->db->where('id', $loan->id)->update('loans', ['disbursed_amount' => max(0, round((float) $loan->disbursed_amount - (float) $part->disbursement_amount, 2))]);
                         }
+                        $this->load->model('Ledger_model');
+                        $this->Ledger_model->post_compound_entry('journal', [
+                            ['code' => Ledger_model::AC_BANK, 'debit' => (float) $part->disbursement_amount],
+                            ['code' => Ledger_model::AC_MEMBER_LOANS, 'credit' => (float) $part->disbursement_amount],
+                        ], ['narration' => 'Reversal of loan disbursement part ' . $part->tranche_no . ($loan ? ' ' . $loan->loan_number : '') . ' — ' . $reason,
+                            'reference_type' => 'loan_disbursement_reversal', 'reference_id' => $part->id, 'member_id' => $part->member_id,
+                            'voucher_date' => date('Y-m-d'), 'created_by' => $admin_id]);
+                    } elseif ($part) {
+                        // Disbursement recorded on the loan itself — just detach the bank line
+                        $this->db->where('id', $part->id)->update('disbursement_tracking', ['bank_transaction_id' => null, 'updated_at' => date('Y-m-d H:i:s')]);
                     }
                     break;
 
@@ -1599,140 +1607,61 @@ class Bank_model extends MY_Model {
      * Record Disbursement Mapping
      * Maps a debit bank transaction to a loan disbursement
      */
+    /**
+     * Map a bank DEBIT line to a loan disbursement.
+     *  - A recorded part with this amount and no bank line yet → the line is linked to it (its ledger entry was
+     *    already posted when the loan / part was disbursed, so nothing is posted twice).
+     *  - Otherwise, for a loan disbursed in parts → the line becomes the next part (Loan_model::add_disbursement_part
+     *    posts the ledger and the mapping).
+     */
     public function map_disbursement($transaction_id, $loan_id, $amount, $admin_id, $remarks = '') {
         $this->db->trans_begin();
-
         try {
-            // Lock the transaction row to prevent double-mapping (BANK-1 pattern)
-            $txn = $this->db->query(
-                'SELECT * FROM bank_transactions WHERE id = ? FOR UPDATE',
-                [$transaction_id]
-            )->row();
+            $txn = $this->db->query('SELECT * FROM bank_transactions WHERE id = ? FOR UPDATE', [$transaction_id])->row();
             if (!$txn) throw new Exception('Transaction not found');
-
-            // Reject if already fully mapped (BANK-2 pattern)
-            if ($txn->mapping_status === 'mapped') {
-                throw new Exception('This transaction is already fully mapped');
-            }
+            if ($txn->mapping_status === 'mapped') throw new Exception('This transaction is already fully mapped');
 
             $loan = $this->db->where('id', $loan_id)->get('loans')->row();
             if (!$loan) throw new Exception('Loan not found');
 
-            // BANK-3: Validate disbursement amount against loan
-            $net_disbursement = floatval($loan->principal_amount) - floatval($loan->processing_fee ?? 0);
-            if ($amount > ($net_disbursement + 0.01)) {
-                throw new Exception(sprintf(
-                    'Disbursement amount (%.2f) exceeds loan net disbursement (%.2f = principal %.2f - processing fee %.2f)',
-                    $amount, $net_disbursement, floatval($loan->principal_amount), floatval($loan->processing_fee ?? 0)
-                ));
-            }
-
-            // Validate against remaining unmapped transaction amount
-            $txn_amount = floatval($txn->amount);
-            $already_mapped = floatval($txn->mapped_amount ?? 0);
-            $available = $txn_amount - $already_mapped;
+            $available = floatval($txn->amount) - floatval($txn->mapped_amount ?? 0);
             if ($amount > ($available + 0.01)) {
-                throw new Exception(sprintf(
-                    'Disbursement amount (%.2f) exceeds available unmapped amount (%.2f)',
-                    $amount, $available
-                ));
+                throw new Exception(sprintf('Disbursement amount (%.2f) exceeds available unmapped amount (%.2f)', $amount, $available));
             }
 
-            // Create disbursement tracking record
-            $tracking_data = [
-                'loan_id' => $loan_id,
-                'member_id' => $loan->member_id,
-                'bank_transaction_id' => $transaction_id,
-                'disbursement_amount' => $loan->principal_amount,
-                'processing_fee' => $loan->processing_fee ?? 0,
-                'net_amount' => $amount,
-                'disbursement_date' => $txn->transaction_date,
-                'disbursement_mode' => 'bank_transfer',
-                'reference_number' => $txn->reference_number ?? $txn->utr_number ?? '',
-                'bank_account_id' => $txn->bank_account_id,
-                'status' => 'completed',
-                'remarks' => $remarks,
-                'created_by' => $admin_id
-            ];
-
-            if ($this->db->table_exists('disbursement_tracking')) {
-                $this->db->insert('disbursement_tracking', $tracking_data);
-                $tracking_id = $this->db->insert_id();
+            $this->load->model('Loan_model');
+            $part = $this->db->where('loan_id', $loan_id)->where('status', 'completed')->where('bank_transaction_id IS NULL', null, false)
+                             ->where('ABS(net_amount - ' . $this->db->escape((float) $amount) . ') <=', 1, false)
+                             ->order_by('tranche_no', 'ASC')->limit(1)->get('disbursement_tracking')->row();
+            if ($part) {
+                $this->Loan_model->_map_disbursement_line($txn, $loan, $part->id, $amount, $admin_id, $remarks);
+                $part_id = (int) $part->id;
+            } elseif (!empty($loan->is_tranche)) {
+                $part_id = $this->Loan_model->add_disbursement_part($loan_id, [
+                    'amount' => $amount, 'bank_transaction_id' => $transaction_id, 'remarks' => $remarks, 'source' => 'bank_mapping',
+                ], $admin_id);
             } else {
-                $tracking_id = $loan_id; // Fallback
+                $open = $this->db->select('tranche_no, net_amount')->where('loan_id', $loan_id)->where('status', 'completed')
+                                 ->where('bank_transaction_id IS NULL', null, false)->get('disbursement_tracking')->result();
+                throw new Exception('No unmapped disbursement of ' . number_format($amount, 2) . ' on ' . $loan->loan_number
+                    . ($open ? ' (unmapped: ' . implode(', ', array_map(function ($p) { return 'part ' . $p->tranche_no . ' ' . number_format($p->net_amount, 2); }, $open)) . ')' : ' (all parts are already mapped)'));
             }
 
-            // Create transaction mapping
-            $this->db->insert('transaction_mappings', [
-                'bank_transaction_id' => $transaction_id,
-                'member_id' => $loan->member_id,
-                'mapping_type' => 'disbursement',
-                'related_type' => 'loan',
-                'related_id' => $tracking_id,
-                'amount' => $amount,
-                'narration' => 'Loan Disbursement: ' . $loan->loan_number . ($remarks ? ' - ' . $remarks : ''),
-                'mapped_by' => $admin_id,
-                'mapped_at' => date('Y-m-d H:i:s')
-            ]);
-
-            // Update loan with bank reference
-            $loan_update = [
-                'disbursement_reference' => $txn->reference_number ?? $txn->utr_number ?? $loan->disbursement_reference,
-                'updated_at' => date('Y-m-d H:i:s')
-            ];
-            if ($this->db->field_exists('disbursement_bank_account', 'loans')) {
-                $loan_update['disbursement_bank_account'] = $txn->bank_account_id;
-            }
+            $loan_update = ['disbursement_reference' => mb_substr((string) ($txn->reference_number ?: ($txn->utr_number ?: $loan->disbursement_reference)), 0, 50),
+                            'updated_at' => date('Y-m-d H:i:s')];
             $this->db->where('id', $loan_id)->update('loans', $loan_update);
-
-            // Update bank transaction
-            $txn_amount = floatval($txn->amount);
-            $existing_mapped = floatval($txn->mapped_amount ?? 0);
-            $new_mapped = $existing_mapped + $amount;
-            $new_status = ($new_mapped >= $txn_amount) ? 'mapped' : 'partial';
-
-            $update_txn = [
-                'mapping_status' => $new_status,
-                'mapped_amount' => $new_mapped,
-                'unmapped_amount' => $txn_amount - $new_mapped,
-                'paid_for_member_id' => $loan->member_id,
-                'transaction_category' => 'disbursement',
-                'updated_by' => $admin_id,
-                'updated_at' => date('Y-m-d H:i:s')
-            ];
-            if ($this->db->field_exists('mapped_by', 'bank_transactions')) {
-                $update_txn['mapped_by'] = $admin_id;
-            }
-            if ($this->db->field_exists('mapped_at', 'bank_transactions')) {
-                $update_txn['mapped_at'] = date('Y-m-d H:i:s');
-            }
-            $this->db->where('id', $transaction_id)->update('bank_transactions', $update_txn);
-
-            // Post GL entry
-            $this->load->model('Ledger_model');
-            $this->Ledger_model->post_transaction(
-                'loan_disbursement',
-                $transaction_id,
-                $amount,
-                $loan->member_id,
-                'Loan Disbursement: ' . $loan->loan_number,
-                $admin_id
-            );
 
             if ($this->db->trans_status() === FALSE) {
                 $this->db->trans_rollback();
                 return false;
             }
-
             $this->db->trans_commit();
-            return $tracking_id;
-
+            return $part_id;
         } catch (Exception $e) {
             $this->db->trans_rollback();
             throw $e;
         }
     }
-
     /**
      * Record Internal Transaction Mapping
      * Maps bank transactions to internal events (charges, transfers, interest, etc.)
@@ -1920,16 +1849,19 @@ class Bank_model extends MY_Model {
                           m.member_code, CONCAT(m.first_name, " ", m.last_name) as member_name');
         $this->db->from('loans l');
         $this->db->join('members m', 'm.id = l.member_id');
-        $this->db->where('l.status', 'active');
+        $this->db->where_in('l.status', ['active', 'npa']);
 
         if ($member_id) {
             $this->db->where('l.member_id', $member_id);
         }
 
-        // Exclude loans already tracked in disbursement_tracking
-        if ($this->db->table_exists('disbursement_tracking')) {
-            $this->db->where('l.id NOT IN (SELECT loan_id FROM disbursement_tracking WHERE status = "completed")', null, FALSE);
-        }
+        // Loans with a part not mapped to a bank line yet, or a part-disbursed loan with money left to release
+        $this->db->select('(SELECT dt.net_amount FROM disbursement_tracking dt WHERE dt.loan_id = l.id AND dt.status = "completed" AND dt.bank_transaction_id IS NULL ORDER BY dt.tranche_no LIMIT 1) AS unmapped_part,
+                           l.is_tranche, (l.principal_amount - COALESCE(l.disbursed_amount, l.principal_amount)) AS pending_disbursement', false);
+        $this->db->group_start()
+                 ->where('EXISTS (SELECT 1 FROM disbursement_tracking dt WHERE dt.loan_id = l.id AND dt.status = "completed" AND dt.bank_transaction_id IS NULL)', null, false)
+                 ->or_where('(l.is_tranche = 1 AND l.principal_amount - COALESCE(l.disbursed_amount, l.principal_amount) > 0)', null, false)
+                 ->group_end();
 
         $this->db->order_by('l.disbursement_date', 'DESC');
         return $this->db->get()->result();

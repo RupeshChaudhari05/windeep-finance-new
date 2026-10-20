@@ -232,6 +232,7 @@ class Loan_model extends MY_Model {
             'approved_amount' => $data['approved_amount'],
             'approved_tenure_months' => $data['approved_tenure_months'],
             'approved_interest_rate' => $data['approved_interest_rate'],
+            'disburse_in_parts' => !empty($data['disburse_in_parts']) ? 1 : 0,
             'revision_remarks' => $data['remarks'] ?? null,
             'revised_at' => date('Y-m-d H:i:s'),
             'revised_by' => $admin_id,
@@ -361,6 +362,16 @@ class Loan_model extends MY_Model {
             }
             
             $net_disbursement = $principal - $processing_fee;
+
+            // Disburse in parts: EMI / schedule on the full sanctioned amount, only the first part is released now.
+            // The full processing fee is deducted from the first part.
+            $in_parts = !empty($application->disburse_in_parts);
+            $first = $in_parts ? round((float) ($disbursement_data['first_amount'] ?? 0), 2) : (float) $principal;
+            if ($in_parts) {
+                if ($first <= 0) throw new Exception('Enter the amount disbursed now (first part)');
+                if ($first > $principal + 0.01) throw new Exception('First part cannot be more than the sanctioned amount');
+                if ($first <= $processing_fee) throw new Exception('First part must be more than the processing fee (' . number_format($processing_fee, 2) . ')');
+            }
             
             // Create loan record — loan_number generated post-insert (LOAN-8 fix)
             $loan_data = [
@@ -369,6 +380,8 @@ class Loan_model extends MY_Model {
                 'member_id' => $application->member_id,
                 'loan_product_id' => $application->loan_product_id,
                 'principal_amount' => $principal,
+                'is_tranche' => $in_parts ? 1 : 0,
+                'disbursed_amount' => $in_parts ? $first : null,
                 'interest_rate' => $rate,
                 'interest_type' => $interest_type,
                 'tenure_months' => $tenure,
@@ -399,6 +412,16 @@ class Loan_model extends MY_Model {
             
             // Generate installment schedule
             $this->generate_installment_schedule($loan_id, $principal, $rate, $tenure, $interest_type, $calc['emi'], $disbursement_data['first_emi_date']);
+
+            // Part 1 of the disbursement (the whole loan when not in parts) — Bank Mapping links the bank debit to it
+            $this->db->insert('disbursement_tracking', [
+                'loan_id' => $loan_id, 'member_id' => $application->member_id, 'tranche_no' => 1,
+                'disbursement_amount' => $first, 'processing_fee' => $processing_fee, 'net_amount' => round($first - $processing_fee, 2),
+                'disbursement_date' => $disbursement_data['disbursement_date'],
+                'disbursement_mode' => in_array($disbursement_data['disbursement_mode'], ['cash', 'bank_transfer', 'cheque', 'upi'], true) ? $disbursement_data['disbursement_mode'] : 'bank_transfer',
+                'reference_number' => $disbursement_data['reference_number'] ?? null, 'status' => 'completed', 'source' => 'disbursement',
+                'remarks' => $in_parts ? 'First part of ' . number_format($principal, 2) : null, 'created_by' => $admin_id,
+            ]);
             
             // Update application status
             $this->db->where('id', $application_id)
@@ -2055,7 +2078,8 @@ class Loan_model extends MY_Model {
             return false;
         }
 
-        $outstanding_principal = $loan->outstanding_principal ?? 0;
+        // Part-disbursed loan: the undisbursed balance is not owed
+        $outstanding_principal = max(0, (float) ($loan->outstanding_principal ?? 0) - $this->pending_disbursement($loan));
 
         // Get total interest: current month + all remaining unpaid months
         $total_interest_row = $this->db->select_sum('interest_amount')
@@ -2127,7 +2151,7 @@ class Loan_model extends MY_Model {
             return false;
         }
 
-        $outstanding_principal = round((float)($loan->outstanding_principal ?? 0), 2);
+        $outstanding_principal = round(max(0, (float)($loan->outstanding_principal ?? 0) - $this->pending_disbursement($loan)), 2);
         $outstanding_interest = round((float)($loan->outstanding_interest ?? 0), 2);
 
         $pending_fines_row = $this->db->select_sum('f.fine_amount')
@@ -3569,5 +3593,124 @@ class Loan_model extends MY_Model {
         ->where('fr.id', $request_id)
         ->get()
         ->row();
+    }
+
+    // ================================================================
+    // DISBURSEMENT IN PARTS (TRANCHES)
+    // ================================================================
+
+    /** Principal actually released so far (NULL in the loan row = fully disbursed). */
+    public function disbursed_amount($loan) {
+        return $loan->disbursed_amount === null ? (float) $loan->principal_amount : (float) $loan->disbursed_amount;
+    }
+
+    /** Sanctioned principal not yet released. */
+    public function pending_disbursement($loan) {
+        return round(max(0, (float) $loan->principal_amount - $this->disbursed_amount($loan)), 2);
+    }
+
+    /** Parts of a loan, oldest first, with the bank line they are mapped to. */
+    public function get_disbursement_parts($loan_id) {
+        return $this->db->select('dt.*, bt.transaction_date bank_date, bt.amount bank_amount, bt.description bank_description, a.full_name created_by_name')
+            ->from('disbursement_tracking dt')
+            ->join('bank_transactions bt', 'bt.id = dt.bank_transaction_id', 'left')
+            ->join('admin_users a', 'a.id = dt.created_by', 'left')
+            ->where('dt.loan_id', $loan_id)->order_by('dt.tranche_no', 'ASC')->order_by('dt.id', 'ASC')->get()->result();
+    }
+
+    /**
+     * Release the next part of a part-disbursed loan.
+     * EMI / schedule do not change (they are on the full sanctioned amount). Posts the ledger for the real money
+     * (Dr Member Loans / Cr Bank or Cash) and, when a bank debit line is given, maps it.
+     *
+     * @param array $d amount, date, mode, reference, remarks, bank_transaction_id (optional), source
+     * @return int part id
+     */
+    public function add_disbursement_part($loan_id, array $d, $admin_id) {
+        $this->db->trans_begin();
+        try {
+            $loan = $this->db->query('SELECT * FROM loans WHERE id = ? FOR UPDATE', [$loan_id])->row();
+            if (!$loan) throw new Exception('Loan not found');
+            if (empty($loan->is_tranche)) throw new Exception('This loan was not approved for disbursement in parts');
+            if (!in_array($loan->status, ['active', 'npa'], true)) throw new Exception('Loan is ' . $loan->status . ' — no more parts can be released');
+
+            $amount = round((float) ($d['amount'] ?? 0), 2);
+            $pending = $this->pending_disbursement($loan);
+            if ($amount <= 0) throw new Exception('Amount must be greater than zero');
+            if ($amount > $pending + 0.01) throw new Exception('Only ' . number_format($pending, 2) . ' is left to disburse on ' . $loan->loan_number);
+
+            $date = $d['date'] ?? date('Y-m-d');
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) throw new Exception('Invalid date');
+            if ($date > date('Y-m-d')) throw new Exception('Date cannot be in the future');
+            if ($loan->disbursement_date && $date < $loan->disbursement_date) throw new Exception('Date cannot be before the first disbursement (' . $loan->disbursement_date . ')');
+            $mode = in_array($d['mode'] ?? '', ['cash', 'bank_transfer', 'cheque', 'upi'], true) ? $d['mode'] : 'bank_transfer';
+
+            $txn = null;
+            if (!empty($d['bank_transaction_id'])) {
+                $txn = $this->db->query('SELECT * FROM bank_transactions WHERE id = ? FOR UPDATE', [(int) $d['bank_transaction_id']])->row();
+                if (!$txn) throw new Exception('Bank transaction not found');
+                if ($txn->transaction_type !== 'debit') throw new Exception('Pick a DEBIT bank line (money paid out)');
+                if ($txn->mapping_status === 'mapped') throw new Exception('That bank line is already mapped');
+                if ($amount > (float) $txn->amount - (float) $txn->mapped_amount + 0.01) throw new Exception('Amount is more than the unmapped part of the bank line');
+                $date = $txn->transaction_date;
+                $mode = 'bank_transfer';
+            }
+
+            $no = (int) $this->db->select_max('tranche_no')->where('loan_id', $loan_id)->get('disbursement_tracking')->row()->tranche_no + 1;
+            $this->db->insert('disbursement_tracking', [
+                'loan_id' => $loan_id, 'member_id' => $loan->member_id, 'tranche_no' => max(2, $no),
+                'bank_transaction_id' => $txn ? $txn->id : null,
+                'disbursement_amount' => $amount, 'processing_fee' => 0, 'net_amount' => $amount,
+                'disbursement_date' => $date, 'disbursement_mode' => $mode,
+                'reference_number' => mb_substr((string) ($d['reference'] ?? ($txn ? ($txn->utr_number ?: $txn->reference_number) : '')), 0, 100) ?: null,
+                'bank_account_id' => $txn ? $txn->bank_account_id : null,
+                'status' => 'completed', 'source' => in_array($d['source'] ?? '', ['loan_page', 'bank_mapping'], true) ? $d['source'] : 'loan_page',
+                'remarks' => mb_substr((string) ($d['remarks'] ?? ''), 0, 1000) ?: null, 'created_by' => $admin_id,
+            ]);
+            $part_id = (int) $this->db->insert_id();
+
+            $new_total = round($this->disbursed_amount($loan) + $amount, 2);
+            $this->db->where('id', $loan_id)->update('loans', ['disbursed_amount' => $new_total, 'updated_at' => date('Y-m-d H:i:s')]);
+
+            if ($txn) $this->_map_disbursement_line($txn, $loan, $part_id, $amount, $admin_id, $d['remarks'] ?? '');
+
+            $this->load->model('Ledger_model');
+            $this->Ledger_model->post_transaction('loan_disbursement', $loan_id, $amount, $loan->member_id,
+                'Loan disbursement part ' . max(2, $no) . ': ' . $loan->loan_number, $admin_id, $date, $mode);
+
+            $this->load->model('Audit_model');
+            $this->Audit_model->create([
+                'user_type' => 'admin', 'user_id' => $admin_id, 'action' => 'loan_part_disbursed', 'module' => 'loans',
+                'table_name' => 'disbursement_tracking', 'record_id' => $part_id,
+                'new_values' => json_encode(['loan' => $loan->loan_number, 'amount' => $amount, 'date' => $date, 'total_disbursed' => $new_total,
+                                             'pending' => round((float) $loan->principal_amount - $new_total, 2), 'bank_transaction_id' => $txn ? $txn->id : null]),
+                'remarks' => 'Part ' . max(2, $no) . ' of ' . $loan->loan_number . ': ' . number_format($amount, 2),
+            ]);
+
+            if ($this->db->trans_status() === false) throw new Exception('Database error while saving the disbursement');
+            $this->db->trans_commit();
+            return $part_id;
+        } catch (Exception $e) {
+            $this->db->trans_rollback();
+            throw $e;
+        }
+    }
+
+    /** transaction_mappings row + bank line status for a disbursement part. Caller holds the transaction. */
+    public function _map_disbursement_line($txn, $loan, $part_id, $amount, $admin_id, $remarks = '') {
+        $this->db->where('id', $part_id)->update('disbursement_tracking', ['bank_transaction_id' => $txn->id, 'bank_account_id' => $txn->bank_account_id]);
+        $this->db->insert('transaction_mappings', [
+            'bank_transaction_id' => $txn->id, 'member_id' => $loan->member_id, 'mapping_type' => 'disbursement',
+            'related_type' => 'disbursement_tracking', 'related_id' => $part_id, 'amount' => $amount,
+            'narration' => mb_substr('Loan disbursement: ' . $loan->loan_number . ($remarks ? ' - ' . $remarks : ''), 0, 255),
+            'mapped_by' => $admin_id, 'mapped_at' => date('Y-m-d H:i:s'),
+        ]);
+        $mapped = round((float) $txn->mapped_amount + $amount, 2);
+        $this->db->where('id', $txn->id)->update('bank_transactions', [
+            'mapping_status' => $mapped >= (float) $txn->amount - 0.01 ? 'mapped' : 'partial', 'mapped_amount' => $mapped,
+            'unmapped_amount' => max(0, (float) $txn->amount - $mapped), 'paid_for_member_id' => $loan->member_id,
+            'transaction_category' => 'disbursement', 'mapped_by' => $admin_id, 'mapped_at' => date('Y-m-d H:i:s'),
+            'updated_by' => $admin_id, 'updated_at' => date('Y-m-d H:i:s'),
+        ]);
     }
 }
