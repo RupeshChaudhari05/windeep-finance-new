@@ -110,7 +110,7 @@ class Auth extends MY_Controller {
         $admin_id = $this->session->userdata('admin_id');
         
         if ($admin_id) {
-            $this->log_activity('admin', $admin_id, 'Admin logout');
+            $this->log_activity('Admin logout', 'IP: ' . $this->input->ip_address(), 'auth', 'admin', $admin_id);
         }
         
         // Destroy session
@@ -224,7 +224,7 @@ class Auth extends MY_Controller {
                      'updated_at' => date('Y-m-d H:i:s')
                  ]);
         
-        $this->log_activity('admin', $admin->id, 'Password reset');
+        $this->log_activity('Password reset', 'Reset via email link', 'auth', 'admin', $admin->id);
         
         $this->session->set_flashdata('success', 'Password has been reset. Please login with your new password.');
         redirect('admin/auth');
@@ -282,7 +282,7 @@ class Auth extends MY_Controller {
         ]);
         $this->session->unset_userdata('admin_must_change_password');
 
-        $this->log_activity('admin', $admin_id, 'Password changed');
+        $this->log_activity('Password changed', null, 'auth', 'admin', $admin_id);
 
         $this->session->set_flashdata('success', 'Password changed successfully.');
         redirect('admin/dashboard');

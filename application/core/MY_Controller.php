@@ -106,20 +106,36 @@ class MY_Controller extends CI_Controller {
     /**
      * Log Activity
      */
-    protected function log_activity($activity, $description = null, $module = null) {
-        $user_type = 'system';
-        $user_id = null;
-        
-        if (isset($this->admin_data) && $this->admin_data) {
-            $user_type = 'admin';
-            $user_id = $this->admin_data->id;
-        } elseif (isset($this->member) && $this->member) {
-            $user_type = 'member';
-            $user_id = $this->member->id;
+    /**
+     * @param string|null $user_type / $user_id  Who did it, when the controller has no logged-in user loaded
+     *                                          (login / logout / password reset). activity_logs.user_type is admin|member.
+     */
+    protected function log_activity($activity, $description = null, $module = null, $user_type = null, $user_id = null) {
+        if ($user_type === null) {
+            if (isset($this->admin_data) && $this->admin_data) {
+                $user_type = 'admin';
+                $user_id = $this->admin_data->id;
+            } elseif (isset($this->member) && $this->member) {
+                $user_type = 'member';
+                $user_id = $this->member->id;
+            } elseif ($this->session->userdata('admin_id')) {
+                $user_type = 'admin';
+                $user_id = $this->session->userdata('admin_id');
+            } elseif ($this->session->userdata('member_id')) {
+                $user_type = 'member';
+                $user_id = $this->session->userdata('member_id');
+            } else {
+                return;   // no user to attribute it to (column allows admin / member only)
+            }
         }
+        if (!in_array($user_type, ['admin', 'member'], true)) $user_type = 'admin';
         
         $this->load->model('Activity_model');
         
+        // An activity log must never break the page (logout, password change …)
+        $debug = $this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
         $this->Activity_model->create([
             'user_type' => $user_type,
             'user_id' => $user_id,
@@ -129,6 +145,11 @@ class MY_Controller extends CI_Controller {
             'ip_address' => $this->input->ip_address(),
             'user_agent' => $this->input->user_agent()
         ]);
+        } catch (Exception $e) {
+            log_message('error', 'Activity log failed: ' . $e->getMessage());
+        } finally {
+            $this->db->db_debug = $debug;
+        }
     }
     
     /**
