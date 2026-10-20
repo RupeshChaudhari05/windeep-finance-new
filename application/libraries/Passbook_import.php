@@ -511,7 +511,7 @@ class Passbook_import {
                                        'remarks' => mb_substr(($r['remarks'] !== '' ? $r['remarks'] : 'Passbook entry') . ' (AI import, row ' . $r['row'] . ')', 0, 255)];
                     }
                 }
-                $this->CI->Bank_model->apply_mappings($txn_row, $mappings, $admin_id, 0, $total, $total);
+                $this->CI->Bank_model->apply_mappings($txn_row, $mappings, $admin_id, 0, $total, $total, $first['mode']);
 
                 // The mapping code does not check record_payment() — make sure every allocation really became a record
                 $need = ['emi' => 0, 'savings' => 0];
@@ -594,7 +594,7 @@ class Passbook_import {
         } else {
         $before_lp = $db->where('bank_transaction_id', $txn->id)->where('is_reversed', 0)->count_all_results('loan_payments');
         $before_sv = $db->where('bank_transaction_id', $txn->id)->where('transaction_type', 'deposit')->count_all_results('savings_transactions');
-        $this->CI->Bank_model->apply_mappings($txn, $mappings, $admin_id, $already, $total, $txn_amount);
+        $this->CI->Bank_model->apply_mappings($txn, $mappings, $admin_id, $already, $total, $txn_amount, $first['mode']);
 
         $need = ['emi' => 0, 'savings' => 0];
         foreach ($mappings as $mp) if (isset($need[$mp['transaction_type']])) $need[$mp['transaction_type']]++;

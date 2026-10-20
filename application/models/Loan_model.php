@@ -3675,8 +3675,7 @@ class Loan_model extends MY_Model {
             if ($txn) $this->_map_disbursement_line($txn, $loan, $part_id, $amount, $admin_id, $d['remarks'] ?? '');
 
             $this->load->model('Ledger_model');
-            $this->Ledger_model->post_transaction('loan_disbursement', $loan_id, $amount, $loan->member_id,
-                'Loan disbursement part ' . max(2, $no) . ': ' . $loan->loan_number, $admin_id, $date, $mode);
+            $this->Ledger_model->post_disbursement_part($part_id, $admin_id);
 
             $this->load->model('Audit_model');
             $this->Audit_model->create([

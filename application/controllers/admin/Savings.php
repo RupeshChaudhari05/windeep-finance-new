@@ -318,6 +318,11 @@ class Savings extends Admin_Controller {
         $result = $this->Savings_model->reverse_transaction($txn_id, $reason, $this->admin_data->id);
 
         if (!empty($result['success'])) {
+            // Ledger: mirror the original entry (new or older reference)
+            $this->load->model('Ledger_model');
+            foreach (['savings_transaction', 'savings_deposit', 'savings_withdrawal'] as $rt) {
+                $this->Ledger_model->reverse_source($rt, $txn_id, $reason, date('Y-m-d'), $this->admin_data->id);
+            }
             $this->log_audit(
                 'reverse',
                 'savings_transactions',
@@ -390,15 +395,9 @@ class Savings extends Admin_Controller {
                     ? 'Savings withdrawal for account ' . $account->account_number
                     : (($deposit_type === 'onetime' ? 'One-time savings deposit for account ' : 'Savings deposit for account ') . $account->account_number);
 
-                $this->Ledger_model->post_transaction(
-                    $ledger_type,
-                    $transaction_id,
-                    $payment_data['amount'],
-                    $account->member_id,
-                    $narration,
-                    $this->session->userdata('admin_id'),
-                    $payment_data['transaction_date']
-                );
+                // Cash vs bank follows the payment mode of the entry (narration kept for the screens)
+                unset($ledger_type, $narration);
+                $this->Ledger_model->post_savings_txn($transaction_id, $this->session->userdata('admin_id'));
                 
                 $this->log_audit('create', 'savings_transactions', 'savings_transactions', $transaction_id, null, $payment_data);
                 $this->session->set_flashdata('success', $transaction_type === 'withdrawal'

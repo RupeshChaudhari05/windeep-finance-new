@@ -522,13 +522,16 @@
                                         <?php foreach (array_slice($ledger, -20) as $entry): ?>
                                         <tr>
                                             <td><?= format_date($entry->transaction_date) ?></td>
-                                            <td><?= ucfirst(str_replace('_', ' ', $entry->entry_type)) ?></td>
+                                            <td>
+                                                <?= ucfirst(str_replace('_', ' ', (string) $entry->transaction_type)) ?>
+                                                <?php if (!empty($entry->narration)): ?><br><small class="text-muted"><?= htmlspecialchars($entry->narration) ?></small><?php endif; ?>
+                                            </td>
                                             <td class="text-danger"><?= $entry->debit_amount > 0 ? format_amount($entry->debit_amount, 0) : '-' ?></td>
                                             <td class="text-success"><?= $entry->credit_amount > 0 ? format_amount($entry->credit_amount, 0) : '-' ?></td>
                                             <td class="font-weight-bold">
-                                                <span class="text-<?= $entry->running_balance >= 0 ? 'success' : 'danger' ?>">
-                                                    <?= format_amount(abs($entry->running_balance), 0) ?>
-                                                    <?= $entry->running_balance >= 0 ? 'Cr' : 'Dr' ?>
+                                                <span class="text-<?= $entry->balance_after >= 0 ? 'success' : 'danger' ?>">
+                                                    <?= format_amount(abs($entry->balance_after), 0) ?>
+                                                    <?= $entry->balance_after >= 0 ? 'Cr' : 'Dr' ?>
                                                 </span>
                                             </td>
                                         </tr>

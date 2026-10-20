@@ -310,6 +310,8 @@ class Reports extends Admin_Controller {
         $data['account_id'] = $account_id;
         $data['from_date'] = $from_date;
         $data['to_date'] = $to_date;
+        // The view reads the selection from $filters
+        $data['filters'] = ['account_id' => $account_id, 'from_date' => $from_date, 'to_date' => $to_date];
         
         $this->load_view('admin/reports/account_statement', $data);
     }

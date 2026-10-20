@@ -340,15 +340,7 @@ class Fines extends Admin_Controller {
             if ($result) {
                 // Post to ledger — now inside the same transaction
                 $this->load->model('Ledger_model');
-                $this->Ledger_model->post_transaction(
-                    'fine_income',
-                    $id,
-                    $amount,
-                    $fine->member_id,
-                    'Fine payment: ' . $fine->fine_code,
-                    $this->session->userdata('admin_id'),
-                    $payment_date
-                );
+                $this->Ledger_model->post_fine_receipt($id, $amount, $payment_date, $payment_mode, $this->session->userdata('admin_id'));
                 
                 if ($this->db->trans_status() === FALSE) {
                     $this->db->trans_rollback();

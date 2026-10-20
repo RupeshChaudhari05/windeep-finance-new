@@ -595,17 +595,9 @@ class Members extends Admin_Controller {
                 'processing_fee' => 'processing_fee',
                 'late_fee'       => 'fine_income',
             ];
-            if (isset($ledger_type_map[$txn_type])) {
-                $this->Ledger_model->post_transaction(
-                    $ledger_type_map[$txn_type],
-                    $txn_id,
-                    $txn_data['amount'],
-                    $id,
-                    ucwords(str_replace('_', ' ', $txn_type)) . ' from ' . $member->member_code,
-                    $this->session->userdata('admin_id'),
-                    $txn_data['transaction_date'] ?? null,
-                    $txn_data['payment_mode'] ?? null
-                );
+            if (isset($ledger_type_map[$txn_type]) && $txn_type !== 'processing_fee') {
+                // processing fee is already inside the loan disbursement voucher
+                $this->Ledger_model->post_member_txn($txn_id, $this->session->userdata('admin_id'));
             }
             
             $this->log_audit('create', 'member_other_transactions', 'member_other_transactions', $txn_id, null, $txn_data);

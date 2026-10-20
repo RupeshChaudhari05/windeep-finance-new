@@ -922,28 +922,13 @@ class Loans extends Admin_Controller {
                     // back-dated by the admin), never on today's system date.
                     $disb_date = $loan->disbursement_date ?: date('Y-m-d');
 
+                    // One voucher for part 1: Dr Member Loans (gross) / Cr Cash or Bank (net, by mode) / Cr Processing Fee Income
                     $this->load->model('Ledger_model');
-                    $this->Ledger_model->post_transaction(
-                        'loan_disbursement',
-                        $loan_id,
-                        $this->Loan_model->disbursed_amount($loan),
-                        $loan->member_id,
-                        'Loan disbursement' . (!empty($loan->is_tranche) ? ' part 1' : '') . ': ' . $loan->loan_number,
-                        $this->session->userdata('admin_id'),
-                        $disb_date
-                    );
+                    $part1 = $this->db->where('loan_id', $loan_id)->where('tranche_no', 1)->get('disbursement_tracking')->row();
+                    if ($part1) $this->Ledger_model->post_disbursement_part($part1, $this->session->userdata('admin_id'));
 
-                    // Processing fee entry
+                    // Processing fee: member other transaction (its income is already inside the voucher above)
                     if ($loan->processing_fee > 0) {
-                        $this->Ledger_model->post_transaction(
-                            'processing_fee',
-                            $loan_id,
-                            $loan->processing_fee,
-                            $loan->member_id,
-                            'Processing fee for loan: ' . $loan->loan_number,
-                            $this->session->userdata('admin_id'),
-                            $disb_date
-                        );
 
                         // Auto-record in member other transactions
                         $this->load->model('Member_transaction_model');
@@ -2292,6 +2277,10 @@ class Loans extends Admin_Controller {
         try {
             $result = $this->Loan_model->process_part_payment($data, $this->admin_data->id);
 
+            if ($result['success'] && !empty($result['data']['payment_id'])) {
+                $this->load->model('Ledger_model');
+                $this->Ledger_model->post_loan_payment($result['data']['payment_id'], null, 'Part payment (prepayment)', $this->admin_data->id);
+            }
             if ($result['success']) {
                 $this->session->set_flashdata('success', $result['message']);
                 redirect('admin/loans/view/' . $loan_id);
@@ -2335,7 +2324,12 @@ class Loans extends Admin_Controller {
             }
 
             // Reverse the part payment
+            $pp_row = $this->db->select('payment_id')->where('id', $part_payment_id)->get('loan_part_payments')->row();
             $result = $this->Loan_model->reverse_part_payment($part_payment_id, $this->admin_data->id);
+            if ($result === true && $pp_row && $pp_row->payment_id) {
+                $this->load->model('Ledger_model');
+                $this->Ledger_model->reverse_source('loan_payment', $pp_row->payment_id, 'Part payment removed', date('Y-m-d'), $this->admin_data->id);
+            }
 
             if ($result === true) {
                 $this->session->set_flashdata('success', 'Part payment removed successfully. Loan state has been restored.');

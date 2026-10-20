@@ -70,6 +70,7 @@ class Cron extends CI_Controller {
      * Run all daily jobs
      */
     public function daily() {
+        $this->ledger_sync();
         $this->log("========== DAILY CRON START ==========");
         
         $this->apply_overdue_fines();
@@ -84,6 +85,15 @@ class Cron extends CI_Controller {
     /**
      * Run all weekly jobs
      */
+    /** Post every source document that is not in the general ledger yet (idempotent). */
+    public function ledger_sync() {
+        $this->load->model('Ledger_model');
+        $r = $this->Ledger_model->sync(true);
+        $n = array_sum($r['posted']);
+        echo '[' . date('Y-m-d H:i:s') . "] Ledger sync: {$n} voucher(s) posted, {$r['reversed']} reversal(s)" . ($r['exceptions'] ? ', ' . count($r['exceptions']) . ' exception(s)' : '') . "\n";
+        if ($n || $r['reversed']) log_message('info', 'Ledger sync posted ' . json_encode($r['posted']) . ' reversals ' . $r['reversed']);
+    }
+
     public function weekly() {
         $this->log("========== WEEKLY CRON START ==========");
         

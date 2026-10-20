@@ -804,6 +804,8 @@ class Bank_model extends MY_Model {
                         if (!$payment_id) {
                             throw new Exception('Loan_model::record_payment failed');
                         }
+                        $this->load->model('Ledger_model');
+                        $this->Ledger_model->post_loan_payment($payment_id, null, null, $admin_id);
                         return $payment_id;
                     }
                     break;
@@ -822,6 +824,8 @@ class Bank_model extends MY_Model {
                         if (!$transaction_id) {
                             throw new Exception('Savings_model::record_payment failed');
                         }
+                        $this->load->model('Ledger_model');
+                        $this->Ledger_model->post_savings_txn($transaction_id, $admin_id);
                         return $transaction_id;
                     }
                     break;
@@ -838,6 +842,8 @@ class Bank_model extends MY_Model {
                         if (!$res) {
                             throw new Exception('Fine_model::record_payment failed');
                         }
+                        $this->load->model('Ledger_model');
+                        $this->Ledger_model->post_fine_receipt($fine->id, $amount, $txn->transaction_date ?? date('Y-m-d'), 'bank_transfer', $admin_id);
                         return $res;
                     }
                     break;
@@ -1508,12 +1514,7 @@ class Bank_model extends MY_Model {
                             $this->db->where('id', $loan->id)->update('loans', ['disbursed_amount' => max(0, round((float) $loan->disbursed_amount - (float) $part->disbursement_amount, 2))]);
                         }
                         $this->load->model('Ledger_model');
-                        $this->Ledger_model->post_compound_entry('journal', [
-                            ['code' => Ledger_model::AC_BANK, 'debit' => (float) $part->disbursement_amount],
-                            ['code' => Ledger_model::AC_MEMBER_LOANS, 'credit' => (float) $part->disbursement_amount],
-                        ], ['narration' => 'Reversal of loan disbursement part ' . $part->tranche_no . ($loan ? ' ' . $loan->loan_number : '') . ' — ' . $reason,
-                            'reference_type' => 'loan_disbursement_reversal', 'reference_id' => $part->id, 'member_id' => $part->member_id,
-                            'voucher_date' => date('Y-m-d'), 'created_by' => $admin_id]);
+                        $this->Ledger_model->reverse_source('loan_disbursement_part', $part->id, $reason, date('Y-m-d'), $admin_id);
                     } elseif ($part) {
                         // Disbursement recorded on the loan itself — just detach the bank line
                         $this->db->where('id', $part->id)->update('disbursement_tracking', ['bank_transaction_id' => null, 'updated_at' => date('Y-m-d H:i:s')]);
@@ -1588,6 +1589,27 @@ class Bank_model extends MY_Model {
                          'unmapped_amount' => $txn_amount - $total_mapped,
                          'updated_at' => date('Y-m-d H:i:s')
                      ]);
+
+            // Ledger: mirror what this mapping posted
+            $this->load->model('Ledger_model');
+            if ($mapping->related_id) {
+                switch ($mapping->mapping_type) {
+                    case 'loan_payment':
+                    case 'emi':
+                        $this->Ledger_model->reverse_source('loan_payment', $mapping->related_id, $reason, date('Y-m-d'), $admin_id);
+                        $this->Ledger_model->reverse_source('loan_write_off', $mapping->related_id, $reason, date('Y-m-d'), $admin_id);
+                        break;
+                    case 'savings':
+                        foreach (['savings_transaction', 'savings_deposit'] as $rt) $this->Ledger_model->reverse_source($rt, $mapping->related_id, $reason, date('Y-m-d'), $admin_id);
+                        break;
+                    case 'fine':
+                        $this->Ledger_model->reverse_fine_receipt($mapping->related_id, (float) $mapping->amount, date('Y-m-d'), $admin_id);
+                        break;
+                    case 'other':
+                        $this->Ledger_model->reverse_source('member_transaction', $mapping->related_id, $reason, date('Y-m-d'), $admin_id);
+                        break;
+                }
+            }
 
             if ($this->db->trans_status() === FALSE) {
                 $this->db->trans_rollback();
@@ -1928,8 +1950,10 @@ class Bank_model extends MY_Model {
      * the bank transaction's mapping status. Shared by the Bank Mapping screen and the AI passbook import.
      * The caller validates amounts and owns the DB transaction.
      */
-    public function apply_mappings($txn, array $mappings, $admin_id, $already_mapped, $total, $txn_amount) {
+    public function apply_mappings($txn, array $mappings, $admin_id, $already_mapped, $total, $txn_amount, $payment_mode = 'bank_transfer') {
         $transaction_id = $txn->id;
+        $mode = in_array($payment_mode, ['cash', 'upi', 'bank_transfer', 'cheque'], true) ? $payment_mode : 'bank_transfer';
+        $this->load->model('Ledger_model');
 
         foreach ($mappings as $m) {
             $paying = $m['paying_member_id'] ?? null;
@@ -1998,21 +2022,13 @@ class Bank_model extends MY_Model {
                         'description'        => $fee_label . ($m_remarks ? ' - ' . $m_remarks : ''),
                         'reference_type'     => 'bank_transaction',
                         'reference_id'       => $transaction_id,
-                        'payment_mode'       => 'bank_transfer',
+                        'payment_mode'       => $mode,
                         'bank_transaction_id'=> $transaction_id,
                         'created_by'         => $admin_id
                     ]);
 
-                    // Record GL entry (income)
-                    $this->load->model('Ledger_model');
-                    $this->Ledger_model->post_transaction(
-                        'processing_fee',
-                        $transaction_id,
-                        $amount,
-                        $paid_for,
-                        $fee_label . ' from Member #' . $paid_for,
-                        $admin_id
-                    );
+                    // Ledger: fee income in its own account (membership / fine / share capital)
+                    if ($other_txn_id) $this->Ledger_model->post_member_txn($other_txn_id, $admin_id);
 
                     // Insert transaction_mapping row with related_id pointing to
                     // the member_other_transactions record for proper reversal
@@ -2105,7 +2121,7 @@ class Bank_model extends MY_Model {
                             'loan_id' => $actual_loan_id,
                             'installment_id' => $insert['related_id'],
                             'total_amount' => $amount,
-                            'payment_mode' => 'bank_transfer',
+                            'payment_mode' => $mode,
                             'bank_transaction_id' => $transaction_id,
                             'payment_type' => 'emi',
                             // Use the bank statement/passbook date, NOT today
@@ -2119,6 +2135,7 @@ class Bank_model extends MY_Model {
                             $this->db->where('id', $mapping_row_id)
                                      ->update('transaction_mappings', ['related_id' => $payment_id]);
                         }
+                        if ($payment_id) $this->Ledger_model->post_loan_payment($payment_id, $paid_for, null, $admin_id);
                     }
                     break;
                 case 'savings':
@@ -2128,7 +2145,7 @@ class Bank_model extends MY_Model {
                             'savings_account_id'  => $insert['related_id'],
                             'amount'              => $amount,
                             'transaction_type'    => 'deposit',
-                            'payment_mode'        => 'bank_transfer',
+                            'payment_mode'        => $mode,
                             // Use the bank statement/passbook date, NOT today (mapping date)
                             'transaction_date'    => $txn->transaction_date ?? date('Y-m-d'),
                             'bank_transaction_id' => $transaction_id,
@@ -2142,6 +2159,7 @@ class Bank_model extends MY_Model {
                             $this->db->where('id', $mapping_row_id)
                                      ->update('transaction_mappings', ['related_id' => $savings_txn_id]);
                         }
+                        if ($savings_txn_id) $this->Ledger_model->post_savings_txn($savings_txn_id, $admin_id);
                     }
                     break;
                 case 'fine':
@@ -2154,7 +2172,11 @@ class Bank_model extends MY_Model {
                                      ->row();
                     if ($fine) {
                         // Pass passbook date so the fine payment is recorded on the actual date
-                        $this->Fine_model->record_payment($fine->id, $amount, 'bank_transfer', $transaction_id, $admin_id, $txn->transaction_date ?? date('Y-m-d'));
+                        $fine_mode = $mode === 'upi' ? 'online' : $mode;
+                        if ($this->Fine_model->record_payment($fine->id, $amount, $fine_mode, $transaction_id, $admin_id, $txn->transaction_date ?? date('Y-m-d'))) {
+                            $this->Ledger_model->post_fine_receipt($fine->id, $amount, $txn->transaction_date ?? date('Y-m-d'), $mode, $admin_id);
+                            if ($mapping_row_id) $this->db->where('id', $mapping_row_id)->update('transaction_mappings', ['related_id' => $fine->id]);
+                        }
                     }
                     break;
                 default:

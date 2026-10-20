@@ -740,11 +740,7 @@ class Ai_assistant extends Admin_Controller {
                     if (!$txn_id) throw new Exception('The deposit could not be saved.');
 
                     $this->load->model('Ledger_model');
-                    $this->Ledger_model->post_transaction(
-                        'savings_deposit', $txn_id, $amount, $member_id,
-                        ($onetime ? 'One-time savings deposit for account ' : 'Savings deposit for account ') . $account->account_number,
-                        $admin_id, $date, $payment_data['payment_mode']
-                    );
+                    $this->Ledger_model->post_savings_txn($txn_id, $admin_id);
                     $this->log_audit('create', 'savings_transactions', 'savings_transactions', $txn_id, null, $payment_data, 'AI assistant');
 
                     return $this->_done('Deposit of ₹' . number_format($amount, 2) . ' recorded in ' . $account->account_number . '.', [
@@ -822,9 +818,7 @@ class Ai_assistant extends Admin_Controller {
                 if (empty($res['success'])) return $this->_fail($res['error'] ?? 'Could not reverse the deposit.');
 
                 $this->load->model('Ledger_model');
-                $this->Ledger_model->post_transaction('savings_withdrawal', $id, $txn->amount, $txn->member_id,
-                    'Reversal of savings deposit ' . ($txn->transaction_code ?? '#' . $id) . ' — ' . $reason,
-                    $admin_id, date('Y-m-d'), $txn->payment_mode);
+                foreach (['savings_transaction', 'savings_deposit'] as $rt) $this->Ledger_model->reverse_source($rt, $id, $reason, date('Y-m-d'), $admin_id);
                 $this->log_audit('reverse', 'savings_transactions', 'savings_transactions', $id, null, ['reason' => $reason], 'AI assistant');
                 $this->_mark_reversed('savings_deposit', $id);
                 return $this->_done('Reversed deposit of ₹' . number_format((float) $txn->amount, 2) . ' in ' . $txn->account_number . '.');
@@ -1892,17 +1886,9 @@ PROMPT;
         }
         if (!empty($res['payment_id'])) {
             $this->load->model('Ledger_model');
-            $payment = $this->db->where('id', $res['payment_id'])->get('loan_payments')->row();
-            if ($c['closure_type'] === 'force_close' && $payment) {
-                // The payment row keeps the waived principal / interest (so a reversal can restore the loan),
-                // but only the cash actually collected (next month's interest) is income in the ledger.
-                $payment = clone $payment;
-                $payment->principal_component = 0;
-                $payment->interest_component  = $payment->total_amount;
-                $payment->fine_component      = 0;
-            }
-            $posted = $payment ? $this->Ledger_model->post_loan_payment($payment, $loan->member_id,
-                ($c['closure_type'] === 'force_close' ? 'Force close settlement for ' : 'Foreclosure settlement for ') . $loan->loan_number, $admin_id) : false;
+            // Force close: cash → interest income, waived principal → write-off (Ledger_model rules)
+            $posted = $this->Ledger_model->post_loan_payment($res['payment_id'], $loan->member_id,
+                ($c['closure_type'] === 'force_close' ? 'Force close settlement for ' : 'Foreclosure settlement for ') . $loan->loan_number, $admin_id);
             if (!$posted) {
                 $this->db->trans_rollback();
                 return $this->_fail('Nothing was saved — the ledger entry for the settlement could not be posted (see application log).');

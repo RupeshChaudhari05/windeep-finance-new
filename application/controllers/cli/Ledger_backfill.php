@@ -65,42 +65,37 @@ class Ledger_backfill extends CI_Controller {
 
     // ──────────────────────────────────────────────────────────── engine
 
+    /**
+     * Posts every source document that is not in the ledger yet, with exactly the rules the live screens use
+     * (Ledger_model::sync). A dry run does the same work inside a transaction and rolls it back.
+     */
     private function execute($commit) {
         $t0 = microtime(true);
-        echo $commit ? "=== LEDGER BACKFILL (writing) ===\n\n" : "=== LEDGER BACKFILL (dry run — nothing will be written) ===\n\n";
+        echo $commit ? "=== LEDGER SYNC (writing) ===\n\n" : "=== LEDGER SYNC (dry run — nothing will be written) ===\n\n";
+        $r = $this->Ledger_model->sync($commit);
 
-        $this->load_accounts();
-        $this->load_financial_years();
-        $this->stats = ['vouchers' => 0, 'legs' => 0, 'skipped_existing' => 0,
-                        'skipped_reversed' => 0, 'skipped_no_fy' => 0, 'unbalanced' => 0];
-
-        $this->collect_disbursements();
-        $this->collect_loan_payments();
-        $this->collect_savings();
-        $this->collect_fines();
-        $this->collect_other_transactions();
-
-        // Chronological order keeps the ledger readable and member balances sane
-        usort($this->rows, function ($a, $b) {
-            return [$a['voucher_date'], $a['_seq']] <=> [$b['voucher_date'], $b['_seq']];
-        });
-
-        $this->report();
-
-        if (!$commit) {
-            printf("\nDry run complete in %.1fs. Nothing was written.\n", microtime(true) - $t0);
-            echo "Run 'php index.php cli/ledger_backfill run' to post these entries.\n";
-            return;
+        echo "Posted by source:\n";
+        $n = 0;
+        foreach ($r['posted'] as $t => $c) { printf("  %-28s %6d\n", $t, $c); $n += $c; }
+        printf("  %-28s %6d\n  %-28s %6d\n", 'TOTAL vouchers', $n, 'reversals posted', $r['reversed']);
+        if (!empty($r['trial'])) {
+            printf("\nLedger totals after sync: Dr %s / Cr %s — %s\n", number_format($r['trial'][0], 2), number_format($r['trial'][1], 2),
+                abs($r['trial'][0] - $r['trial'][1]) < 0.01 ? 'BALANCED' : 'UNBALANCED');
         }
-
-        $this->write_rows();
-        $this->recompute_account_balances();
-        $this->backfill_member_ledger();
-
-        printf("\nPosted in %.1fs.\n", microtime(true) - $t0);
-        $this->verify();
+        if ($r['skipped']) {
+            echo "\nNot posted (by rule):\n";
+            foreach ($r['skipped'] as $k => $c) printf("  %-60s %5d\n", $k, $c);
+        }
+        if ($r['exceptions']) {
+            printf("\nExceptions for review (%d):\n", count($r['exceptions']));
+            foreach (array_slice($r['exceptions'], 0, 40) as $e) echo "  - {$e}\n";
+            if (count($r['exceptions']) > 40) printf("  ... and %d more\n", count($r['exceptions']) - 40);
+        }
+        printf("\n%s in %.1fs.\n", $commit ? 'Posted' : 'Dry run complete — nothing written', microtime(true) - $t0);
+        if ($commit) $this->verify();
     }
 
+    // ── legacy collectors below are kept for reference only; sync() replaced them ──
     // ──────────────────────────────────────────────────────────── sources
 
     /**
@@ -502,7 +497,7 @@ class Ledger_backfill extends CI_Controller {
             SELECT COALESCE(SUM(gl.debit_amount - gl.credit_amount),0) v FROM general_ledger gl
              JOIN chart_of_accounts c ON c.id=gl.account_id WHERE c.account_code='1201'")->row()->v;
         $op_loans = (float) $this->db->query("
-            SELECT COALESCE(SUM(outstanding_principal),0) v FROM loans WHERE status IN ('active','overdue','npa')")->row()->v;
+            SELECT COALESCE(SUM(GREATEST(0, outstanding_principal - (principal_amount - COALESCE(disbursed_amount, principal_amount)))),0) v FROM loans WHERE status IN ('active','overdue','npa')")->row()->v;
         $this->recon_line('Member Loans (1201)', $gl_loans, $op_loans);
 
         $gl_sav = (float) $this->db->query("
@@ -534,19 +529,19 @@ class Ledger_backfill extends CI_Controller {
 
         $rows = $this->db->query("
             SELECT l.id, l.loan_number, l.status, l.closure_type,
-                   ROUND(l.principal_amount, 2) AS disbursed,
+                   ROUND(COALESCE(l.disbursed_amount, l.principal_amount), 2) AS disbursed,
                    ROUND(COALESCE(g.repaid, 0), 2) AS repaid,
-                   ROUND(l.principal_amount - COALESCE(g.repaid, 0), 2) AS ledger_balance,
+                   ROUND(COALESCE(l.disbursed_amount, l.principal_amount) - COALESCE(g.repaid, 0), 2) AS ledger_balance,
                    ROUND(IF(l.status IN ('active','overdue','npa'), l.outstanding_principal, 0), 2) AS book_balance,
-                   ROUND((l.principal_amount - COALESCE(g.repaid, 0))
-                         - IF(l.status IN ('active','overdue','npa'), l.outstanding_principal, 0), 2) AS variance
+                   ROUND((COALESCE(l.disbursed_amount, l.principal_amount) - COALESCE(g.repaid, 0))
+                         - IF(l.status IN ('active','overdue','npa'), GREATEST(0, l.outstanding_principal - (l.principal_amount - COALESCE(l.disbursed_amount, l.principal_amount))), 0), 2) AS variance
               FROM loans l
               LEFT JOIN (
                     SELECT lp.loan_id, SUM(gl.credit_amount) AS repaid
                       FROM general_ledger gl
                       JOIN chart_of_accounts c ON c.id = gl.account_id AND c.account_code = '1201'
                       JOIN loan_payments lp ON lp.id = gl.reference_id
-                     WHERE gl.reference_type = 'loan_payment'
+                     WHERE gl.reference_type IN ('loan_payment', 'loan_write_off')
                      GROUP BY lp.loan_id
               ) g ON g.loan_id = l.id
              WHERE l.disbursement_date IS NOT NULL
