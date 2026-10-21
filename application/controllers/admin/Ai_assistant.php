@@ -364,7 +364,17 @@ class Ai_assistant extends Admin_Controller {
 
         $message = trim((string) $this->input->post('message'));
         $image   = (string) $this->input->post('image');
-        if ($message === '' && $image === '') {
+        // PDF attachment (read in the browser with pdf.js): its text for a digital PDF,
+        // or up to 4 page images for a scanned one
+        $doc_name = mb_substr(trim((string) $this->input->post('doc_name')), 0, 120);
+        $doc_text = mb_substr(trim((string) $this->input->post('doc_text')), 0, 30000);
+        $doc_pages = (int) $this->input->post('doc_pages');
+        $page_imgs = [];
+        foreach (array_slice((array) json_decode((string) $this->input->post('images'), true), 0, 4) as $u) {
+            if (is_string($u) && preg_match('#^data:image/(png|jpe?g|webp);base64,#', $u)) $page_imgs[] = $u;
+        }
+        if ($image === '' && $page_imgs) $image = $page_imgs[0];   // same photo rules apply below
+        if ($message === '' && $image === '' && $doc_text === '') {
             return $this->_chat_out(['success' => false, 'message' => 'Please type a message.'], 400);
         }
 
@@ -420,10 +430,25 @@ class Ai_assistant extends Admin_Controller {
         }
         foreach ($hist as $h) if (trim($h['content']) !== '') $messages[] = $h;
         $messages[] = ['role' => 'system', 'content' => $this->_context_prompt()];
-        $messages[] = ['role' => 'user', 'content' => ($message !== '' ? $message : 'Read this passbook / statement image and create the entries.') . $hint];
+        if ($doc_text !== '') {
+            $ask = $message !== '' ? $message : 'Read this PDF (passbook / bank statement / document). Summarise it and, if it lists payments, create the matching entries.';
+            $messages[] = ['role' => 'user', 'content' => $ask . $hint . "
+
+[Attached PDF \"" . ($doc_name ?: 'document.pdf') . '" — text of ' . max(1, $doc_pages)
+                          . " page(s)" . (mb_strlen($doc_text) >= 30000 ? ', cut at 30,000 characters' : '') . ":]
+" . $doc_text];
+        } elseif ($page_imgs) {
+            $messages[] = ['role' => 'user', 'content' => ($message !== '' ? $message : 'Read this scanned PDF (pages attached as images) and create the entries it lists.') . $hint
+                          . "
+[Attached PDF \"" . ($doc_name ?: 'document.pdf') . '" — ' . count($page_imgs) . ' of ' . max(count($page_imgs), $doc_pages) . ' page(s) as images]'];
+        } else {
+            $messages[] = ['role' => 'user', 'content' => ($message !== '' ? $message : 'Read this passbook / statement image and create the entries.') . $hint];
+        }
 
         $opts = ['temperature' => 0.1, 'max_tokens' => (int) $cfg['max_tokens']];
-        if ($image !== '' && preg_match('#^data:image/(png|jpe?g|webp);base64,#', $image)) {
+        if ($page_imgs) {
+            $opts['images'] = $page_imgs;
+        } elseif ($image !== '' && preg_match('#^data:image/(png|jpe?g|webp);base64,#', $image)) {
             $opts['images'] = [$image];
         }
 
@@ -495,7 +520,9 @@ class Ai_assistant extends Admin_Controller {
 
         // Remember this turn (the model sees the tool log next time, so "his loan" / "send him the same" works)
         $log = mb_substr($reply . ($tool_log ? "\n[Tool log of this turn:\n" . implode("\n", $tool_log) . ']' : ''), 0, 6000);
-        $conv['messages'][] = ['role' => 'user', 'text' => $message, 'image' => $image !== ''];
+        $conv['messages'][] = ['role' => 'user', 'text' => trim($message . ($doc_name !== '' ? "
+📄 " . $doc_name : '')),
+                               'image' => $image !== '' && $doc_name === ''];
         $conv['messages'][] = ['role' => 'assistant', 'text' => $reply, 'cards' => $this->_compact_cards($cards), 'steps' => $steps,
                                'memory' => $log];
         $this->_save_conv($conv);

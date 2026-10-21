@@ -130,8 +130,8 @@ $model_label = (['local' => 'Local', 'openai' => 'ChatGPT', 'gemini' => 'Gemini'
             <div class="ai-suggest" id="aiSuggest"></div>
             <div class="ai-chips" id="aiChips"></div>
             <div class="ai-box">
-                <label class="ai-iconbtn mb-0 d-flex align-items-center justify-content-center" title="Passbook Excel (.xlsx / .csv) or statement photo">
-                    <i class="fas fa-paperclip"></i><input type="file" id="aiImage" accept="image/*,.xlsx,.xls,.csv" hidden>
+                <label class="ai-iconbtn mb-0 d-flex align-items-center justify-content-center" title="Passbook Excel (.xlsx / .csv), PDF (statement / passbook) or photo">
+                    <i class="fas fa-paperclip"></i><input type="file" id="aiImage" accept="image/*,.xlsx,.xls,.csv,.pdf,application/pdf" hidden>
                 </label>
                 <textarea id="aiText" rows="1" placeholder="काय करायचे ते लिहा… (उदा. योगेश औचरे बचत २००० रोख)"></textarea>
                 <button class="ai-iconbtn" id="aiMic" title="Speak in Marathi"><i class="fas fa-microphone"></i></button>
@@ -243,7 +243,7 @@ $(function () {
     var TODAY = '<?= date('Y-m-d') ?>';
     var CATALOG = <?= json_encode($model_catalog, JSON_UNESCAPED_UNICODE) ?>;
     var USD_INR = <?= (float) $cfg['usd_inr'] ?>;
-    var mentions = {}, imageData = '', busy = false;
+    var mentions = {}, imageData = '', pdfDoc = null, busy = false;   // pdfDoc = {name, pages, text, images[]}
     var $log = $('#aiLog'), $scroll = $('#aiScroll'), $txt = $('#aiText'), $sug = $('#aiSuggest');
     var MODES = {cash: 'Cash / रोख', upi: 'UPI', bank_transfer: 'Bank transfer', cheque: 'Cheque'};
     var TITLES = {loan_payment: '💰 Loan EMI payment', savings_deposit: '🏦 Savings deposit', fine: '⚠️ Fine',
@@ -549,6 +549,7 @@ $(function () {
     $('#aiImage').on('change', function () {
         var f = this.files[0]; if (!f) return;
         if (/\.(xlsx|xls|csv)$/i.test(f.name)) { this.value = ''; uploadPassbook(f); return; }
+        if (/\.pdf$/i.test(f.name) || f.type === 'application/pdf') { this.value = ''; readPdf(f); return; }
         if (f.size > 8 * 1024 * 1024) { toastr.error('Image too large (max 8 MB).'); return; }
         var rd = new FileReader();
         rd.onload = function () {
@@ -564,7 +565,69 @@ $(function () {
         };
         rd.readAsDataURL(f); this.value = '';
     });
-    $(document).on('click', '#aiImgRm', function (e) { e.preventDefault(); imageData = ''; $('#aiImgPreview').empty(); });
+    $(document).on('click', '#aiImgRm', function (e) { e.preventDefault(); imageData = ''; pdfDoc = null; $('#aiImgPreview').empty(); });
+
+    // ── PDF: read in the browser (pdf.js, loaded on first use). A digital PDF sends its text
+    // (accurate, few tokens); a scanned PDF sends its first 4 pages as images for the model to read.
+    var PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
+    function loadPdfJs() {
+        if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+        return new Promise(function (ok, fail) {
+            var s = document.createElement('script');
+            s.src = PDFJS + 'pdf.min.js';
+            s.onload = function () { window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS + 'pdf.worker.min.js'; ok(window.pdfjsLib); };
+            s.onerror = function () { fail(new Error('Could not load the PDF reader — check the internet connection.')); };
+            document.head.appendChild(s);
+        });
+    }
+    function readPdf(f) {
+        if (f.size > 15 * 1024 * 1024) { toastr.error('PDF too large (max 15 MB).'); return; }
+        imageData = ''; pdfDoc = null;
+        $('#aiImgPreview').html('<i class="fas fa-spinner fa-spin mr-1"></i>Reading ' + esc(f.name) + '…');
+        loadPdfJs().then(function (lib) {
+            return f.arrayBuffer().then(function (buf) { return lib.getDocument({data: buf}).promise; });
+        }).then(function (pdf) {
+            var maxText = Math.min(pdf.numPages, 30), texts = [], chain = Promise.resolve();
+            for (var p = 1; p <= maxText; p++) (function (p) {
+                chain = chain.then(function () { return pdf.getPage(p); }).then(function (page) {
+                    return page.getTextContent().then(function (tc) {
+                        // keep line breaks: a new line starts when the y position changes
+                        var out = '', lastY = null;
+                        tc.items.forEach(function (it) {
+                            var y = it.transform ? Math.round(it.transform[5]) : null;
+                            if (lastY !== null && y !== lastY) out += '\n'; else if (out && !/\s$/.test(out)) out += ' ';
+                            out += it.str; lastY = y;
+                        });
+                        texts.push('--- page ' + p + ' ---\n' + out.replace(/[ \t]+/g, ' ').trim());
+                    });
+                });
+            })(p);
+            return chain.then(function () {
+                var text = texts.join('\n\n');
+                var letters = text.replace(/--- page \d+ ---|\s/g, '').length;
+                if (letters >= 80 * Math.min(pdf.numPages, 3)) return {name: f.name, pages: pdf.numPages, text: text.slice(0, 30000), images: []};
+                // Scanned PDF: render the first pages as images
+                var imgs = [], c2 = Promise.resolve();
+                for (var q = 1; q <= Math.min(pdf.numPages, 4); q++) (function (q) {
+                    c2 = c2.then(function () { return pdf.getPage(q); }).then(function (page) {
+                        var vp1 = page.getViewport({scale: 1}), sc = Math.min(2, 1600 / Math.max(vp1.width, vp1.height));
+                        var vp = page.getViewport({scale: sc}), cv = document.createElement('canvas');
+                        cv.width = vp.width; cv.height = vp.height;
+                        return page.render({canvasContext: cv.getContext('2d'), viewport: vp}).promise.then(function () { imgs.push(cv.toDataURL('image/jpeg', 0.8)); });
+                    });
+                })(q);
+                return c2.then(function () { return {name: f.name, pages: pdf.numPages, text: '', images: imgs}; });
+            });
+        }).then(function (d) {
+            pdfDoc = d;
+            var how = d.text ? 'text of ' + Math.min(d.pages, 30) + ' page(s)' : 'scanned — ' + d.images.length + ' page image(s)';
+            $('#aiImgPreview').html('📄 ' + esc(f.name) + ' <small class="text-muted">(' + d.pages + ' page' + (d.pages > 1 ? 's' : '') + ', ' + how + ')</small> <a href="#" id="aiImgRm">remove</a>');
+            $txt.focus();
+        }).catch(function (e) {
+            pdfDoc = null; $('#aiImgPreview').empty();
+            toastr.error((e && e.name === 'PasswordException') ? 'This PDF is password protected — save an unprotected copy and attach that.' : ('Could not read the PDF: ' + (e && e.message ? e.message : e)));
+        });
+    }
 
     var Rec = window.SpeechRecognition || window.webkitSpeechRecognition, rec = null;
     if (!Rec) $('#aiMic').hide();
@@ -587,11 +650,11 @@ $(function () {
     function send() {
         if (busy) { if (aborter) aborter.abort(); return; }   // the send button is "Stop" while working
         var text = $.trim($txt.val());
-        if (!text && !imageData) return;
+        if (!text && !imageData && !pdfDoc) return;
         setBusy(true); $sug.hide();
-        var sentImage = imageData, sentMentions = Object.keys(mentions).map(Number);
-        $txt.val('').trigger('input'); imageData = ''; $('#aiImgPreview').empty(); mentions = {}; renderChips();
-        userRow(text, !!sentImage, sentImage);
+        var sentImage = imageData, sentPdf = pdfDoc, sentMentions = Object.keys(mentions).map(Number);
+        $txt.val('').trigger('input'); imageData = ''; pdfDoc = null; $('#aiImgPreview').empty(); mentions = {}; renderChips();
+        userRow((text ? text + (sentPdf ? '\n' : '') : '') + (sentPdf ? '📄 ' + sentPdf.name : ''), !!sentImage, sentImage);
 
         // Live progress bubble: current status + elapsed time + the steps as they happen
         var $t = botRow('<div class="ai-live"><span class="ai-typing"><span></span><span></span><span></span></span>' +
@@ -623,8 +686,13 @@ $(function () {
             else if (ev.type === 'error') { showError(ev.message || 'Error', ev); return true; }
         }
 
-        var body = new URLSearchParams(csrf({message: text, image: sentImage, auto: $('#aiAuto').is(':checked') ? '1' : '0',
-                                             mentions: JSON.stringify(sentMentions), stream: '1'}));
+        var payload = {message: text, image: sentImage, auto: $('#aiAuto').is(':checked') ? '1' : '0',
+                       mentions: JSON.stringify(sentMentions), stream: '1'};
+        if (sentPdf) {
+            payload.doc_name = sentPdf.name; payload.doc_pages = sentPdf.pages;
+            if (sentPdf.text) payload.doc_text = sentPdf.text; else payload.images = JSON.stringify(sentPdf.images);
+        }
+        var body = new URLSearchParams(csrf(payload));
         fetch(URL + '/chat', {method: 'POST', body: body, credentials: 'same-origin', signal: aborter ? aborter.signal : undefined,
                               headers: {'X-Requested-With': 'XMLHttpRequest'}})
         .then(function (res) {
