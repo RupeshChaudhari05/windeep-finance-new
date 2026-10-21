@@ -75,6 +75,12 @@
                     <span>Pending Fines:</span>
                     <strong class="text-warning"><?= format_amount($pending_fines ?? 0, 0) ?></strong>
                 </div>
+                <?php if (!empty($late_fines_open)): ?>
+                <div class="d-flex justify-content-between mb-2 small">
+                    <span>Late fines on this loan <a href="<?= site_url('admin/fines?member_id=' . $loan->member_id) ?>">(collect in Fines)</a>:</span>
+                    <strong class="text-warning"><?= format_amount($late_fines_open, 0) ?></strong>
+                </div>
+                <?php endif; ?>
                 <div class="d-flex justify-content-between border-top pt-2">
                     <span><strong>Total Due:</strong></span>
                     <strong class="text-danger"><?= format_amount($loan->outstanding_principal + $loan->outstanding_interest + ($pending_fines ?? 0), 0) ?></strong>

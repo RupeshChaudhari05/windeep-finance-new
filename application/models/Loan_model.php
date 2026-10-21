@@ -3601,7 +3601,8 @@ class Loan_model extends MY_Model {
 
     /** Principal actually released so far (NULL in the loan row = fully disbursed). */
     public function disbursed_amount($loan) {
-        return $loan->disbursed_amount === null ? (float) $loan->principal_amount : (float) $loan->disbursed_amount;
+        // NULL (or column missing before migration 035) = disbursed in full
+        return !isset($loan->disbursed_amount) ? (float) $loan->principal_amount : (float) $loan->disbursed_amount;
     }
 
     /** Sanctioned principal not yet released. */
@@ -3611,11 +3612,16 @@ class Loan_model extends MY_Model {
 
     /** Parts of a loan, oldest first, with the bank line they are mapped to. */
     public function get_disbursement_parts($loan_id) {
-        return $this->db->select('dt.*, bt.transaction_date bank_date, bt.amount bank_amount, bt.description bank_description, a.full_name created_by_name')
+        // Pages must still open on a database where migration 035 has not run yet
+        if (!$this->db->table_exists('disbursement_tracking')) return [];
+        $this->db->select('dt.*, bt.transaction_date bank_date, bt.amount bank_amount, bt.description bank_description, a.full_name created_by_name')
             ->from('disbursement_tracking dt')
             ->join('bank_transactions bt', 'bt.id = dt.bank_transaction_id', 'left')
             ->join('admin_users a', 'a.id = dt.created_by', 'left')
-            ->where('dt.loan_id', $loan_id)->order_by('dt.tranche_no', 'ASC')->order_by('dt.id', 'ASC')->get()->result();
+            ->where('dt.loan_id', $loan_id);
+        if ($this->db->field_exists('tranche_no', 'disbursement_tracking')) $this->db->order_by('dt.tranche_no', 'ASC');
+        $q = $this->db->order_by('dt.id', 'ASC')->get();
+        return $q ? $q->result() : [];
     }
 
     /**

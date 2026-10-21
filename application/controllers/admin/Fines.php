@@ -43,7 +43,20 @@ class Fines extends Admin_Controller {
                 $this->db->where('f.status', $status);
             }
         }
-        
+        // Search / type / member filters shown on the page (they were never applied)
+        if ($mid = (int) $this->input->get('member_id')) {
+            $this->db->where('f.member_id', $mid);
+        }
+        if ($ftype = $this->input->get('type')) {
+            $this->db->where('f.fine_type', $ftype);
+        }
+        if (($q = trim((string) $this->input->get('search'))) !== '') {
+            $this->db->group_start()
+                     ->like('f.fine_code', $q)->or_like('m.member_code', $q)->or_like('m.phone', $q)
+                     ->or_like("CONCAT(m.first_name, ' ', m.last_name)", $q, 'both', false)
+                     ->group_end();
+        }
+
         $this->db->order_by('f.fine_date', 'DESC');
         
         $fines = $this->db->get()->result();
@@ -543,11 +556,87 @@ class Fines extends Admin_Controller {
      */
     public function run_auto_fines() {
         $applied = $this->Fine_model->run_late_fine_job($this->session->userdata('admin_id'));
-        
-        $this->log_activity('Ran auto-fine job', 'Applied ' . $applied . ' fines', 'fines');
-        
-        $this->session->set_flashdata('success', $applied . ' fines applied automatically.');
+        $s = $this->Fine_model->last_run;
+
+        $msg = sprintf('%d new fines, %d fines recalculated (%s change). %d items still within grace period.',
+                       $s['created'] ?? 0, $s['updated'] ?? 0, format_amount($s['amount_change'] ?? 0), $s['within_grace'] ?? 0);
+        $this->log_activity('Ran auto-fine job', $msg, 'fines');
+
+        $this->session->set_flashdata('success', $msg);
         redirect('admin/fines');
+    }
+
+    /**
+     * Preview Auto Fine Job — the full job is run inside a rolled-back
+     * transaction, so the admin sees exactly what would be created/changed.
+     */
+    public function preview_auto_fines() {
+        $this->Fine_model->run_late_fine_job($this->session->userdata('admin_id'), true);
+        $s = $this->Fine_model->last_run;
+        $items = $s['items'] ?? [];
+
+        $names = [];
+        $ids = array_values(array_unique(array_column($items, 'member_id')));
+        foreach (array_chunk($ids, 500) as $chunk) {
+            foreach ($this->db->select('id, member_code, first_name, last_name, phone')->where_in('id', $chunk)->get('members')->result() as $m) {
+                $names[$m->id] = $m;
+            }
+        }
+        $rows = [];
+        foreach ($items as $it) {
+            $m = $names[$it['member_id']] ?? null;
+            $rows[] = $it + [
+                'member_code' => $m->member_code ?? '',
+                'member_name' => $m ? trim($m->first_name . ' ' . $m->last_name) : '',
+                'phone'       => $m->phone ?? '',
+                'change'      => $it['amount'] - $it['old'],
+                'kind_label'  => $it['kind'] === 'loan' ? 'Loan EMI' : 'Savings',
+                'action_label'=> $it['action'] === 'created' ? 'New fine' : 'Recalculated',
+            ];
+        }
+
+        $spec = [
+            'title'    => 'Auto Fine Preview',
+            'subtitle' => 'Nothing has been saved — this is what "Run Auto Fine Job" would do today (' . format_date(date('Y-m-d')) . ')',
+            'icon'     => 'fa-search-dollar',
+            'kpis'     => [
+                ['label' => 'New fines', 'value' => $s['created'] ?? 0, 'type' => 'int', 'color' => 'danger'],
+                ['label' => 'Recalculated', 'value' => $s['updated'] ?? 0, 'type' => 'int', 'color' => 'warning'],
+                ['label' => 'Amount added', 'value' => $s['amount_change'] ?? 0, 'type' => 'money', 'color' => 'danger'],
+                ['label' => 'Within grace', 'value' => $s['within_grace'] ?? 0, 'type' => 'int', 'color' => 'success'],
+                ['label' => 'No rule for due date', 'value' => $s['no_rule'] ?? 0, 'type' => 'int', 'color' => 'info'],
+                ['label' => 'Rules start', 'value' => $s['rules_start'] ? format_date($s['rules_start']) : '—'],
+            ],
+            'columns'  => [
+                ['key' => 'action_label', 'label' => 'Action'],
+                ['key' => 'member_code', 'label' => 'Member'],
+                ['key' => 'member_name', 'label' => 'Name'],
+                ['key' => 'phone', 'label' => 'Phone', 'type' => 'code'],
+                ['key' => 'kind_label', 'label' => 'For'],
+                ['key' => 'reference', 'label' => 'Reference'],
+                ['key' => 'due_date', 'label' => 'Due date', 'type' => 'date'],
+                ['key' => 'status', 'label' => 'EMI status'],
+                ['key' => 'days_late', 'label' => 'Days late', 'type' => 'int'],
+                ['key' => 'rule', 'label' => 'Rule'],
+                ['key' => 'old', 'label' => 'Current fine', 'type' => 'money', 'total' => true],
+                ['key' => 'amount', 'label' => 'New fine', 'type' => 'money', 'total' => true],
+                ['key' => 'change', 'label' => 'Change', 'type' => 'money', 'total' => true],
+            ],
+            'rows'     => $rows,
+            'note'     => 'Only EMIs / savings dues that fell due on or after the rule\'s "effective from" date are fined. '
+                        . 'If an EMI here was actually paid, record or map that payment first — then run the job.',
+        ];
+
+        if ($this->input->get('export') === 'excel') {
+            $this->load->library('Excel_report');
+            $this->excel_report->download($spec, 'auto_fine_preview');
+        }
+        $data = [
+            'title' => 'Auto Fine Preview', 'page_title' => 'Auto Fine Preview', 'spec' => $spec,
+            'breadcrumb' => [['title' => 'Dashboard', 'url' => 'admin/dashboard'], ['title' => 'Fines', 'url' => 'admin/fines'],
+                             ['title' => 'Rules', 'url' => 'admin/fines/rules'], ['title' => 'Preview', 'url' => '']],
+        ];
+        $this->load_view('admin/reports/report_view', $data);
     }
     
     /**
@@ -564,12 +653,14 @@ class Fines extends Admin_Controller {
 
         // Map incoming form fields to schema-compatible columns
         $fine_type = $this->input->post('fine_type') ?: 'fixed';
+        $amount = $this->input->post('amount_value');
+        if ($amount === null || $amount === '') $amount = $this->input->post('fine_amount');
         $rule_data = [
-            'rule_name' => $this->input->post('rule_name'),
-            'applies_to' => $this->input->post('applies_to') ?: 'both',
+            'rule_name' => trim((string) $this->input->post('rule_name')),
+            'applies_to' => in_array($this->input->post('applies_to'), ['loan', 'savings', 'both'], true) ? $this->input->post('applies_to') : 'both',
             'fine_type' => $fine_type,
-            'calculation_type' => $fine_type, // Always keep in sync with fine_type
-            'fine_value' => $this->input->post('amount_value') ?: ($this->input->post('fine_amount') ?: 0),
+            'calculation_type' => $fine_type,
+            'fine_value' => is_numeric($amount) ? $amount : 0,
             'per_day_amount' => $this->input->post('per_day_amount') ?: 0,
             'grace_period_days' => $this->input->post('grace_days') ?: ($this->input->post('grace_period') ?: 0),
             'max_fine_amount' => $this->input->post('max_fine_amount') ?: null,
@@ -577,33 +668,41 @@ class Fines extends Admin_Controller {
             'is_active' => $this->input->post('is_active') ? 1 : 0,
         ];
 
-        if (empty($rule_data['rule_name'])) {
+        if ($rule_data['rule_name'] === '') {
             $this->json_response(['success' => false, 'message' => 'Rule name is required']);
             return;
         }
+        if (in_array($fine_type, ['per_day', 'fixed_plus_daily'], true) && (float) $rule_data['fine_value'] <= 0 && (float) $rule_data['per_day_amount'] <= 0) {
+            $this->json_response(['success' => false, 'message' => 'Enter an initial fine and/or a per-day amount']);
+            return;
+        }
+
+        // Edits default to the 1st of next month (the screen tells the admin so);
+        // the admin may pick another date. New rules start today unless a date is given.
+        $eff = $this->input->post('effective_from');
+        $eff = $eff && strtotime($eff) ? date('Y-m-d', strtotime($eff))
+                                       : ($id ? date('Y-m-01', strtotime('first day of next month')) : date('Y-m-d'));
+        $rule_data['effective_from'] = $eff;
 
         if ($id) {
-            // Editing existing rule: changes apply from 1st of next month
-            $effective_from = date('Y-m-01', strtotime('first day of next month'));
-            $rule_data['effective_from'] = $effective_from;
-            $rule_data['updated_by'] = $admin_id;
-            $rule_data['updated_at'] = date('Y-m-d H:i:s');
             $old = $this->db->where('id', $id)->get('fine_rules')->row();
-            $this->db->where('id', $id)->update('fine_rules', $rule_data);
-            $this->log_audit('update', 'fine_rules', 'fine_rules', $id, (array)$old, $rule_data);
+            $res = $this->Fine_model->save_rule($id, $rule_data, $admin_id);
+            if (!$res) {
+                $this->json_response(['success' => false, 'message' => 'Rule not found or could not be saved']);
+                return;
+            }
+            $this->log_audit('update', 'fine_rules', 'fine_rules', $res['id'], (array) $old, $rule_data);
             $this->json_response([
-                'success' => true, 
-                'message' => 'Rule updated. Changes effective from ' . format_date($effective_from)
+                'success' => true,
+                'message' => $res['versioned']
+                    ? 'Saved as a new version effective ' . format_date($eff) . '. EMIs due before that keep the old terms.'
+                    : 'Rule updated (effective ' . format_date($eff) . ').'
             ]);
         } else {
-            // New rule: effective immediately
-            $rule_data['effective_from'] = date('Y-m-d');
             $rule_data['rule_code'] = $this->generate_rule_code();
-            $rule_data['created_by'] = $admin_id;
-            $this->db->insert('fine_rules', $rule_data);
-            $id = $this->db->insert_id();
-            $this->log_audit('create', 'fine_rules', 'fine_rules', $id, null, $rule_data);
-            $this->json_response(['success' => true, 'message' => 'Rule created and active immediately']);
+            $res = $this->Fine_model->save_rule(null, $rule_data, $admin_id);
+            $this->log_audit('create', 'fine_rules', 'fine_rules', $res['id'] ?? null, null, $rule_data);
+            $this->json_response(['success' => (bool) $res, 'message' => $res ? 'Rule created, effective ' . format_date($eff) : 'Could not save the rule']);
         }
     }
     
@@ -681,48 +780,16 @@ class Fines extends Admin_Controller {
      */
     public function recalculate_all() {
         $admin_id = $this->session->userdata('admin_id');
-        
-        // Get all pending/partial fines with their rules
-        $fines = $this->db->select('f.id, f.due_date, f.fine_amount, f.paid_amount, f.waived_amount')
-                          ->select('fr.calculation_type, fr.fine_value, fr.per_day_amount, fr.grace_period_days, fr.max_fine_amount')
-                          ->from('fines f')
-                          ->join('fine_rules fr', 'fr.id = f.fine_rule_id')
-                          ->where_in('f.status', ['pending', 'partial'])
-                          ->get()
-                          ->result();
-        
-        $fixed = 0;
-        $total = count($fines);
-        
-        foreach ($fines as $f) {
-            $days_late = floor((strtotime(date('Y-m-d')) - strtotime($f->due_date)) / 86400);
-            
-            $rule_obj = (object)[
-                'grace_period_days' => $f->grace_period_days ?? 0,
-                'calculation_type'  => $f->calculation_type ?? 'fixed',
-                'fine_value'        => $f->fine_value ?? 0,
-                'per_day_amount'    => $f->per_day_amount ?? 0,
-                'max_fine_amount'   => $f->max_fine_amount ?? 0,
-            ];
-            
-            $correct_amount = $this->Fine_model->calculate_fine_amount($rule_obj, $days_late);
-            
-            if ($correct_amount > 0 && abs($correct_amount - (float)$f->fine_amount) > 0.01) {
-                $new_balance = $correct_amount - (float)$f->paid_amount - (float)$f->waived_amount;
-                
-                $this->db->where('id', $f->id)->update('fines', [
-                    'fine_amount' => $correct_amount,
-                    'balance_amount' => max(0, $new_balance),
-                    'days_late' => $days_late,
-                    'updated_at' => date('Y-m-d H:i:s'),
-                    'updated_by' => $admin_id
-                ]);
-                $fixed++;
-            }
-        }
-        
+
+        // Same engine as the cron job: each open fine is recalculated against the
+        // rule locked to it and stops at its EMI's payment date. Paid/waived
+        // amounts are never reduced.
+        $total = $this->db->where_in('related_type', ['loan_installment', 'savings_schedule'])
+                          ->where_in('status', ['pending', 'partial'])->count_all_results('fines');
+        $fixed = $this->Fine_model->recalculate_open_fines($admin_id);
+
         $this->log_audit('recalculate', 'fines', 'fines', null, null, ['total' => $total, 'fixed' => $fixed]);
-        $this->session->set_flashdata('success', "Recalculated $fixed of $total pending fines.");
+        $this->session->set_flashdata('success', "Recalculated $fixed of $total open automatic fines.");
         redirect('admin/fines');
     }
 }

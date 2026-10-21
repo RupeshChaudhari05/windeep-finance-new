@@ -56,174 +56,209 @@ class Fine_model extends MY_Model {
         return $this->db->insert_id();
     }
     
+    /* ==================================================================
+     * LATE-FINE ENGINE
+     *
+     * - One fine row per overdue loan installment / savings schedule.
+     * - The rule used is the one in force on the item's DUE DATE
+     *   (effective_from <= due_date and effective_to empty or >= due_date),
+     *   and it stays locked to the fine through fine_rule_id. Old arrears that
+     *   fell due before any rule existed are never fined retroactively.
+     * - Days late run from the due date to the payment date (or today while
+     *   unpaid), so a per-day fine stops growing the day the EMI is paid.
+     * - Paid / waived amounts are never undone by a recalculation.
+     * ================================================================== */
+
+    /** Stats of the last run_late_fine_job() call (also used for the preview page) */
+    public $last_run = [];
+
+    private $_rules = null;
+    private $_rule_by_id = [];
+
     /**
-     * Apply Loan Late Fine
-     * One fine row per installment — updates the existing row each day instead of inserting a new one.
+     * Canonical calculation type of a rule: fixed | percentage | per_day | slab.
+     * 'fixed_plus_daily' (older settings screen) is the same formula as per_day.
+     */
+    public function rule_type($rule) {
+        $t = (string) ($rule->calculation_type ?? '');
+        if ($t === '') $t = (string) ($rule->fine_type ?? '');
+        if ($t === 'fixed_plus_daily') $t = 'per_day';
+        if (!in_array($t, ['fixed', 'percentage', 'per_day', 'slab'], true)) {
+            $t = ((float) ($rule->per_day_amount ?? 0) > 0) ? 'per_day' : 'fixed';
+        }
+        return $t;
+    }
+
+    /**
+     * Rule in force for an item ($applies = 'loan' | 'savings') that fell due on $due_date.
+     */
+    public function find_rule($applies, $due_date, $loan_product_id = null) {
+        if ($this->_rules === null) {
+            $this->_rules = $this->db->where('is_active', 1)
+                                     ->order_by('effective_from', 'DESC')->order_by('id', 'DESC')
+                                     ->get('fine_rules')->result();
+        }
+        $due_date = substr((string) $due_date, 0, 10);
+        $best = null;
+        foreach ($this->_rules as $r) {
+            if (!in_array($r->applies_to, [$applies, 'both'], true)) continue;
+            if ($r->effective_from > $due_date) continue;
+            if (!empty($r->effective_to) && $r->effective_to < $due_date) continue;
+            $pid = $r->loan_product_id ?? null;
+            if ($pid) {
+                if ((int) $pid === (int) $loan_product_id) return $r;   // product-specific rule wins
+                continue;
+            }
+            if (!$best) $best = $r;
+        }
+        return $best;
+    }
+
+    private function _rule($id) {
+        if (!$id) return null;
+        if (!array_key_exists($id, $this->_rule_by_id)) {
+            $this->_rule_by_id[$id] = $this->db->where('id', $id)->get('fine_rules')->row();
+        }
+        return $this->_rule_by_id[$id];
+    }
+
+    /** Earliest date any active rule starts — nothing due before it can be fined */
+    private function _rules_start() {
+        $row = $this->db->select_min('effective_from', 'd')->where('is_active', 1)->get('fine_rules')->row();
+        return $row && $row->d ? $row->d : null;
+    }
+
+    private static function _days_between($from, $to) {
+        $a = DateTime::createFromFormat('Y-m-d', substr((string) $from, 0, 10));
+        $b = DateTime::createFromFormat('Y-m-d', substr((string) $to, 0, 10));
+        if (!$a || !$b || $b <= $a) return 0;
+        return (int) $a->diff($b)->days;
+    }
+
+    private static function _valid_date($d) {
+        return $d && strpos((string) $d, '0000-00-00') !== 0 && strtotime((string) $d) !== false;
+    }
+
+    /**
+     * Load one overdue item in a common shape.
+     */
+    private function _item($kind, $id) {
+        if ($kind === 'loan') {
+            return $this->db->select('li.id, li.loan_id, li.due_date, li.emi_amount AS base, li.status, li.paid_date,
+                                      li.installment_number, l.member_id, l.loan_number, l.loan_product_id AS product_id, l.status AS account_status')
+                            ->from('loan_installments li')->join('loans l', 'l.id = li.loan_id')
+                            ->where('li.id', $id)->get()->row();
+        }
+        return $this->db->select('sch.id, NULL AS loan_id, sch.due_date, sch.due_amount AS base, sch.status, sch.paid_date,
+                                  sch.due_month, sa.member_id, sa.account_number, NULL AS product_id, sa.status AS account_status', false)
+                        ->from('savings_schedule sch')->join('savings_accounts sa', 'sa.id = sch.savings_account_id')
+                        ->where('sch.id', $id)->get()->row();
+    }
+
+    /**
+     * Create or recalculate the fine of one item. Returns created|updated|same|none|no_rule|skip.
+     */
+    private function _accrue($kind, $item, $created_by, $existing = false) {
+        if (!$item) return 'skip';
+        $related = $kind === 'loan' ? 'loan_installment' : 'savings_schedule';
+        if ($existing === false) {
+            $existing = $this->db->where('related_type', $related)->where('related_id', $item->id)
+                                 ->where('status !=', 'cancelled')
+                                 ->order_by('id', 'DESC')->limit(1)->get($this->table)->row();
+        }
+        if ($existing && $existing->status === 'waived') return 'skip';
+        // Installments that were skipped, waived, rescheduled as interest-only or
+        // cancelled by a force close are not overdue in the business sense.
+        if (in_array($item->status, ['waived', 'skipped', 'cancelled', 'interest_only'], true)) return 'skip';
+
+        $rule = ($existing && !empty($existing->fine_rule_id)) ? $this->_rule($existing->fine_rule_id) : null;
+        if (!$rule) $rule = $this->find_rule($kind, $item->due_date, $item->product_id ?? null);
+        if (!$rule) return 'no_rule';
+        // A rule switched off stops charging: open fines keep their amount
+        if (empty($rule->is_active)) return 'skip';
+
+        $today = date('Y-m-d');
+        $end   = ($item->status === 'paid' && self::_valid_date($item->paid_date)) ? substr($item->paid_date, 0, 10) : $today;
+        if ($end > $today) $end = $today;
+        $days   = self::_days_between($item->due_date, $end);
+        $amount = $this->calculate_fine_amount($rule, $days, (float) $item->base);
+
+        $this->_last_item = ['kind' => $kind, 'item' => $item, 'days' => $days, 'amount' => $amount,
+                             'old' => $existing ? (float) $existing->fine_amount : 0.0, 'rule' => $rule->rule_name ?? ''];
+
+        if (!$existing) {
+            if ($amount <= 0) return 'none';
+            $grace = (int) ($rule->grace_period_days ?? 0);
+            $start = date('Y-m-d', strtotime(substr($item->due_date, 0, 10) . ' +' . ($grace + 1) . ' days'));
+            $label = $kind === 'loan'
+                ? 'Late payment fine for ' . $item->loan_number . ' EMI #' . $item->installment_number
+                : 'Late savings payment fine for ' . $item->account_number . (!empty($item->due_month) ? ' (' . date('M Y', strtotime($item->due_month)) . ')' : '');
+            $this->create_fine([
+                'member_id'    => $item->member_id,
+                'loan_id'      => $item->loan_id ?: null,
+                'fine_type'    => $kind === 'loan' ? 'loan_late' : 'savings_late',
+                'related_type' => $related,
+                'related_id'   => $item->id,
+                'fine_rule_id' => $rule->id,
+                'fine_date'    => min($start, $today),
+                'due_date'     => substr($item->due_date, 0, 10),
+                'days_late'    => $days,
+                'fine_amount'  => $amount,
+                'remarks'      => $label,
+                'created_by'   => $created_by,
+            ]);
+            return 'created';
+        }
+
+        // Never recalculate below what has already been collected or waived
+        $settled = (float) $existing->paid_amount + (float) $existing->waived_amount;
+        $amount  = max($amount, round($settled, 2));
+        if (abs($amount - (float) $existing->fine_amount) < 0.01 && (int) $existing->days_late === $days) return 'same';
+
+        $balance = round($amount - $settled, 2);
+        if ($balance <= 0) {
+            $status = (float) $existing->paid_amount > 0 ? 'paid' : 'waived';
+            $balance = 0;
+        } else {
+            $status = (float) $existing->paid_amount > 0 ? 'partial' : 'pending';
+        }
+        $this->db->where('id', $existing->id)->update($this->table, [
+            'fine_amount'    => $amount,
+            'balance_amount' => $balance,
+            'days_late'      => $days,
+            'status'         => $status,
+            'fine_rule_id'   => $existing->fine_rule_id ?: $rule->id,
+            'updated_by'     => $created_by,
+            'updated_at'     => date('Y-m-d H:i:s'),
+        ]);
+        return abs($amount - (float) $existing->fine_amount) < 0.01 ? 'same' : 'updated';
+    }
+
+    private $_last_item = null;
+
+    /**
+     * Apply / refresh the late fine of one loan installment.
+     * Returns the fine id, or false when no fine applies.
      */
     public function apply_loan_late_fine($installment_id, $created_by) {
-        // Get installment details
-        $installment = $this->db->select('li.*, l.member_id, l.loan_number, l.loan_product_id')
-                                ->from('loan_installments li')
-                                ->join('loans l', 'l.id = li.loan_id')
-                                ->where('li.id', $installment_id)
-                                ->get()
-                                ->row();
-        
-        if (!$installment) return false;
-        
-        // FINE-7 FIX: Use DateTime::diff() instead of / 86400 to avoid DST boundary issues
-        $days_late = (new DateTime(date('Y-m-d')))->diff(new DateTime($installment->due_date))->days;
-
-        // Helper to add days range conditionally depending on schema
-        $add_days_conditions = function($db, $days) {
-            if ($this->_has_field('min_days', 'fine_rules')) {
-                $db->where('min_days <=', $days)
-                   ->where('max_days >=', $days);
-            } elseif ($this->_has_field('grace_period_days', 'fine_rules')) {
-                $db->where('grace_period_days <=', $days);
-            }
-        };
-        
-        // Get product-specific rule first
-        $query = $this->db->where_in('applies_to', ['loan', 'both'])
-                          ->where('is_active', 1)
-                          ->where('effective_from <=', date('Y-m-d'));
-        if ($this->_has_field('loan_product_id', 'fine_rules')) {
-            $query->where('loan_product_id', $installment->loan_product_id);
-        }
-        $add_days_conditions($query, $days_late);
-        $rule = $query->get('fine_rules')->row();
-        
-        if (!$rule) {
-            // Get default rule (no product-specific)
-            $query = $this->db->where_in('applies_to', ['loan', 'both'])
-                              ->where('is_active', 1)
-                              ->where('effective_from <=', date('Y-m-d'));
-            $add_days_conditions($query, $days_late);
-            $rule = $query->get('fine_rules')->row();
-        }
-        
-        if (!$rule) return false;
-        
-        // Calculate fine using the centralized method (respects grace period)
-        $base_amount = isset($installment->emi_amount) ? $installment->emi_amount : 0;
-        $fine_amount = $this->calculate_fine_amount($rule, $days_late, $base_amount);
-        
-        if ($fine_amount <= 0) return false;
-        
-        // Check if a fine row already exists for this installment (any date)
-        $existing_fine = $this->db->where('related_type', 'loan_installment')
-                                  ->where('related_id', $installment_id)
-                                  ->where_in('status', ['pending', 'partial'])
-                                  ->get($this->table)
-                                  ->row();
-        
-        if ($existing_fine) {
-            // UPDATE the existing fine row with latest days_late and recalculated amount
-            $new_balance = $fine_amount - (float)$existing_fine->paid_amount - (float)$existing_fine->waived_amount;
-            $this->db->where('id', $existing_fine->id)
-                     ->update($this->table, [
-                         'days_late'      => $days_late,
-                         'fine_amount'    => $fine_amount,
-                         'balance_amount' => max(0, $new_balance),
-                         'fine_date'      => date('Y-m-d'),
-                         'updated_at'     => date('Y-m-d H:i:s'),
-                     ]);
-            return $existing_fine->id;
-        }
-        
-        // No existing fine — create a new one
-        return $this->create_fine([
-            'member_id'   => $installment->member_id,
-            'fine_type'   => 'loan_late',
-            'related_type'=> 'loan_installment',
-            'related_id'  => $installment_id,
-            'fine_rule_id'=> $rule->id,
-            'fine_date'   => date('Y-m-d'),
-            'due_date'    => $installment->due_date,
-            'days_late'   => $days_late,
-            'fine_amount' => $fine_amount,
-            'remarks'     => 'Late payment fine for ' . $installment->loan_number . ' EMI #' . $installment->installment_number,
-            'created_by'  => $created_by
-        ]);
+        $res = $this->_accrue('loan', $this->_item('loan', $installment_id), $created_by);
+        if (!in_array($res, ['created', 'updated', 'same'], true)) return false;
+        $row = $this->db->select('id')->where('related_type', 'loan_installment')->where('related_id', $installment_id)
+                        ->where('status !=', 'cancelled')->order_by('id', 'DESC')->limit(1)->get($this->table)->row();
+        return $row ? $row->id : false;
     }
-    
+
     /**
-     * Apply Savings Late Fine
-     * One fine row per savings schedule — updates the existing row each day instead of inserting a new one.
+     * Apply / refresh the late fine of one savings schedule.
      */
     public function apply_savings_late_fine($schedule_id, $created_by) {
-        // Get schedule details
-        $schedule = $this->db->select('sch.*, sa.account_number, sa.member_id')
-                             ->from('savings_schedule sch')
-                             ->join('savings_accounts sa', 'sa.id = sch.savings_account_id')
-                             ->where('sch.id', $schedule_id)
-                             ->get()
-                             ->row();
-        
-        if (!$schedule) return false;
-        
-        // FINE-7 FIX: Use DateTime::diff() instead of / 86400
-        $days_late = (new DateTime(date('Y-m-d')))->diff(new DateTime($schedule->due_date))->days;
-        
-        // Build query with conditional day constraints
-        $query = $this->db->where_in('applies_to', ['savings', 'both'])
-                          ->where('is_active', 1)
-                          ->where('effective_from <=', date('Y-m-d'));
-        if ($this->_has_field('min_days', 'fine_rules')) {
-            $query->where('min_days <=', $days_late)
-                  ->where('max_days >=', $days_late);
-        } elseif ($this->_has_field('grace_period_days', 'fine_rules')) {
-            $query->where('grace_period_days <=', $days_late);
-        }
-        
-        $rule = $query->get('fine_rules')->row();
-        
-        if (!$rule) return false;
-        
-        // Calculate fine using the centralized method (respects grace period)
-        $base_amount = isset($schedule->due_amount) ? $schedule->due_amount : 0;
-        $fine_amount = $this->calculate_fine_amount($rule, $days_late, $base_amount);
-        
-        if ($fine_amount <= 0) return false;
-        
-        // Check if a fine row already exists for this schedule (any date)
-        $existing_fine = $this->db->where('related_type', 'savings_schedule')
-                                  ->where('related_id', $schedule_id)
-                                  ->where_in('status', ['pending', 'partial'])
-                                  ->get($this->table)
-                                  ->row();
-        
-        if ($existing_fine) {
-            // UPDATE the existing fine row with latest days_late and recalculated amount
-            $new_balance = $fine_amount - (float)$existing_fine->paid_amount - (float)$existing_fine->waived_amount;
-            $this->db->where('id', $existing_fine->id)
-                     ->update($this->table, [
-                         'days_late'      => $days_late,
-                         'fine_amount'    => $fine_amount,
-                         'balance_amount' => max(0, $new_balance),
-                         'fine_date'      => date('Y-m-d'),
-                         'updated_at'     => date('Y-m-d H:i:s'),
-                     ]);
-            return $existing_fine->id;
-        }
-        
-        // No existing fine — create a new one
-        return $this->create_fine([
-            'member_id'   => $schedule->member_id,
-            'fine_type'   => 'savings_late',
-            'related_type'=> 'savings_schedule',
-            'related_id'  => $schedule_id,
-            'fine_rule_id'=> $rule->id,
-            'fine_date'   => date('Y-m-d'),
-            'due_date'    => $schedule->due_date,
-            'days_late'   => $days_late,
-            'fine_amount' => $fine_amount,
-            'remarks'     => 'Late savings payment fine for ' . $schedule->account_number,
-            'created_by'  => $created_by
-        ]);
+        $res = $this->_accrue('savings', $this->_item('savings', $schedule_id), $created_by);
+        if (!in_array($res, ['created', 'updated', 'same'], true)) return false;
+        $row = $this->db->select('id')->where('related_type', 'savings_schedule')->where('related_id', $schedule_id)
+                        ->where('status !=', 'cancelled')->order_by('id', 'DESC')->limit(1)->get($this->table)->row();
+        return $row ? $row->id : false;
     }
-    
+
     /**
      * Record Fine Payment
      */
@@ -322,7 +357,7 @@ class Fine_model extends MY_Model {
                  ->update($this->table, [
                      'waived_amount' => $new_waived,
                      'balance_amount' => $new_balance,
-                     'waive_reason' => $reason,
+                     'waiver_reason' => $reason,
                      'waived_by' => $waived_by,
                      'waived_at' => date('Y-m-d H:i:s'),
                      'status' => $status,
@@ -598,182 +633,315 @@ class Fine_model extends MY_Model {
     }
     
     /**
-     * Calculate Fine Amount (Indian Banking Style)
-     * Supports: Fixed, Percentage, Per Day, Fixed + Daily
+     * Calculate Fine Amount — the single formula used everywhere.
+     *
+     *   effective days = days late − grace period (no fine while ≤ 0)
+     *   fixed       : fine_value (once)
+     *   percentage  : fine_value % of the due amount (once)
+     *   per_day     : fine_value on the first late day + per_day_amount for every further day
+     *                 (when fine_value is 0: per_day_amount × effective days)
+     *   slab        : amount of the slab_config band the effective days fall in
+     *   max_fine_amount caps the result.
+     *
+     * Example (active rule): ₹100 + ₹10/day, grace 10 → 11 days late = ₹100, 15 days = ₹140.
      */
     public function calculate_fine_amount($rule, $days_late, $due_amount = 0) {
-        $grace_period = $rule->grace_period_days ?? ($rule->grace_period ?? 0);
-        $effective_days = max(0, $days_late - $grace_period);
-        
-        if ($effective_days <= 0) {
-            return 0;
-        }
-        
-        $fine_amount = 0;
-        $fine_type = $rule->calculation_type ?? ($rule->fine_type ?? 'fixed');
-        
-        switch ($fine_type) {
-            case 'fixed':
-                $fine_amount = $rule->fine_value ?? ($rule->fine_amount ?? 0);
-                break;
-                
-            case 'percentage':
-                $rate = $rule->fine_value ?? ($rule->fine_rate ?? 0);
-                $fine_amount = $due_amount * ($rate / 100);
-                break;
-                
-            case 'per_day':
-                // Initial fixed + daily amount after grace period
-                // Example: fine_value=100, per_day_amount=10, 3 days late → 100 + 10*2 = 120
-                $initial = $rule->fine_value ?? 0;
-                $per_day = $rule->per_day_amount ?? 0;
-                $fine_amount = $initial + ($per_day * max(0, $effective_days - 1));
-                break;
+        $grace = (int) ($rule->grace_period_days ?? ($rule->grace_period ?? 0));
+        $days  = max(0, (int) $days_late - $grace);
+        if ($days <= 0) return 0;
 
-            // FINE-6 FIX: Default to fixed calculation instead of returning 0
-            default:
-                $fine_amount = $rule->fine_value ?? ($rule->fine_amount ?? 0);
+        $value   = (float) ($rule->fine_value ?? ($rule->fine_amount ?? 0));
+        $per_day = (float) ($rule->per_day_amount ?? 0);
+
+        switch ($this->rule_type($rule)) {
+            case 'percentage':
+                $rate = (float) ($rule->fine_value ?? ($rule->fine_rate ?? 0));
+                $fine = (float) $due_amount * $rate / 100;
                 break;
+            case 'per_day':
+                $fine = $value > 0 ? $value + $per_day * ($days - 1) : $per_day * $days;
+                break;
+            case 'slab':
+                $fine = $this->_slab_amount($rule, $days, $value);
+                break;
+            default:
+                $fine = $value;
         }
-        
-        // Apply maximum cap if set
-        $max_fine = $rule->max_fine_amount ?? ($rule->max_fine ?? 0);
-        if ($max_fine > 0 && $fine_amount > $max_fine) {
-            $fine_amount = $max_fine;
-        }
-        
-        return round($fine_amount, 2);
+
+        $cap = (float) ($rule->max_fine_amount ?? ($rule->max_fine ?? 0));
+        if ($cap > 0 && $fine > $cap) $fine = $cap;
+        return round(max(0, $fine), 2);
     }
-    
+
     /**
-     * Calculate fine for a specific fine type and overdue details
-     * Used by cron job to automatically apply fines
-     * 
-     * @param string $fine_type 'loan_late' or 'savings_late'
-     * @param float $outstanding_amount Outstanding amount
-     * @param int $days_overdue Days overdue
-     * @return float Fine amount
+     * slab_config JSON: [{"from":1,"to":30,"amount":100},{"from":31,"to":9999,"amount":250}]
+     * ("days" are effective days after grace). Falls back to fine_value.
      */
-    public function calculate_fine($fine_type, $outstanding_amount, $days_overdue) {
-        // Get applicable rule
-        $rule = $this->db->where('fine_type', $fine_type)
-                        ->where('is_active', 1)
-                        ->order_by('grace_period_days', 'DESC')
-                        ->limit(1)
-                        ->get('fine_rules')
-                        ->row();
-        
-        if (!$rule) {
-            return 0; // No rule configured
+    private function _slab_amount($rule, $days, $fallback) {
+        $slabs = json_decode((string) ($rule->slab_config ?? ''), true);
+        if (!is_array($slabs) || !$slabs) return $fallback;
+        $last = null;
+        foreach ($slabs as $s) {
+            $from = (int) ($s['from'] ?? 0);
+            $to   = (int) ($s['to'] ?? PHP_INT_MAX);
+            if ($days >= $from && $days <= $to) return (float) ($s['amount'] ?? 0);
+            if ($days > $to) $last = (float) ($s['amount'] ?? 0);
         }
-        
-        // Normalize rule object for calculate_fine_amount
-        $normalized_rule = (object)[
-            'grace_period' => $rule->grace_period_days ?? 0,
-            'fine_type' => $rule->calculation_type ?? 'fixed',
-            'fine_amount' => $rule->fine_value ?? 0,
-            'fine_rate' => $rule->fine_rate ?? 0,
-            'per_day_amount' => $rule->per_day_amount ?? 0,
-            'max_fine' => $rule->max_fine_amount ?? 0
-        ];
-        
-        return $this->calculate_fine_amount($normalized_rule, $days_overdue, $outstanding_amount);
+        return $last ?? $fallback;
     }
-    
+
     /**
-     * Update Daily Fines
-     * Called daily to update fine amounts for per_day and fixed_plus_daily rules
+     * Fine for a hypothetical overdue item (used by calculators / AI assistant).
+     *
+     * @param string $fine_type 'loan_late' | 'savings_late' | 'loan' | 'savings'
+     */
+    public function calculate_fine($fine_type, $outstanding_amount, $days_overdue, $due_date = null) {
+        $applies = strpos($fine_type, 'saving') !== false ? 'savings' : 'loan';
+        $rule = $this->find_rule($applies, $due_date ?: date('Y-m-d', strtotime('-' . (int) $days_overdue . ' days')));
+        return $rule ? $this->calculate_fine_amount($rule, $days_overdue, $outstanding_amount) : 0;
+    }
+
+    /**
+     * Recalculate every open automatic fine (pending/partial) against its locked
+     * rule and its item's payment date. Returns how many changed.
+     */
+    public function recalculate_open_fines($created_by = 1) {
+        $this->_rules = null;
+        $this->_rule_by_id = [];
+        $open = $this->db->where_in('related_type', ['loan_installment', 'savings_schedule'])
+                         ->where('related_id >', 0)
+                         ->where_in('status', ['pending', 'partial'])
+                         ->get($this->table)->result();
+        $changed = 0;
+        foreach ($open as $f) {
+            $kind = $f->related_type === 'loan_installment' ? 'loan' : 'savings';
+            $res  = $this->_accrue($kind, $this->_item($kind, $f->related_id), $created_by, $f);
+            $this->_tally($res);
+            if ($res === 'updated') $changed++;
+        }
+        return $changed;
+    }
+
+    /**
+     * Kept for older callers: per-day fines are refreshed by recalculate_open_fines().
      */
     public function update_daily_fines($created_by = 1) {
-        $updated = 0;
-        
-        // Get all pending fines that use daily calculation
-        // NOTE: Use distinct aliases for rule fields to avoid overwriting fine fields
-        $pending_fines = $this->db->select('f.id, f.due_date, f.fine_amount as current_fine_amount, f.paid_amount, f.waived_amount, f.balance_amount')
-                                  ->select('fr.fine_value as rule_fine_value, fr.per_day_amount as rule_per_day_amount, fr.grace_period_days, fr.max_fine_amount, fr.calculation_type')
-                                  ->from('fines f')
-                                  ->join('fine_rules fr', 'fr.id = f.fine_rule_id')
-                                  ->where_in('f.status', ['pending', 'partial'])
-                                  ->where_in('fr.calculation_type', ['per_day', 'fixed_plus_daily'])
-                                  ->get()
-                                  ->result();
-        
-        foreach ($pending_fines as $fine) {
-            $days_late = floor((safe_timestamp(date('Y-m-d')) - safe_timestamp($fine->due_date)) / 86400);
-            
-            // Build a proper rule object for calculate_fine_amount
-            $rule_obj = (object)[
-                'grace_period_days' => $fine->grace_period_days ?? 0,
-                'calculation_type'  => $fine->calculation_type ?? 'per_day',
-                'fine_value'        => $fine->rule_fine_value ?? 0,
-                'per_day_amount'    => $fine->rule_per_day_amount ?? 0,
-                'max_fine_amount'   => $fine->max_fine_amount ?? 0,
-            ];
-            
-            $new_amount = $this->calculate_fine_amount($rule_obj, $days_late);
-            
-            // Only update if amount changed (recalculate correctly)
-            if ($new_amount > 0 && abs($new_amount - $fine->current_fine_amount) > 0.01) {
-                $new_balance = $new_amount - $fine->paid_amount - $fine->waived_amount;
-                
-                $this->db->where('id', $fine->id)
-                         ->update($this->table, [
-                             'fine_amount' => $new_amount,
-                             'balance_amount' => max(0, $new_balance),
-                             'days_late' => $days_late,
-                             'updated_at' => date('Y-m-d H:i:s'),
-                             'updated_by' => $created_by
-                         ]);
-                
-                $updated++;
-            }
-        }
-        
-        return $updated;
+        return $this->recalculate_open_fines($created_by);
     }
-    
-    /**
-     * Run Late Fine Job
-     * Called by cron to auto-apply fines
-     */
-    public function run_late_fine_job($created_by = 1) {
-        $applied = 0;
-        
-        // First update existing daily fines
-        $this->update_daily_fines($created_by);
-        
-        // Loan late fines — include 'overdue' status in case mark_overdue ran before this job
-        $overdue_installments = $this->db->select('li.id')
-            ->from('loan_installments li')
-            ->join('loans l', 'l.id = li.loan_id')
-            ->where('l.status', 'active')
-            ->where_in('li.status', ['pending', 'overdue'])
-            ->where('li.due_date <', date('Y-m-d'))
-            ->get()
-            ->result();
-        
-        foreach ($overdue_installments as $inst) {
-            if ($this->apply_loan_late_fine($inst->id, $created_by)) {
-                $applied++;
+
+    private function _tally($res) {
+        if (!$this->last_run) return;
+        $key = ['created' => 'created', 'updated' => 'updated', 'same' => 'unchanged',
+                'no_rule' => 'no_rule', 'none' => 'within_grace', 'skip' => 'skipped'][$res] ?? 'skipped';
+        $this->last_run[$key]++;
+        if (in_array($res, ['created', 'updated'], true) && $this->_last_item) {
+            $li = $this->_last_item;
+            $this->last_run['amount_change'] += $li['amount'] - $li['old'];
+            if (count($this->last_run['items']) < 5000) {
+                $it = $li['item'];
+                $this->last_run['items'][] = [
+                    'action'    => $res,
+                    'kind'      => $li['kind'],
+                    'member_id' => $it->member_id,
+                    'reference' => $li['kind'] === 'loan' ? $it->loan_number . ' EMI #' . $it->installment_number : $it->account_number,
+                    'due_date'  => substr($it->due_date, 0, 10),
+                    'status'    => $it->status,
+                    'days_late' => $li['days'],
+                    'rule'      => $li['rule'],
+                    'old'       => $li['old'],
+                    'amount'    => $li['amount'],
+                ];
             }
         }
-        
-        // Savings late fines — include 'overdue' status in case mark_overdue ran before this job
-        $overdue_schedules = $this->db->select('sch.id')
-            ->from('savings_schedule sch')
-            ->join('savings_accounts sa', 'sa.id = sch.savings_account_id')
+        $this->_last_item = null;
+    }
+
+    /**
+     * Run Late Fine Job (cron "daily" and the Fines → Rules "Run" button).
+     *
+     * 1. Every unpaid installment/schedule of an active account that fell due on or
+     *    after the first rule's start date gets its fine created or refreshed.
+     * 2. Open fines whose EMI/deposit has since been paid are recalculated once more
+     *    so they freeze at the payment date.
+     *
+     * $dry_run = true does all the work inside a transaction that is rolled back,
+     * and leaves the would-be result in $this->last_run (used by the Preview page).
+     * Returns number of fines created + changed.
+     */
+    public function run_late_fine_job($created_by = 1, $dry_run = false) {
+        $this->_rules = null;
+        $this->_rule_by_id = [];
+        $this->last_run = ['created' => 0, 'updated' => 0, 'unchanged' => 0, 'no_rule' => 0,
+                           'within_grace' => 0, 'skipped' => 0, 'amount_change' => 0.0, 'items' => [],
+                           'rules_start' => null, 'dry_run' => (bool) $dry_run];
+
+        $start = $this->_rules_start();
+        $this->last_run['rules_start'] = $start;
+        if (!$start) return 0;      // no active rule → nothing to do
+
+        $today = date('Y-m-d');
+        if ($dry_run) $this->db->trans_begin();
+
+        $done = ['loan' => [], 'savings' => []];
+
+        $loan_items = $this->db->select('li.id')
+            ->from('loan_installments li')->join('loans l', 'l.id = li.loan_id')
+            ->where('l.status', 'active')
+            ->where_in('li.status', ['pending', 'overdue', 'partial'])
+            ->where('li.due_date <', $today)
+            ->where('li.due_date >=', $start)
+            ->get()->result();
+        foreach ($loan_items as $r) {
+            $this->_tally($this->_accrue('loan', $this->_item('loan', $r->id), $created_by));
+            $done['loan'][$r->id] = true;
+        }
+
+        $sav_items = $this->db->select('sch.id')
+            ->from('savings_schedule sch')->join('savings_accounts sa', 'sa.id = sch.savings_account_id')
             ->where('sa.status', 'active')
             ->where_in('sch.status', ['pending', 'partial', 'overdue'])
-            ->where('sch.due_date <', date('Y-m-d'))
-            ->get()
-            ->result();
-        
-        foreach ($overdue_schedules as $sch) {
-            if ($this->apply_savings_late_fine($sch->id, $created_by)) {
-                $applied++;
-            }
+            ->where('sch.due_date <', $today)
+            ->where('sch.due_date >=', $start)
+            ->get()->result();
+        foreach ($sav_items as $r) {
+            $this->_tally($this->_accrue('savings', $this->_item('savings', $r->id), $created_by));
+            $done['savings'][$r->id] = true;
         }
-        
-        return $applied;
+
+        // Open fines not covered above (EMI paid since, account closed…): freeze them
+        $open = $this->db->where_in('related_type', ['loan_installment', 'savings_schedule'])
+                         ->where('related_id >', 0)
+                         ->where_in('status', ['pending', 'partial'])
+                         ->get($this->table)->result();
+        foreach ($open as $f) {
+            $kind = $f->related_type === 'loan_installment' ? 'loan' : 'savings';
+            if (isset($done[$kind][$f->related_id])) continue;
+            $this->_tally($this->_accrue($kind, $this->_item($kind, $f->related_id), $created_by, $f));
+        }
+
+        if ($dry_run) {
+            $this->db->trans_rollback();
+        }
+
+        $this->last_run['amount_change'] = round($this->last_run['amount_change'], 2);
+        return $this->last_run['created'] + $this->last_run['updated'];
+    }
+
+    /**
+     * Save a fine rule (used by Fines → Rules and Settings).
+     *
+     * Editing a rule with an effective date later than its current start does not
+     * overwrite it: the current version is closed the day before (effective_to)
+     * and a new version starts, so EMIs that fell due earlier keep the old terms.
+     * Returns ['id' => int, 'versioned' => bool, 'effective_from' => Y-m-d] or false.
+     */
+    public function save_rule($id, array $data, $admin_id) {
+        $t = $data['calculation_type'] ?? ($data['fine_type'] ?? 'fixed');
+        if ($t === 'fixed_plus_daily') $t = 'per_day';
+        if (!in_array($t, ['fixed', 'percentage', 'per_day', 'slab'], true)) $t = 'fixed';
+        $data['calculation_type'] = $t;
+        $data['fine_type'] = $t;
+        $data['effective_from'] = !empty($data['effective_from']) ? date('Y-m-d', strtotime($data['effective_from'])) : date('Y-m-d');
+        foreach (['fine_value', 'per_day_amount'] as $k) {
+            if (isset($data[$k])) $data[$k] = max(0, (float) $data[$k]);
+        }
+        if (isset($data['grace_period_days'])) $data['grace_period_days'] = max(0, (int) $data['grace_period_days']);
+        if (isset($data['max_fine_amount']) && (float) $data['max_fine_amount'] <= 0) $data['max_fine_amount'] = null;
+        $now = date('Y-m-d H:i:s');
+
+        if (!$id) {
+            $data['rule_code']  = $data['rule_code'] ?? $this->_unique_rule_code('FR-' . date('Y'));
+            $data['created_by'] = $admin_id;
+            $data['created_at'] = $now;
+            $this->db->insert('fine_rules', $data);
+            return ['id' => (int) $this->db->insert_id(), 'versioned' => false, 'effective_from' => $data['effective_from']];
+        }
+
+        $old = $this->db->where('id', $id)->get('fine_rules')->row();
+        if (!$old) return false;
+        unset($data['rule_code'], $data['created_by'], $data['created_at']);
+
+        if ($data['effective_from'] > $old->effective_from) {
+            $this->db->trans_start();
+            $this->db->where('id', $id)->update('fine_rules', [
+                'effective_to' => date('Y-m-d', strtotime($data['effective_from'] . ' -1 day')),
+                'updated_by'   => $admin_id,
+                'updated_at'   => $now,
+            ]);
+            $new = array_merge((array) $old, $data);
+            unset($new['id'], $new['updated_by'], $new['updated_at']);
+            $new['effective_to'] = null;
+            $new['rule_code']    = $this->_unique_rule_code(preg_replace('/-V\d+$/', '', $old->rule_code));
+            $new['created_by']   = $admin_id;
+            $new['created_at']   = $now;
+            $this->db->insert('fine_rules', $new);
+            $new_id = (int) $this->db->insert_id();
+            $this->db->trans_complete();
+            if (!$this->db->trans_status()) return false;
+            return ['id' => $new_id, 'versioned' => true, 'effective_from' => $data['effective_from']];
+        }
+
+        $data['updated_by'] = $admin_id;
+        $data['updated_at'] = $now;
+        $this->db->where('id', $id)->update('fine_rules', $data);
+        return ['id' => (int) $id, 'versioned' => false, 'effective_from' => $data['effective_from']];
+    }
+
+    private function _unique_rule_code($base) {
+        $base = substr($base, 0, 15);
+        $exists = function ($c) { return $this->db->where('rule_code', $c)->count_all_results('fine_rules') > 0; };
+        if (!$exists($base)) return $base;
+        for ($n = 2; $n < 1000; $n++) {
+            if (!$exists($base . '-V' . $n)) return $base . '-V' . $n;
+        }
+        return substr($base, 0, 10) . '-' . strtoupper(substr(uniqid(), -6));
+    }
+
+    /**
+     * Open fine balance of a member (pending + partial).
+     */
+    public function member_open_balance($member_id) {
+        $r = $this->db->select_sum('balance_amount', 's')->where('member_id', $member_id)
+                      ->where_in('status', ['pending', 'partial'])->get($this->table)->row();
+        return round((float) ($r->s ?? 0), 2);
+    }
+
+    /**
+     * Collect money against a member's open fines — oldest first, or the given
+     * fine first — recording each fine payment and posting each receipt to the
+     * ledger. Used by bank mapping / passbook import, so an amount that covers
+     * several small fines no longer fails and the bank date is kept.
+     *
+     * Returns ['applied' => float, 'rest' => float, 'fines' => [fine_id => amount]].
+     */
+    public function collect_for_member($member_id, $amount, $mode, $reference, $received_by, $date = null, $first_fine_id = null, $post_ledger = true) {
+        $amount = round((float) $amount, 2);
+        $date   = $date ?: date('Y-m-d');
+        $out    = ['applied' => 0.0, 'rest' => $amount, 'fines' => []];
+        if ($amount < 0.01 || !$member_id) return $out;
+
+        $fines = $this->db->where('member_id', $member_id)->where_in('status', ['pending', 'partial'])
+                          ->where('balance_amount >', 0)
+                          ->order_by('fine_date', 'ASC')->order_by('id', 'ASC')->get($this->table)->result();
+        if ($first_fine_id) {
+            usort($fines, function ($a, $b) use ($first_fine_id) {
+                return ((int) $b->id === (int) $first_fine_id) <=> ((int) $a->id === (int) $first_fine_id);
+            });
+        }
+        if ($post_ledger) $this->load->model('Ledger_model');
+
+        $left = $amount;
+        foreach ($fines as $f) {
+            if ($left < 0.01) break;
+            $pay = round(min($left, (float) $f->balance_amount), 2);
+            if ($pay < 0.01) continue;
+            if (!$this->record_payment($f->id, $pay, $mode, $reference, $received_by, $date)) continue;
+            if ($post_ledger) $this->Ledger_model->post_fine_receipt($f->id, $pay, $date, $mode, $received_by);
+            $out['fines'][(int) $f->id] = $pay;
+            $left = round($left - $pay, 2);
+        }
+        $out['applied'] = round($amount - $left, 2);
+        $out['rest']    = $left;
+        return $out;
     }
 }

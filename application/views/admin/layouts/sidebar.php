@@ -405,6 +405,42 @@ if (!function_exists('nav_active')) {
                             </p>
                         </a>
                         <ul class="nav nav-treeview">
+                            <li class="nav-item">
+                                <a href="<?= base_url('admin/reports') ?>" class="nav-link <?= nav_active('reports/index', $nav_current, $nav_controller) ?>">
+                                    <i class="fas fa-th-large nav-icon"></i>
+                                    <p>Report Center</p>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="<?= base_url('admin/reports/day_book') ?>" class="nav-link <?= nav_active('reports/day_book', $nav_current, $nav_controller) ?>">
+                                    <i class="far fa-circle nav-icon"></i>
+                                    <p>Day Book</p>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="<?= base_url('admin/reports/member_dues') ?>" class="nav-link <?= nav_active('reports/member_dues', $nav_current, $nav_controller) ?>">
+                                    <i class="far fa-circle nav-icon"></i>
+                                    <p>Member Dues</p>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="<?= base_url('admin/reports/portfolio') ?>" class="nav-link <?= nav_active('reports/portfolio', $nav_current, $nav_controller) ?>">
+                                    <i class="far fa-circle nav-icon"></i>
+                                    <p>Loan Portfolio</p>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="<?= base_url('admin/reports/fines') ?>" class="nav-link <?= nav_active('reports/fines', $nav_current, $nav_controller) ?>">
+                                    <i class="far fa-circle nav-icon"></i>
+                                    <p>Fine Register</p>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="<?= base_url('admin/reports/income') ?>" class="nav-link <?= nav_active('reports/income', $nav_current, $nav_controller) ?>">
+                                    <i class="far fa-circle nav-icon"></i>
+                                    <p>Income Analysis</p>
+                                </a>
+                            </li>
                             <!-- One-Click Exports -->
                             <li class="nav-item">
                                 <a href="<?= base_url('admin/reports/export_members') ?>" class="nav-link <?= nav_active('reports/export_members', $nav_current, $nav_controller) ?>">

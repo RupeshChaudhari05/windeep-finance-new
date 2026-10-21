@@ -393,6 +393,8 @@ class Settings extends Admin_Controller {
      * Fine Rules
      */
     public function fine_rules() {
+        // One place to manage fine rules: Fines → Rules (same engine, preview, versioning)
+        redirect('admin/fines/rules');
         $data['title'] = 'Fine Rules';
         $data['page_title'] = 'Manage Fine Rules';
         $data['breadcrumb'] = [
@@ -818,12 +820,16 @@ class Settings extends Admin_Controller {
             // 'fine_value' stores either fixed amount or percentage (depending on calculation_type)
             'fine_value' => $this->input->post('fine_amount') !== null ? $this->input->post('fine_amount') : ($this->input->post('fine_rate') ?: 0),
             'per_day_amount' => $this->input->post('per_day_amount') ?: 0,
-            // Map grace/min days
-            'grace_period_days' => $this->input->post('min_days') ?: $this->input->post('grace_period') ?: 0,
+            // Grace period comes from its own field. ("min_days" was a separate
+            // days-range input that silently overwrote the grace period.)
+            'grace_period_days' => $this->input->post('grace_period') ?: ($this->input->post('grace_period_days') ?: 0),
             'max_fine_amount' => $this->input->post('max_fine') ?: null,
             'is_active' => $this->input->post('is_active') !== null ? (int)$this->input->post('is_active') : 1,
-            'effective_from' => $this->input->post('effective_from') ?: date('Y-m-d')
+            'effective_from' => $this->input->post('effective_from') ?: null
         ];
+        if ($this->input->post('description') !== null) {
+            $rule_data['description'] = $this->input->post('description');
+        }
 
         // Validate presence of required numeric fields depending on type
         if ($calculation_type === 'fixed' || $calculation_type === 'fixed_plus_daily') {
@@ -853,45 +859,29 @@ class Settings extends Admin_Controller {
             $rule_data['per_day_amount'] = $per_day;
         }
 
-        // Preserve compatibility: if min_days/max_days columns exist store them as well
-        if ($this->db->field_exists('min_days', 'fine_rules')) {
-            $rule_data['min_days'] = $this->input->post('min_days') ?: 0;
-        }
-        if ($this->db->field_exists('max_days', 'fine_rules')) {
-            $rule_data['max_days'] = $this->input->post('max_days') ?: 9999;
-        }
-        
+        $this->load->model('Fine_model');
         if ($id) {
-            // Update existing rule
             $old = $this->db->where('id', $id)->get('fine_rules')->row();
-            
-            // Remove fields that shouldn't be updated
-            unset($rule_data['rule_code']);
-            unset($rule_data['created_at']);
-            unset($rule_data['created_by']);
-            
-            $result = $this->db->where('id', $id)->update('fine_rules', $rule_data);
+            // No date given on an edit → change the current version in place
+            if (empty($rule_data['effective_from']) && $old) $rule_data['effective_from'] = $old->effective_from;
+            $result = $this->Fine_model->save_rule($id, $rule_data, $admin_id);
             $this->log_audit('update', 'fine_rules', 'fine_rules', $id, $old, $rule_data);
-            $message = 'Fine rule updated successfully.';
+            $message = !empty($result['versioned'])
+                ? 'Saved as a new rule version effective ' . format_date($result['effective_from']) . '; EMIs due earlier keep the old terms.'
+                : 'Fine rule updated successfully.';
         } else {
-            // Create new rule - generate rule_code
-            $count = $this->db->count_all('fine_rules') + 1;
-            $rule_data['rule_code'] = 'FR-' . date('Y') . '-' . str_pad($count, 4, '0', STR_PAD_LEFT);
-            $rule_data['created_by'] = $admin_id;
-            
-            $result = $this->db->insert('fine_rules', $rule_data);
-            $id = $this->db->insert_id();
-            $this->log_audit('create', 'fine_rules', 'fine_rules', $id, null, $rule_data);
+            $result = $this->Fine_model->save_rule(null, $rule_data, $admin_id);
+            $this->log_audit('create', 'fine_rules', 'fine_rules', $result['id'] ?? null, null, $rule_data);
             $message = 'Fine rule created successfully.';
         }
-        
+
         if ($result) {
             $this->session->set_flashdata('success', $message);
         } else {
             $this->session->set_flashdata('error', 'The fine rule could not be saved. Please check for conflicts with existing rules.');
         }
-        
-        redirect('admin/settings#fine_rules');
+
+        redirect('admin/fines/rules');
     }
     
     /**

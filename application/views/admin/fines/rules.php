@@ -106,13 +106,16 @@
                                     <?php else: ?>
                                         <span class="text-muted"><?= $effDate ?></span>
                                     <?php endif; ?>
+                                    <?php if (!empty($rule->effective_to)): ?>
+                                        <br><small class="text-muted">until <?= format_date($rule->effective_to) ?> (old version — applies to EMIs due up to then)</small>
+                                    <?php endif; ?>
                                 <?php else: ?>
                                     <span class="text-muted">—</span>
                                 <?php endif; ?>
                             </td>
                             <td>
                                 <div class="btn-group">
-                                    <button class="btn btn-info btn-sm btn-edit" data-rule='<?= json_encode($rule) ?>' title="Edit">
+                                    <button class="btn btn-info btn-sm btn-edit" data-rule="<?= html_escape(json_encode($rule)) ?>" title="Edit">
                                         <i class="fas fa-edit"></i>
                                     </button>
                                     <button class="btn btn-<?= $rule->is_active ? 'warning' : 'success' ?> btn-sm btn-toggle" 
@@ -143,9 +146,12 @@
                 <h3 class="card-title"><i class="fas fa-robot mr-1"></i> Auto Fine Job</h3>
             </div>
             <div class="card-body">
-                <p class="text-muted mb-3">Run automatic fine calculation for all overdue EMIs and savings based on configured rules.</p>
-                <a href="<?= site_url('admin/fines/run_auto_fines') ?>" class="btn btn-danger btn-block" 
-                   onclick="return confirm('This will apply fines to all overdue accounts. Continue?')">
+                <p class="text-muted mb-3">Applies the active rules to every unpaid EMI / savings due that fell due on or after the rule's start date. Preview first — nothing is saved by the preview.</p>
+                <a href="<?= site_url('admin/fines/preview_auto_fines') ?>" class="btn btn-outline-danger btn-block mb-2">
+                    <i class="fas fa-search-dollar mr-1"></i> Preview (dry run)
+                </a>
+                <a href="<?= site_url('admin/fines/run_auto_fines') ?>" class="btn btn-danger btn-block"
+                   onclick="return confirm('This will create / update fines for all overdue EMIs and savings dues. Did you check the preview?')">
                     <i class="fas fa-play mr-1"></i> Run Auto Fine Job
                 </a>
             </div>
@@ -194,7 +200,8 @@
                     <!-- Edit notice (shown only when editing) -->
                     <div class="alert alert-info d-none" id="editNotice">
                         <i class="fas fa-info-circle mr-1"></i>
-                        Changes to existing rules take effect from <strong id="effectiveDate"></strong> (1st of next month).
+                        Changes take effect from the <strong>Effective From</strong> date below (default <strong id="effectiveDate"></strong>, the 1st of next month).
+                        The current terms are kept as an old version for EMIs that fell due before that date.
                     </div>
 
                     <div class="row">
@@ -228,7 +235,7 @@
                                 <select name="fine_type" id="fine_type" class="form-control" required>
                                     <option value="fixed">Fixed Amount</option>
                                     <option value="percentage">Percentage of Due</option>
-                                    <option value="per_day">Fixed + Per Day</option>
+                                    <option value="per_day">Initial + Per Day</option>
                                 </select>
                             </div>
                         </div>
@@ -275,16 +282,18 @@
                         </div>
                         <div class="col-md-4">
                             <div class="form-group">
-                                <label>Frequency</label>
-                                <select name="frequency" id="frequency" class="form-control">
-                                    <option value="one_time">One Time</option>
-                                    <option value="monthly">Monthly</option>
-                                </select>
-                                <small class="text-muted">How often fine is applied</small>
+                                <label>Effective From</label>
+                                <input type="date" name="effective_from" id="effective_from" class="form-control" value="<?= date('Y-m-d') ?>">
+                                <small class="text-muted">Applies to EMIs / dues falling due on or after this date</small>
                             </div>
                         </div>
                     </div>
-                    
+
+                    <div class="alert alert-light border py-2 mb-3" id="finePreview">
+                        <i class="fas fa-calculator mr-1 text-primary"></i> <strong>Preview</strong> (on a ₹5,000 EMI):
+                        <span id="pv"></span>
+                    </div>
+
                     <div class="form-group">
                         <div class="custom-control custom-checkbox">
                             <input type="checkbox" name="is_active" id="is_active" class="custom-control-input" value="1" checked>
@@ -331,8 +340,33 @@ $(document).ready(function() {
             $('#amountSuffix').hide();
             $('#perDayAmountGroup').hide();
         }
+        updatePreview();
     });
-    
+
+    // Same formula as Fine_model::calculate_fine_amount()
+    function fineFor(daysLate) {
+        var type = $('#fine_type').val();
+        var value = parseFloat($('#amount_value').val()) || 0;
+        var perDay = parseFloat($('#per_day_amount').val()) || 0;
+        var grace = parseInt($('#grace_days').val(), 10) || 0;
+        var cap = parseFloat($('#max_fine_amount').val()) || 0;
+        var d = Math.max(0, daysLate - grace), fine = 0;
+        if (d <= 0) return 0;
+        if (type === 'percentage') fine = 5000 * value / 100;
+        else if (type === 'per_day') fine = value > 0 ? value + perDay * (d - 1) : perDay * d;
+        else fine = value;
+        if (cap > 0 && fine > cap) fine = cap;
+        return fine;
+    }
+    function updatePreview() {
+        var grace = parseInt($('#grace_days').val(), 10) || 0;
+        var out = [grace, grace + 1, grace + 5, 30, 60].filter(function (v, i, a) { return a.indexOf(v) === i; })
+            .sort(function (a, b) { return a - b; })
+            .map(function (d) { return d + ' days late: <strong>₹' + fineFor(d).toLocaleString('en-IN') + '</strong>'; });
+        $('#pv').html(out.join(' &nbsp;|&nbsp; '));
+    }
+    $('#amount_value, #per_day_amount, #grace_days, #max_fine_amount').on('input', updatePreview);
+
     // Compute next month 1st for edit notice
     var now = new Date();
     var nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
@@ -350,6 +384,8 @@ $(document).ready(function() {
         $('#perDayAmountGroup').hide();
         $('#amountLabel').html('Fine Amount <span class="text-danger">*</span>');
         $('#amountHelp').text('Fixed fine amount');
+        $('#effective_from').val('<?= date('Y-m-d') ?>');
+        updatePreview();
     });
     
     // Edit rule
@@ -367,7 +403,9 @@ $(document).ready(function() {
         $('#applies_to').val(rule.applies_to || 'both');
         $('#is_active').prop('checked', rule.is_active == 1);
         
-        // Show effective date notice for edits
+        // Edits default to the 1st of next month; the admin can change it
+        var nm = nextMonth.getFullYear() + '-' + ('0' + (nextMonth.getMonth() + 1)).slice(-2) + '-01';
+        $('#effective_from').val(nm);
         $('#effectiveDate').text(effectiveDateStr);
         $('#editNotice').removeClass('d-none');
         

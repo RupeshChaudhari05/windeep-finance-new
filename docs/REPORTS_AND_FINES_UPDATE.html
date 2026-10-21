@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reports &amp; Fines Update</title>
+<style>
+:root{--brand:#1F3A5F;--accent:#2E5C8A;--bg:#f4f6f9;--card:#fff;--text:#222;--muted:#6c7a89;--line:#dfe5ec;--ok:#1e8e3e;--bad:#c62828;--warn:#b26a00;--soft:#eef3f8}
+@media (prefers-color-scheme:dark){:root{--bg:#14181d;--card:#1d232a;--text:#e6e9ec;--muted:#9aa7b4;--line:#2d3640;--soft:#232b34;--brand:#8db4dd;--accent:#6c9fd6}}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.6 -apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
+header{background:#1F3A5F;color:#fff;padding:28px 16px}
+header .in,main{max-width:1100px;margin:0 auto}
+header h1{margin:0 0 4px;font-size:1.6rem}
+header p{margin:0;opacity:.85}
+main{padding:20px 16px 60px}
+nav.toc{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 18px;margin-bottom:20px}
+nav.toc a{color:var(--accent);text-decoration:none;margin-right:14px;white-space:nowrap;display:inline-block}
+section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px 22px;margin-bottom:20px}
+h2{color:var(--brand);margin:0 0 12px;font-size:1.3rem;border-bottom:2px solid var(--soft);padding-bottom:6px}
+h3{color:var(--accent);margin:18px 0 8px;font-size:1.05rem}
+table{width:100%;border-collapse:collapse;margin:8px 0 14px;font-size:.9rem}
+th{background:#2E5C8A;color:#fff;text-align:left;padding:7px 9px;font-weight:600}
+td{border-bottom:1px solid var(--line);padding:7px 9px;vertical-align:top}
+tr:nth-child(even) td{background:var(--soft)}
+.wrap{overflow-x:auto}
+code{background:var(--soft);padding:1px 5px;border-radius:4px;font-size:.86em}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin:10px 0 6px}
+.kpi{background:var(--soft);border-left:4px solid var(--accent);border-radius:6px;padding:10px 12px}
+.kpi b{display:block;font-size:1.25rem;color:var(--brand)}
+.kpi span{font-size:.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
+.bad{color:var(--bad);font-weight:600}.ok{color:var(--ok);font-weight:600}.warn{color:var(--warn);font-weight:600}
+.note{border-left:4px solid #b26a00;background:rgba(255,193,7,.12);padding:10px 14px;border-radius:6px;margin:10px 0}
+.good{border-left:4px solid #1e8e3e;background:rgba(40,167,69,.10);padding:10px 14px;border-radius:6px;margin:10px 0}
+.tag{display:inline-block;font-size:.72rem;padding:1px 7px;border-radius:10px;background:var(--soft);color:var(--accent);font-weight:600;margin-right:4px}
+ol li,ul li{margin-bottom:4px}
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.cmp>div{background:var(--soft);border-radius:8px;padding:12px 14px}
+.cmp h4{margin:0 0 6px}
+@media (max-width:700px){.cmp{grid-template-columns:1fr}}
+footer{text-align:center;color:var(--muted);font-size:.8rem}
+</style>
+</head>
+<body>
+<header><div class="in">
+  <h1>Reports &amp; Fines — What Changed</h1>
+  <p>Windeep Finance · Change report dated 20 Oct 2026 · Nothing committed or pushed (you push manually)</p>
+</div></header>
+
+<main>
+<nav class="toc">
+  <a href="#summary">1. Summary</a>
+  <a href="#fine-old">2. Fine logic — before</a>
+  <a href="#fine-new">3. Fine logic — now</a>
+  <a href="#fine-impact">4. Impact on your data</a>
+  <a href="#reports">5. Reports</a>
+  <a href="#excel">6. Excel design</a>
+  <a href="#adjustments">Adjustments</a>
+  <a href="#files">7. Files changed</a>
+  <a href="#deploy">8. Go-live steps</a>
+  <a href="#tests">9. Tests run</a>
+  <a href="#attention">10. Needs your attention</a>
+</nav>
+
+<section id="summary">
+  <h2>1. Summary</h2>
+  <div class="kpis">
+    <div class="kpi"><span>Fine bugs fixed</span><b>14</b></div>
+    <div class="kpi"><span>New reports</span><b>7</b></div>
+    <div class="kpi"><span>Broken reports repaired</span><b>10</b></div>
+    <div class="kpi"><span>Reports with styled Excel</span><b>27</b></div>
+  </div>
+  <ul>
+    <li><b>Fines:</b> the fine engine follows the rule set in <i>Fines → Rules</i> everywhere now. There is one formula, one rule screen, a dry-run <b>Preview</b>, rule versions, and fines stop growing once the EMI is paid. The old code would have charged about <span class="bad">₹66 lakh of wrong fines</span> on legacy loans the first time the job ran.</li>
+    <li><b>Reports:</b> the Reports home is a searchable <b>Report Center</b> with 7 new reports. Every report has an <b>Excel</b> button that downloads a formatted workbook with the same figures as the screen. Ten reports that crashed, showed empty tables or counted wrong now work.</li>
+  </ul>
+</section>
+
+<section id="fine-old">
+  <h2>2. Fine logic — what existed before (and what was wrong)</h2>
+  <p>A fine rule is stored in <code>fine_rules</code>. Your active rule is <b>"Late Payment Fine"</b>: initial + per-day, ₹100 + ₹10/day, 10 days grace, effective from 16-Feb-2026, applies to loans and savings, with no maximum cap. The daily cron (<code>cli/cron daily</code>) and the "Run Auto Fine Job" button call <code>Fine_model::run_late_fine_job()</code>, which creates one fine per overdue EMI or savings due.</p>
+  <div class="wrap"><table>
+    <tr><th>#</th><th>Problem found</th><th>Effect</th></tr>
+    <tr><td>1</td><td>The rule was picked if it was effective <i>today</i>. The <b>due date of the EMI was ignored</b>.</td><td class="bad">EMIs that fell due in 2021–2025, before the rule existed, would be fined, e.g. 1,800 days × ₹10.</td></tr>
+    <tr><td>2</td><td>Open fines were recalculated every day <b>even after the EMI was paid</b>.</td><td class="bad">The fine kept growing ₹10/day until the fine itself was paid.</td></tr>
+    <tr><td>3</td><td>Once a fine was paid, the next run created a <b>new fine for the same EMI</b>, because it only looked for pending/partial fines.</td><td class="bad">Duplicate fines.</td></tr>
+    <tr><td>4</td><td>EMIs with status <code>partial</code> (part-paid) were never fined.</td><td>Inconsistent: a member paying ₹1 less than the EMI avoided the fine.</td></tr>
+    <tr><td>5</td><td>Three different rule screens with <b>different formulas</b>. Fines → Rules showed "₹100 + ₹10/day". Settings → Fine Rules previewed "₹10 × days". The Settings tab modal posted values (<code>late_payment</code>) the server always rejected.</td><td>What the admin saw was not what the system charged. Adding a rule from the Settings tab never worked.</td></tr>
+    <tr><td>6</td><td><code>fixed_plus_daily</code> type could be chosen but did not exist in the DB enum and had no formula.</td><td>Saved as an empty type, so it was charged as "fixed".</td></tr>
+    <tr><td>7</td><td>Settings save used the "Days range (min)" field as the <b>grace period</b>.</td><td>Grace silently changed to 1 day.</td></tr>
+    <tr><td>8</td><td>Editing a rule in Fines → Rules moved its start date to next month <b>for the same row</b>.</td><td>No rule existed for the rest of the month, so no fines at all. The old terms were lost.</td></tr>
+    <tr><td>9</td><td><b>Waive fine</b> wrote to a column <code>waive_reason</code> that does not exist (the real column is <code>waiver_reason</code>).</td><td class="bad">Every direct waive failed with a DB error.</td></tr>
+    <tr><td>10</td><td>Bank mapping of a fine took the oldest <i>pending</i> fine only, ignored <i>partial</i> ones, failed if the amount exceeded that one fine, and used today's date. Split mapping paid the fine but <b>never posted it to the ledger</b>.</td><td>Mapped money sometimes recorded nowhere; ledger short.</td></tr>
+    <tr><td>11</td><td>"Recalculate all" used a different formula path from the job.</td><td>Two answers for the same fine.</td></tr>
+    <tr><td>12</td><td>30 manual fines had an empty <code>fine_type</code>, a fake "savings_schedule" link (id 0) and due date 0000-00-00.</td><td>Wrong grouping in reports; risk of the engine touching them.</td></tr>
+    <tr><td>13</td><td>Fines list: the Search and Type filters on screen were never applied in the query.</td><td>Filters did nothing.</td></tr>
+    <tr><td>14</td><td>Loan collect page showed "Pending fines" from <code>loans.outstanding_fine</code>, which nothing ever fills (always ₹0).</td><td>Late fines on a loan were invisible on its collect screen.</td></tr>
+  </table></div>
+  <p class="note">Also found but left as is: the setting <code>late_fine_grace_days</code> (7) and the savings-scheme fields <code>late_fine_type / late_fine_value</code> are <b>not used anywhere</b>. Only the grace period of the fine rule counts. You can ignore those settings.</p>
+</section>
+
+<section id="fine-new">
+  <h2>3. Fine logic — how it works now</h2>
+  <h3>3.1 The formula (one place: <code>Fine_model::calculate_fine_amount</code>)</h3>
+  <div class="wrap"><table>
+    <tr><th>Type</th><th>Fine</th><th>Example (grace 10 days)</th></tr>
+    <tr><td>Fixed</td><td>Fine amount, once</td><td>₹100 from day 11</td></tr>
+    <tr><td>Percentage</td><td>% of the EMI / savings due amount, once</td><td>2% of ₹5,000 = ₹100</td></tr>
+    <tr><td>Initial + Per Day</td><td>Initial fine on the first late day + per-day amount for each further day. If the initial is 0: per-day × late days.</td><td>Your rule: day 11 = ₹100, day 15 = ₹140, day 40 = ₹390</td></tr>
+    <tr><td>Slab</td><td>Amount of the band the late days fall in (<code>slab_config</code> JSON)</td><td>1–30 days ₹100, 31–60 days ₹250</td></tr>
+  </table></div>
+  <p>"Late days" are counted after the grace period. A maximum cap, if set, always applies. The formula for your active rule is <b>unchanged</b> (₹100 + ₹10/day), so nothing changes for members. Fines → Rules now shows a live preview of this formula while you type.</p>
+
+  <h3>3.2 When a fine is charged</h3>
+  <ol>
+    <li>Only for EMIs / savings dues that fell due <b>on or after the rule's "Effective From" date</b>. Old arrears are never fined retroactively.</li>
+    <li>Unpaid, overdue and <b>part-paid</b> EMIs of active loans, and dues of active savings accounts.</li>
+    <li><b>One fine per EMI.</b> The rule is locked to the fine when it is created.</li>
+    <li>The fine grows daily only while the EMI is unpaid. When the EMI is paid, the fine is frozen at the payment date.</li>
+    <li>A recalculation never goes below what was already paid or waived. Waived fines are never touched again.</li>
+    <li>If a rule is switched off, open fines under it stop growing.</li>
+    <li>Skipped, waived, interest-only and force-closed (cancelled) EMIs are not fined.</li>
+  </ol>
+
+  <h3>3.3 Rule versions</h3>
+  <div class="cmp">
+    <div><h4>Before</h4>Editing a rule overwrote it. History was lost, and the start-date jump left a month with no rule at all.</div>
+    <div><h4>Now</h4>If the new "Effective From" date is later, the old rule is closed the day before and a new version (e.g. <code>FINE-LOAN-01-V2</code>) starts. EMIs due earlier keep the old terms. The rule list shows "until dd-mm-yyyy" for old versions.</div>
+  </div>
+
+  <h3>3.4 One rule screen + Preview</h3>
+  <ul>
+    <li><b>Fines → Rules</b> is the only rule editor. Settings → Fine Rules redirects there, and the broken modal on the Settings tab was removed. The tab still lists the rules, with links.</li>
+    <li>New <b>Preview (dry run)</b> button: runs the whole job inside a database transaction that is rolled back. It shows every fine that would be created or changed, with an Excel download. <b>Nothing is saved.</b></li>
+    <li>After "Run Auto Fine Job", the message shows new fines, recalculated fines, the amount added and the items still within grace.</li>
+  </ul>
+
+  <h3>3.5 Collecting fines</h3>
+  <ul>
+    <li>Bank mapping / passbook import: the amount is spread over the member's open fines, the chosen fine first, then the oldest. The bank date is kept and every receipt is posted to the ledger (Cash/Bank Dr, Fine Income Cr). Each fine gets its own mapping row, so a reversal restores each fine exactly.</li>
+    <li>If the amount is more than the member's open fines, mapping stops with a clear message, and the passbook preview flags it. The extra must go to savings or another head instead of disappearing.</li>
+    <li>Waive and waiver approval work again.</li>
+  </ul>
+</section>
+
+<section id="fine-impact">
+  <h2>4. Impact on your data (local copy, 20 Oct 2026)</h2>
+  <div class="kpis">
+    <div class="kpi"><span>Old code would create</span><b class="bad">≈1,158 fines</b></div>
+    <div class="kpi"><span>Old code amount</span><b class="bad">≈ ₹66 lakh</b></div>
+    <div class="kpi"><span>New code would create</span><b>343 fines</b></div>
+    <div class="kpi"><span>New code amount</span><b>₹3,27,820</b></div>
+  </div>
+  <p>No automatic fine has ever been created in this database. The 34 existing fines are all manual. The auto fine job has <b>not</b> been run.</p>
+  <div class="note"><b>Before you run the job:</b> ₹1,45,010 of the ₹3.28 lakh is on <b>24 active loans that have no payment recorded at all</b> (e.g. LN2026000053, LN2026000070, LN2026000086). These are almost certainly legacy loans whose old repayments were never imported. Their EMIs show as unpaid, so they would be fined. Import or map those payments first, then open <b>Fines → Rules → Preview</b>, check the list, and only then run the job. <code>auto_apply_fines</code> is ON, so the daily cron will do this automatically on the server once it runs.</div>
+  <p>Migration <code>037_fine_data_repair.sql</code> repaired the 30 manual fines (type set to "other", fake links removed, due date = fine date). It was applied locally.</p>
+</section>
+
+<section id="reports">
+  <h2>5. Reports</h2>
+  <h3>5.1 Report Center (Reports home)</h3>
+  <p>All reports grouped by purpose: Daily &amp; Collections, Dues &amp; Recovery, Loans, Members &amp; Savings, Accounts, Exports &amp; Audit. There is a search box ("fine", "dues", "bank"…), and today / month-to-date figures at the top, which were always ₹0 before because nothing filled them. The sidebar Reports menu now starts with Report Center, Day Book, Member Dues, Loan Portfolio, Fine Register and Income Analysis.</p>
+
+  <h3>5.2 New reports</h3>
+  <div class="wrap"><table>
+    <tr><th>Report</th><th>URL</th><th>What it answers</th></tr>
+    <tr><td><b>Day Book</b></td><td><code>admin/reports/day_book</code></td><td>Money in / out per day by head: EMI, savings, fines, fees, disbursements, withdrawals, expenses. Shows cash vs bank and the running closing balance. Built from the ledger's cash and bank legs, so internal savings ↔ loan adjustments are not counted as money.</td></tr>
+    <tr><td><b>Member Dues</b></td><td><code>admin/reports/member_dues</code></td><td>Who owes what: overdue EMIs + savings dues + open fines per member, oldest due and days. A "Check" column flags members whose loan has no payment recorded.</td></tr>
+    <tr><td><b>Loan Portfolio</b></td><td><code>admin/reports/portfolio</code></td><td>By product: disbursed, outstanding, overdue, PAR 30 / PAR 90 (amount and %), with a chart. Second sheet by loan status.</td></tr>
+    <tr><td><b>Fine Register</b></td><td><code>admin/reports/fines</code></td><td>Every fine with loan/account, rule, days, paid, waived, balance and status, with filters by date, status and type. Second sheet: summary by type × status.</td></tr>
+    <tr><td><b>Income Analysis</b></td><td><code>admin/reports/income</code></td><td>Month-wise interest, processing fee, fines, membership, expenses, write-off and net surplus (from the ledger), with a chart.</td></tr>
+    <tr><td><b>Savings Register</b></td><td><code>admin/reports/savings_register</code></td><td>Each savings account: monthly amount, deposited, withdrawn, balance, last deposit, months due, amount due.</td></tr>
+    <tr><td><b>Collection Efficiency</b></td><td><code>admin/reports/collection_efficiency</code></td><td>For each due month: EMI demand vs collected, efficiency %, EMIs paid by the due date (on-time %).</td></tr>
+  </table></div>
+
+  <h3>5.3 Existing reports that were broken — now fixed</h3>
+  <div class="wrap"><table>
+    <tr><th>Report</th><th>Was</th><th>Now</th></tr>
+    <tr><td>Collection</td><td>View expected different fields, so the tables were empty. Savings were filtered by <i>created_at</i> (the import time), so bulk-imported deposits landed in the wrong month, and reversed deposits were counted.</td><td>Shared report page; savings by transaction date, reversed entries excluded; separate loan and savings sheets.</td></tr>
+    <tr><td>Disbursement</td><td>PHP errors (<code>$product-&gt;amount</code> etc.), empty table.</td><td>Works; shows sanctioned vs actually disbursed (parts).</td></tr>
+    <tr><td>NPA</td><td>PHP errors (<code>member_name</code>, <code>outstanding_amount</code>…); only status "pending" counted.</td><td>Works; overdue / part-paid EMIs counted; SMA / Sub-standard / Doubtful category.</td></tr>
+    <tr><td>Member Statement</td><td>View expected different fields, so it was empty.</td><td>Member picker; ledger + savings + loans + fines; KPIs.</td></tr>
+    <tr><td>Cash Book</td><td><span class="bad">Crashed</span> (column <code>description</code> does not exist).</td><td>From the general ledger with opening and running balance; switch between Cash and Bank Book.</td></tr>
+    <tr><td>KYC Pending</td><td><span class="bad">Crashed</span> (table <code>member_documents</code> does not exist).</td><td>Lists what is missing per member (Aadhaar, PAN, copies, photo).</td></tr>
+    <tr><td>Bank Reconciliation</td><td>Placeholder page "under development".</td><td>Statement lines mapped vs not mapped per bank account, unmapped lines list, bank balance in books vs statement.</td></tr>
+    <tr><td>Outstanding / Ageing / Demand / Dashboard overdue figures</td><td>Only installments with status "pending" counted; "overdue" and "partial" were missed.</td><td>All unpaid statuses counted.</td></tr>
+    <tr><td>Excel buttons on 10 report pages</td><td>The links had <code>?export=excel</code> but no code handled it: <b>the page just reloaded</b>.</td><td>Each one downloads a formatted workbook.</td></tr>
+  </table></div>
+  <h3>5.4 AI Assistant</h3>
+  <ul>
+    <li>Ask in chat (Marathi or English) and the assistant shows the new reports as a table with <b>Open report</b> and <b>Excel</b> buttons: member dues, loan portfolio, fine register, income, day book, savings register, collection efficiency, bank reconciliation, KYC pending, and <b>fine preview</b> (dry run, nothing saved).</li>
+    <li>New quick tiles: सभासद थकबाकी (Member dues), दंड Preview, Day Book / Portfolio, सर्व Reports.</li>
+    <li>It can open any report page, the Fine Rules page and the Auto Fine Preview.</li>
+    <li><span class="bad">Bug fixed:</span> on MariaDB the assistant's database queries (free SQL and the older ready-made reports) returned <b>no rows</b>. CodeIgniter treated the time-limit prefix <code>SET STATEMENT … FOR SELECT</code> as a write query. They return data again; writes are still blocked (read-only transaction).</li>
+  </ul>
+  <p>Profit &amp; Loss, Balance Sheet, Trial Balance and General Ledger keep their own pages; they now also download Excel. The full exports (All Loans / All Savings workbooks) use the same styling.</p>
+</section>
+
+<section id="excel">
+  <h2>6. Excel design (every report)</h2>
+  <ul>
+    <li><b>Banner:</b> company name (from Settings), report title, period, and "generated on / by".</li>
+    <li><b>KPI strip:</b> the same key figures as the screen cards.</li>
+    <li><b>Header row:</b> dark blue with white bold text. Rows are zebra-striped, with borders. The header is frozen and a <b>filter</b> is on every column.</li>
+    <li><b>Amounts</b> are real numbers (<code>#,##0.00</code>, negatives in red), so they can be summed. Dates are real Excel dates (dd-mm-yyyy). Phone, account and loan numbers are kept as text, so there is no 9.8E+09 and leading zeros stay.</li>
+    <li><b>TOTAL row</b> uses <code>SUBTOTAL(109,…)</code>, so totals follow your filter.</li>
+    <li>Extra sheets where useful, e.g. "Summary by type" or "By product".</li>
+    <li>Print-ready: A4, fit to page width, landscape for wide reports, header row repeated, footer "Page x of y".</li>
+    <li>Safe: cell text starting with <code>=</code>, <code>+</code> or <code>@</code> is neutralised (no formula injection).</li>
+  </ul>
+  <p>Code: <code>application/libraries/Excel_report.php</code>. A report is one "spec" (filters, KPIs, columns, rows), and the same spec draws the screen (<code>views/admin/reports/report_view.php</code>) and the Excel, so the two can never disagree. Adding a new report is about 30 lines.</p>
+</section>
+
+<section id="adjustments">
+  <h2>Admin Adjustments (admin/adjustments) — checked and fixed</h2>
+  <div class="wrap"><table>
+    <tr><th>#</th><th>Problem found</th><th>Now</th></tr>
+    <tr><td>1</td><td><b>Just opening</b> a loan or savings account recalculated and <b>saved</b> its totals. On foreclosed / force-closed loans this put the waived principal back (LN2026000007: ₹0 → ₹89,254; all 6 foreclosed loans ≈ ₹3.3 lakh; 2 closed loans ≈ ₹1.4 lakh).</td><td class="ok">Viewing never writes. "Recalculate" is only done when you press it, and closed / foreclosed / written-off loans are refused ("totals are final").</td></tr>
+    <tr><td>2</td><td>Recalculated "total paid" added the fine twice (installment total already includes fine), wrong on 138 loans.</td><td class="ok">Fixed; cancelled installments excluded.</td></tr>
+    <tr><td>3</td><td><b>Delete loan payment</b> hard-deleted the row. Installments stayed "paid", outstanding did not change, the ledger kept the receipt and the bank line stayed mapped.</td><td class="ok">Now a full <b>reversal</b>: installment and loan restored, a loan it closed is reopened, EMI-shortfall / excess savings adjustments reversed, ledger contra voucher, and a bank-mapped payment has its mapping reversed (bank line free to map again). Row kept as "reversed". The logic is shared with Bank → reverse mapping.</td></tr>
+    <tr><td>4</td><td><b>Delete savings transaction</b> hard-deleted; ledger and bank mapping untouched.</td><td class="ok">Reversal (balance + ledger, bank mapping undone). Automatic loan adjustments are refused: reverse the loan payment instead.</td></tr>
+    <tr><td>5</td><td>Deleting a <b>paid</b> installment / savings month / fine was allowed, so money vanished and fine income was left in the ledger.</td><td class="ok">Blocked with a clear message; only entries with nothing paid can be deleted. Open late fines of a deleted installment are cancelled.</td></tr>
+    <tr><td>6</td><td>Any text was accepted: "abc" as an amount, 2026-13-45 as a date, unknown statuses (DB errors / zeros).</td><td class="ok">Amounts must be numbers ≥ 0, dates YYYY-MM-DD, statuses from the allowed list, tenure 1–600.</td></tr>
+    <tr><td>7</td><td>Status only moved up: setting paid to 0 left an installment "paid". Editing Total paid or EMI did not update status.</td><td class="ok">Status follows the amounts both ways (paid / partial / overdue / pending), and paid date is set or cleared.</td></tr>
+    <tr><td>8</td><td>Savings balance was recalculated with different rules from the Savings screen.</td><td class="ok">Both use the same Savings_model calculation.</td></tr>
+  </table></div>
+  <p class="note">Edits of paid amounts in Adjustments are <b>data corrections</b>: they do not post to the ledger. To undo real money use the Reverse buttons (payments / savings transactions). Savings deposits are not linked to a schedule month in this data (<code>schedule_id</code> / <code>for_month</code> empty), so reversing a deposit lowers the balance but cannot reopen a specific month. Fix that month's paid amount by hand if needed.</p>
+  <p>Tested on real data in a rolled-back transaction: 26 checks passed (recalc refusal, validation, status both ways, delete blocks, payment reversal plain and bank-mapped, savings reversal with ledger contra, fine rules, audit history, and that viewing leaves the foreclosed loan and savings balance unchanged).</p>
+</section>
+
+<section id="files">
+  <h2>7. Files changed</h2>
+  <div class="wrap"><table>
+    <tr><th>File</th><th>Change</th></tr>
+    <tr><td><code>application/models/Fine_model.php</code></td><td>New fine engine: rule by due date, one formula, freeze at payment, never below paid, dry run, rule versioning (<code>save_rule</code>), <code>collect_for_member</code>, waiver column fix.</td></tr>
+    <tr><td><code>application/controllers/admin/Fines.php</code></td><td>Preview page, run summary, versioned rule save, unified recalculation, list filters.</td></tr>
+    <tr><td><code>application/views/admin/fines/rules.php</code></td><td>Preview button, Effective From field, live formula preview, version dates, safe JSON, removed unused "Frequency".</td></tr>
+    <tr><td><code>application/controllers/admin/Settings.php</code></td><td>Fine rules redirect to Fines → Rules; save uses the real grace period and versioning.</td></tr>
+    <tr><td><code>application/views/admin/settings/index.php</code></td><td>Fine Rules tab: correct amounts, links to the rule screen, broken modal removed.</td></tr>
+    <tr><td><code>application/models/Bank_model.php</code></td><td>Fine mapping (3 paths): all open fines, bank date, ledger posting, one mapping row per fine, over-allocation guard.</td></tr>
+    <tr><td><code>application/libraries/Passbook_import.php</code></td><td>Preview flags fine amounts larger than the member's open fines.</td></tr>
+    <tr><td><code>application/controllers/admin/Loans.php</code>, <code>views/admin/loans/collect.php</code></td><td>Collect page shows open late fines of the loan, with a link.</td></tr>
+    <tr><td><code>application/libraries/Excel_report.php</code> <span class="tag">new</span></td><td>Styled Excel engine.</td></tr>
+    <tr><td><code>application/views/admin/reports/report_view.php</code> <span class="tag">new</span></td><td>Shared report page: filters, KPI cards, chart, sortable/searchable table, totals, Excel/Print.</td></tr>
+    <tr><td><code>application/controllers/admin/Reports.php</code></td><td>7 new reports, 5 rebuilt pages, Excel for all, index figures, fiscal-year setting key.</td></tr>
+    <tr><td><code>application/models/Report_model.php</code></td><td>New queries; fixes to collection, outstanding, NPA, demand, ageing, cash book, KYC, dashboard overdue.</td></tr>
+    <tr><td><code>application/views/admin/reports/index.php</code></td><td>Report Center.</td></tr>
+    <tr><td><code>application/views/admin/layouts/sidebar.php</code></td><td>Report links.</td></tr>
+    <tr><td><code>application/controllers/admin/Ai_assistant.php</code>, <code>views/admin/ai_assistant/index.php</code></td><td>New report types, pages and tiles in chat; Open report / Excel buttons; fix for empty query results on MariaDB.</td></tr>
+    <tr><td><code>application/migrations/037_fine_data_repair.sql</code> <span class="tag">new</span></td><td>Repairs the 30 manual fines and empty rule types. Safe to re-run.</td></tr>
+  </table></div>
+  <p>A bug caught during testing: the first version of the report helper was named <code>_output()</code>, a name CodeIgniter reserves for an output hook. It would have broken <i>every</i> Reports page, so it was renamed before finishing.</p>
+</section>
+
+<section id="deploy">
+  <h2>8. Go-live steps (server)</h2>
+  <ol>
+    <li>Upload the files above (you push manually; nothing is committed).</li>
+    <li>If not done yet, run migrations <code>034</code>, <code>035</code>, <code>036</code>, and the new <code>037_fine_data_repair.sql</code>.</li>
+    <li>Open <b>Fines → Rules</b> and check the rule (₹100 + ₹10/day, 10 days grace, effective 16-02-2026). Set a <b>Maximum Fine Cap</b> if you want one; today there is none.</li>
+    <li>Import or map the missing payments of the 24 loans without payments (see Member Dues → "Check" column).</li>
+    <li>Click <b>Preview (dry run)</b>, review the Excel, then <b>Run Auto Fine Job</b> or let the daily cron do it.</li>
+    <li>Open <b>Reports</b> and try a few Excel downloads.</li>
+  </ol>
+</section>
+
+<section id="tests">
+  <h2>9. Tests run (all on the local copy)</h2>
+  <div class="good">Everything below passed. All test data was rolled back and the temporary test files were deleted.</div>
+  <div class="wrap"><table>
+    <tr><th>Area</th><th>What was checked</th><th>Result</th></tr>
+    <tr><td>Formula</td><td>Your rule at 10/11/15/40 days; per-day only; percentage; fixed with grace; cap; slab</td><td class="ok">9 / 9 pass</td></tr>
+    <tr><td>Engine</td><td>Due-before-rule not fined; fine on an Aug-2026 EMI = ₹790 as expected; EMI paid on day 15 freezes at ₹140; re-run stable; lowered rule never goes below the amount paid</td><td class="ok">pass</td></tr>
+    <tr><td>Versioning</td><td>Edit effective 01-11-2026: old version ends 31-10-2026; EMI due 15-Oct uses old terms, 5-Nov uses new</td><td class="ok">pass</td></tr>
+    <tr><td>Collection</td><td>₹250 over fines of ₹100 + ₹200: first paid, second partial ₹50; bank date kept; 2 receipts posted to ledger</td><td class="ok">pass</td></tr>
+    <tr><td>Waiver</td><td>Waive saves <code>waiver_reason</code>, status "waived"</td><td class="ok">pass</td></tr>
+    <tr><td>Dry run</td><td>Preview computes 343 fines; fines table still 34 rows afterwards</td><td class="ok">pass</td></tr>
+    <tr><td>Report pages</td><td>All 28 report pages + Fines list/rules/preview + Settings rendered with real data, no PHP/DB errors</td><td class="ok">pass</td></tr>
+    <tr><td>Excel</td><td>27 reports + 2 full workbooks generated; files re-opened to check frozen header, filter, number/date formats, SUBTOTAL totals</td><td class="ok">pass</td></tr>
+    <tr><td>Syntax</td><td><code>php -l</code> on every changed file</td><td class="ok">pass</td></tr>
+  </table></div>
+  <p>Not tested in a real browser session (login is required); please click through the screens once.</p>
+</section>
+
+<section id="attention">
+  <h2>10. Needs your attention</h2>
+  <ul>
+    <li><b>Legacy loans without payments</b> (24 loans): their arrears make Member Dues, Portfolio PAR, Collection Efficiency and the fine preview look worse than reality until the payments are imported.</li>
+    <li><b>Opening balances</b> are still not entered, so Cash/Bank Book and Day Book show negative balances (about −₹89.6 lakh for bank). Give the opening date and cash / bank / capital figures and they can be posted.</li>
+    <li><b>Bank statement:</b> 190 of 204 lines are not mapped yet, ₹35.9 lakh (see Bank Reconciliation).</li>
+    <li><b>Fines inside EMI payments:</b> an EMI payment still does not pay late fines automatically. Fines are collected from Fines → Collect, bank mapping or passbook import (as before). Tell me if you want an EMI payment to clear open fines first.</li>
+    <li>The PDF links on some old report pages still only print the page (use the Print button); Excel is the supported download.</li>
+  </ul>
+</section>
+
+<footer>Generated with the code changes · Windeep Finance · 20 Oct 2026</footer>
+</main>
+</body>
+</html>

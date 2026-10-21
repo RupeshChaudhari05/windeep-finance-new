@@ -22,6 +22,8 @@ class Reports extends Admin_Controller {
             ['title' => 'Reports', 'url' => '']
         ];
         
+        $data['today_summary'] = $this->Report_model->quick_summary(date('Y-m-d'), date('Y-m-d'));
+        $data['mtd_summary']   = $this->Report_model->quick_summary(date('Y-m-01'), date('Y-m-d'));
         $this->load_view('admin/reports/index', $data);
     }
     
@@ -46,7 +48,16 @@ class Reports extends Admin_Controller {
         $data['to_date'] = $to_date;
         $data['type'] = $type;
         
-        $this->load_view('admin/reports/collection', $data);
+        // The old collection view expected a different data shape and showed empty tables
+        $spec = $this->_xls_collection($data);
+        $spec['icon'] = 'fa-receipt';
+        $spec['filters'] = [
+            ['name' => 'from_date', 'label' => 'From', 'type' => 'date', 'value' => $from_date],
+            ['name' => 'to_date', 'label' => 'To', 'type' => 'date', 'value' => $to_date],
+            ['name' => 'type', 'label' => 'Type', 'type' => 'select', 'value' => $type, 'options' => ['all' => 'Loan + savings', 'loan' => 'Loan repayments', 'savings' => 'Savings deposits']],
+        ];
+        $spec['table_title'] = 'Loan repayments';
+        $this->_render_spec($spec);
     }
     
     /**
@@ -68,7 +79,15 @@ class Reports extends Admin_Controller {
         $data['from_date'] = $from_date;
         $data['to_date'] = $to_date;
         
-        $this->load_view('admin/reports/disbursement', $data);
+        $spec = $this->_xls_disbursement($data);
+        $spec['icon'] = 'fa-money-bill-wave';
+        $spec['filters'] = [
+            ['name' => 'from_date', 'label' => 'From', 'type' => 'date', 'value' => $from_date],
+            ['name' => 'to_date', 'label' => 'To', 'type' => 'date', 'value' => $to_date],
+        ];
+        $spec['table_title'] = 'Loans disbursed';
+        $spec['note'] = '"Money disbursed in period" counts each disbursement part on its own date; "Disbursed so far" is what has been released on the loan to date.';
+        $this->_render_spec($spec);
     }
     
     /**
@@ -92,6 +111,7 @@ class Reports extends Admin_Controller {
             'overdue' => array_sum(array_column($data['report'], 'overdue_amount'))
         ];
         
+        $this->_excel_if_requested('_xls_outstanding', $data);
         $this->load_view('admin/reports/outstanding', $data);
     }
     
@@ -112,7 +132,12 @@ class Reports extends Admin_Controller {
         $data['report'] = $this->Report_model->get_npa_report($days);
         $data['days'] = $days;
         
-        $this->load_view('admin/reports/npa', $data);
+        $spec = $this->_xls_npa($data);
+        $spec['icon'] = 'fa-exclamation-triangle';
+        $spec['filters'] = [['name' => 'days', 'label' => 'Overdue more than', 'type' => 'select', 'value' => (int) $days,
+                             'options' => [30 => '30 days', 60 => '60 days', 90 => '90 days (NPA)', 180 => '180 days', 365 => '365 days']]];
+        $spec['note'] = 'Overdue amount counts EMIs older than the threshold. SMA < 90 days, Sub-standard 90–365 days, Doubtful / Loss > 365 days.';
+        $this->_render_spec($spec);
     }
     
     /**
@@ -146,7 +171,32 @@ class Reports extends Admin_Controller {
             'to_date' => $to_date
         ];
         
-        $this->load_view('admin/reports/member_statement', $data);
+        $opts = ['' => '— choose member —'];
+        foreach ($data['members_list'] as $m) $opts[$m->id] = $m->member_code . ' — ' . trim($m->first_name . ' ' . $m->last_name);
+        $filters = [
+            ['name' => 'member_id', 'label' => 'Member', 'type' => 'select', 'value' => $member_id, 'options' => $opts],
+            ['name' => 'from_date', 'label' => 'From', 'type' => 'date', 'value' => $from_date],
+            ['name' => 'to_date', 'label' => 'To', 'type' => 'date', 'value' => $to_date],
+        ];
+        if (!$member_id || empty($data['statement']['member'])) {
+            $this->_render_spec(['title' => 'Member Statement', 'icon' => 'fa-file-alt', 'filters' => $filters,
+                                 'columns' => [['key' => 'x', 'label' => 'Choose a member above']], 'rows' => [],
+                                 'note' => 'Pick a member to see the ledger, savings, loans and fines.']);
+            return;
+        }
+        $spec = $this->_xls_member_statement($data);
+        $s = $data['statement'];
+        $spec['icon'] = 'fa-file-alt';
+        $spec['filters'] = $filters;
+        $spec['table_title'] = 'Member ledger';
+        $spec['kpis'] = [
+            ['label' => 'Savings balance', 'value' => array_sum(array_map(function ($a) { return (float) ($a->current_balance ?? 0); },
+                         $this->db->where('member_id', $member_id)->get('savings_accounts')->result())), 'type' => 'money', 'color' => 'success'],
+            ['label' => 'Loan outstanding', 'value' => self::_sum($s['loans'] ?? [], 'outstanding_principal'), 'type' => 'money', 'color' => 'danger'],
+            ['label' => 'Fines open', 'value' => self::_sum(array_filter($s['fines'] ?? [], function ($f) { return in_array($f->status, ['pending', 'partial']); }), 'balance_amount'), 'type' => 'money', 'color' => 'warning'],
+            ['label' => 'Ledger entries', 'value' => count($s['ledger'] ?? []), 'type' => 'int'],
+        ];
+        $this->_render_spec($spec);
     }
     
     /**
@@ -166,6 +216,7 @@ class Reports extends Admin_Controller {
         $data['report'] = $this->Report_model->get_demand_report($month);
         $data['month'] = $month;
         
+        $this->_excel_if_requested('_xls_demand', $data);
         $this->load_view('admin/reports/demand', $data);
     }
     
@@ -183,6 +234,7 @@ class Reports extends Admin_Controller {
         
         $data['report'] = $this->Report_model->get_guarantor_report();
         
+        $this->_excel_if_requested('_xls_guarantor', $data);
         $this->load_view('admin/reports/guarantor', $data);
     }
     
@@ -214,6 +266,7 @@ class Reports extends Admin_Controller {
             }
         }
         
+        $this->_excel_if_requested('_xls_trial_balance', $data);
         $this->load_view('admin/reports/trial_balance', $data);
     }
     
@@ -236,6 +289,7 @@ class Reports extends Admin_Controller {
         $data['from_date'] = $from_date;
         $data['to_date'] = $to_date;
         
+        $this->_excel_if_requested('_xls_profit_loss', $data);
         $this->load_view('admin/reports/profit_loss', $data);
     }
     
@@ -256,6 +310,7 @@ class Reports extends Admin_Controller {
         $data['report'] = $this->Ledger_model->get_balance_sheet($as_on);
         $data['as_on'] = $as_on;
         
+        $this->_excel_if_requested('_xls_balance_sheet', $data);
         $this->load_view('admin/reports/balance_sheet', $data);
     }
     
@@ -282,6 +337,7 @@ class Reports extends Admin_Controller {
         $data['filters'] = $filters;
         $data['accounts'] = $this->Ledger_model->get_chart_of_accounts();
         
+        $this->_excel_if_requested('_xls_general_ledger', $data);
         $this->load_view('admin/reports/general_ledger', $data);
     }
     
@@ -313,6 +369,7 @@ class Reports extends Admin_Controller {
         // The view reads the selection from $filters
         $data['filters'] = ['account_id' => $account_id, 'from_date' => $from_date, 'to_date' => $to_date];
         
+        if ($account_id) $this->_excel_if_requested('_xls_account_statement', $data);
         $this->load_view('admin/reports/account_statement', $data);
     }
     
@@ -335,6 +392,7 @@ class Reports extends Admin_Controller {
         $data['year'] = $year;
         $data['month'] = $month;
         
+        $this->_excel_if_requested('_xls_monthly_summary', $data);
         $this->load_view('admin/reports/monthly_summary', $data);
     }
     
@@ -372,6 +430,7 @@ class Reports extends Admin_Controller {
         // Summary totals
         $data['summary'] = $this->Member_transaction_model->get_totals_by_type();
 
+        $this->_excel_if_requested('_xls_other_transactions', $data);
         $this->load_view('admin/reports/other_transactions', $data);
     }
 
@@ -570,6 +629,11 @@ class Reports extends Admin_Controller {
             return;
         }
         
+        $this->load->library('Excel_report');
+        $rows = [];
+        foreach ((is_array($data) || is_object($data)) ? $data : [] as $item) $rows[] = $this->_get_row_values($type, $item);
+        $this->excel_report->download(Excel_report::from_headers(ucwords(str_replace('_', ' ', $type)) . ' Report', $this->_export_headers($type, $data), $rows), $filename);
+        return;
         $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->setTitle(ucfirst(str_replace('_', ' ', $type)));
@@ -652,6 +716,7 @@ class Reports extends Admin_Controller {
         
         $data['report'] = $this->Report_model->get_member_summary_report();
         
+        $this->_excel_if_requested('_xls_member_summary', $data);
         $this->load_view('admin/reports/member_summary', $data);
     }
     
@@ -667,9 +732,27 @@ class Reports extends Admin_Controller {
             ['title' => 'KYC Pending', 'url' => '']
         ];
         
-        $data['report'] = $this->Report_model->get_kyc_pending_report();
-        
-        $this->load_view('admin/reports/kyc_pending', $data);
+        $rows = array_map(function ($m) { return (array) $m; }, $this->Report_model->kyc_pending_list());
+        $this->_render_spec([
+            'title' => 'KYC Pending', 'icon' => 'fa-id-card', 'subtitle' => 'Active members whose KYC is not verified or incomplete',
+            'kpis' => [
+                ['label' => 'Members', 'value' => count($rows), 'type' => 'int', 'color' => 'warning'],
+                ['label' => 'No Aadhaar no.', 'value' => count(array_filter($rows, function ($r) { return empty($r['aadhaar_number']); })), 'type' => 'int'],
+                ['label' => 'No PAN', 'value' => count(array_filter($rows, function ($r) { return empty($r['pan_number']); })), 'type' => 'int'],
+                ['label' => 'Docs complete, not verified', 'value' => count(array_filter($rows, function ($r) { return $r['pending_documents'] == 0; })), 'type' => 'int', 'color' => 'info'],
+            ],
+            'columns' => [
+                ['key' => 'member_code', 'label' => 'Member', 'type' => 'code', 'link' => function ($r) { return site_url('admin/members/view/' . $r['id']); }],
+                ['key' => 'member_name', 'label' => 'Name'],
+                ['key' => 'phone', 'label' => 'Phone', 'type' => 'code'],
+                ['key' => 'join_date', 'label' => 'Joined', 'type' => 'date'],
+                ['key' => 'aadhaar_number', 'label' => 'Aadhaar', 'type' => 'code'],
+                ['key' => 'pan_number', 'label' => 'PAN', 'type' => 'code'],
+                ['key' => 'pending_documents', 'label' => 'Items missing', 'type' => 'int', 'total' => true],
+                ['key' => 'missing', 'label' => 'Missing'],
+            ],
+            'rows' => $rows,
+        ]);
     }
     
     /**
@@ -686,6 +769,7 @@ class Reports extends Admin_Controller {
         
         $data['report'] = $this->Report_model->get_ageing_report();
         
+        $this->_excel_if_requested('_xls_ageing', $data);
         $this->load_view('admin/reports/ageing', $data);
     }
     
@@ -783,11 +867,40 @@ class Reports extends Admin_Controller {
         $from_date = $this->input->get('from_date') ?: date('Y-m-01');
         $to_date = $this->input->get('to_date') ?: date('Y-m-d');
         
-        $data['report'] = $this->Report_model->get_cash_book($from_date, $to_date);
-        $data['from_date'] = $from_date;
-        $data['to_date'] = $to_date;
-        
-        $this->load_view('admin/reports/cash_book', $data);
+        $book = $this->input->get('book') === 'bank' ? 'bank' : 'cash';
+        $b = $this->Report_model->cash_bank_book($book === 'bank' ? '1102' : '1101', $from_date, $to_date);
+        $rows = $b['rows'];
+        foreach ($rows as &$r) $r['type_label'] = ucwords(str_replace('_', ' ', $r['reference_type'] ?: $r['voucher_type']));
+        unset($r);
+        array_unshift($rows, ['voucher_date' => $from_date, 'narration' => 'Opening balance', 'balance' => $b['opening'], '_style' => 'group']);
+        $rows[] = ['voucher_date' => $to_date, 'narration' => 'Closing balance', 'balance' => $b['closing'], '_style' => 'total'];
+        $this->_render_spec([
+            'title' => $book === 'bank' ? 'Bank Book' : 'Cash Book', 'icon' => 'fa-book', 'subtitle' => self::_period($from_date, $to_date),
+            'filters' => [
+                ['name' => 'book', 'label' => 'Book', 'type' => 'select', 'value' => $book, 'options' => ['cash' => 'Cash in hand', 'bank' => 'Bank']],
+                ['name' => 'from_date', 'label' => 'From', 'type' => 'date', 'value' => $from_date],
+                ['name' => 'to_date', 'label' => 'To', 'type' => 'date', 'value' => $to_date],
+            ],
+            'kpis' => [
+                ['label' => 'Opening', 'value' => $b['opening'], 'type' => 'money'],
+                ['label' => 'Receipts', 'value' => self::_sum($b['rows'], 'debit_amount'), 'type' => 'money', 'color' => 'success'],
+                ['label' => 'Payments', 'value' => self::_sum($b['rows'], 'credit_amount'), 'type' => 'money', 'color' => 'danger'],
+                ['label' => 'Closing', 'value' => $b['closing'], 'type' => 'money', 'color' => 'info'],
+            ],
+            'columns' => [
+                ['key' => 'voucher_date', 'label' => 'Date', 'type' => 'date'],
+                ['key' => 'voucher_number', 'label' => 'Voucher', 'type' => 'code'],
+                ['key' => 'type_label', 'label' => 'Type'],
+                ['key' => 'member_code', 'label' => 'Member', 'type' => 'code'],
+                ['key' => 'member_name', 'label' => 'Name'],
+                ['key' => 'narration', 'label' => 'Narration'],
+                ['key' => 'debit_amount', 'label' => 'Receipt', 'type' => 'money', 'total' => true],
+                ['key' => 'credit_amount', 'label' => 'Payment', 'type' => 'money', 'total' => true],
+                ['key' => 'balance', 'label' => 'Balance', 'type' => 'money'],
+            ],
+            'rows' => $rows,
+            'note' => 'From the general ledger. A negative balance means the opening cash / bank balance has not been entered in the books yet.',
+        ]);
     }
     
     /**
@@ -802,9 +915,54 @@ class Reports extends Admin_Controller {
             ['title' => 'Bank Reconciliation', 'url' => '']
         ];
         
-        $data['report'] = $this->Report_model->get_bank_reconciliation();
-        
-        $this->load_view('admin/reports/bank_reconciliation', $data);
+        $from = $this->_date_param('from_date', date('Y-04-01', strtotime(date('n') < 4 ? '-1 year' : 'now')));
+        $to   = $this->_date_param('to_date', date('Y-m-d'));
+        $r = $this->Report_model->bank_reconciliation_report($from, $to);
+        $un = $r['unmapped'];
+        foreach ($un as &$u) $u['type_label'] = $u['transaction_type'] === 'credit' ? 'Credit (in)' : 'Debit (out)';
+        unset($u);
+        $this->_render_spec([
+            'title' => 'Bank Reconciliation', 'icon' => 'fa-balance-scale', 'subtitle' => self::_period($from, $to),
+            'filters' => [
+                ['name' => 'from_date', 'label' => 'From', 'type' => 'date', 'value' => $from],
+                ['name' => 'to_date', 'label' => 'To', 'type' => 'date', 'value' => $to],
+            ],
+            'kpis' => [
+                ['label' => 'Statement lines', 'value' => self::_sum($r['summary'], 'line_count'), 'type' => 'int'],
+                ['label' => 'Mapped amount', 'value' => self::_sum($r['summary'], 'mapped_amount'), 'type' => 'money', 'color' => 'success'],
+                ['label' => 'Not yet mapped', 'value' => self::_sum($r['summary'], 'unmapped_amount'), 'type' => 'money', 'color' => 'danger'],
+                ['label' => 'Lines to map', 'value' => self::_sum($r['summary'], 'unmapped_lines'), 'type' => 'int', 'color' => 'warning'],
+                ['label' => 'Bank balance in books', 'value' => $r['gl_bank'], 'type' => 'money', 'color' => 'info'],
+                ['label' => 'Statement balance', 'value' => $r['statement_balance'] === null ? 'not in statement' : format_amount($r['statement_balance'])],
+            ],
+            'table_title' => 'Lines not yet mapped in the books',
+            'columns' => [
+                ['key' => 'transaction_date', 'label' => 'Date', 'type' => 'date'],
+                ['key' => 'type_label', 'label' => 'Direction'],
+                ['key' => 'amount', 'label' => 'Amount', 'type' => 'money', 'total' => true],
+                ['key' => 'pending_amount', 'label' => 'To map', 'type' => 'money', 'total' => true],
+                ['key' => 'description', 'label' => 'Description'],
+                ['key' => 'reference_number', 'label' => 'Reference', 'type' => 'code'],
+                ['key' => 'utr_number', 'label' => 'UTR', 'type' => 'code'],
+                ['key' => 'member_code', 'label' => 'Detected member', 'type' => 'code'],
+                ['key' => 'member_name', 'label' => 'Name'],
+            ],
+            'rows' => $un,
+            'sheets' => [[
+                'title' => 'By bank account',
+                'columns' => [
+                    ['key' => 'account_name', 'label' => 'Account'], ['key' => 'account_number', 'label' => 'Number', 'type' => 'code'],
+                    ['key' => 'line_count', 'label' => 'Lines', 'type' => 'int', 'total' => true],
+                    ['key' => 'credits', 'label' => 'Credits', 'type' => 'money', 'total' => true],
+                    ['key' => 'debits', 'label' => 'Debits', 'type' => 'money', 'total' => true],
+                    ['key' => 'mapped_amount', 'label' => 'Mapped', 'type' => 'money', 'total' => true],
+                    ['key' => 'ignored_amount', 'label' => 'Ignored', 'type' => 'money', 'total' => true],
+                    ['key' => 'unmapped_amount', 'label' => 'Not mapped', 'type' => 'money', 'total' => true],
+                ],
+                'rows' => $r['summary'],
+            ]],
+            'note' => 'Every statement line must be mapped (or ignored) before the bank balance in the books can agree with the statement. Map lines in Bank → Statement.',
+        ]);
     }
     
     /**
@@ -1170,6 +1328,11 @@ class Reports extends Admin_Controller {
      * Helper: write a sheet into a Spreadsheet object
      */
     private function _write_sheet($spreadsheet, $index, $title, $data, $headers) {
+        // Same styled layout as every other report
+        $this->load->library('Excel_report');
+        $ws = $index === 0 ? $spreadsheet->getActiveSheet() : $spreadsheet->createSheet($index);
+        $this->excel_report->write_sheet($ws, Excel_report::from_headers($title, $headers, $data), $index === 0);
+        return;
         if ($index === 0) {
             $sheet = $spreadsheet->getActiveSheet();
         } else {
@@ -1208,7 +1371,7 @@ class Reports extends Admin_Controller {
      */
     private function _get_fiscal_year_start() {
         $row = $this->db
-            ->where('setting_key', 'fiscal_year_start_month')
+            ->where_in('setting_key', ['financial_year_start_month', 'fiscal_year_start_month'])
             ->get('system_settings')
             ->row();
 
@@ -1295,5 +1458,767 @@ class Reports extends Admin_Controller {
             default:
                 return array_values((array) $row);
         }
+    }
+
+    /** Column headers of the legacy export() types (same order as _get_row_values). */
+    private function _export_headers($type, $data) {
+        switch ($type) {
+            case 'outstanding': return ['Loan No', 'Member Code', 'Member Name', 'Product', 'Principal', 'Outstanding Principal', 'Outstanding Interest', 'Overdue Amount'];
+            case 'collection': return ['Date', 'Member Code', 'Member Name', 'Type', 'Amount', 'Payment Mode', 'Reference'];
+            case 'demand': return ['Loan No', 'Member Code', 'Member Name', 'Due Date', 'EMI Amount', 'Days Overdue', 'Phone'];
+            case 'npa': return ['Loan No', 'Member Code', 'Member Name', 'Principal', 'Outstanding', 'Days Overdue', 'NPA Category'];
+            case 'other_transactions': return ['Date', 'Member Code', 'Member Name', 'Phone', 'Transaction Type', 'Amount', 'Payment Mode', 'Receipt No', 'Description', 'Status'];
+        }
+        $first = is_array($data) && $data ? reset($data) : null;
+        return $first ? array_map(function ($k) { return ucwords(str_replace('_', ' ', $k)); }, array_keys((array) $first)) : ['No data'];
+    }
+
+    // =========================================================================
+    //  REPORT CENTER — spec-driven reports (screen + styled Excel, same rows)
+    // =========================================================================
+
+    /** Show a report spec on the shared page, or download it when ?export=excel. */
+    private function _render_spec(array $spec) {
+        if ($this->input->get('export') === 'excel') {
+            $this->load->library('Excel_report');
+            $this->excel_report->download($spec);
+        }
+        $this->load_view('admin/reports/report_view', [
+            'title'      => $spec['title'],
+            'page_title' => $spec['title'],
+            'spec'       => $spec,
+            'breadcrumb' => [['title' => 'Dashboard', 'url' => 'admin/dashboard'],
+                             ['title' => 'Reports', 'url' => 'admin/reports'],
+                             ['title' => $spec['title'], 'url' => '']],
+        ]);
+    }
+
+    /** Excel download for reports that keep their own page layout. */
+    private function _excel_if_requested($builder, $data) {
+        if ($this->input->get('export') !== 'excel') return;
+        $this->load->library('Excel_report');
+        $this->excel_report->download($this->$builder($data));
+    }
+
+    private function _date_param($key, $default) {
+        $v = $this->input->get($key);
+        return ($v && strtotime($v)) ? date('Y-m-d', strtotime($v)) : $default;
+    }
+
+    private static function _period($from, $to) {
+        return format_date($from) . ' to ' . format_date($to);
+    }
+
+    private static function _full_name($r) {
+        $r = (array) $r;
+        return trim(($r['first_name'] ?? '') . ' ' . ($r['last_name'] ?? ''));
+    }
+
+    private static function _sum($rows, $key) {
+        $t = 0;
+        foreach ($rows as $r) { $r = (array) $r; $t += (float) ($r[$key] ?? 0); }
+        return round($t, 2);
+    }
+
+    private static function _label($v) {
+        return ucwords(str_replace('_', ' ', (string) $v));
+    }
+
+    // ---------------------------------------------------------------- new reports
+
+    /** Fine Register — every fine with status, source and settlement. */
+    public function fines() {
+        $from   = $this->_date_param('from_date', date('Y-01-01', strtotime('-1 year')));
+        $to     = $this->_date_param('to_date', date('Y-m-d'));
+        $status = (string) $this->input->get('status');
+        $type   = (string) $this->input->get('type');
+        $rows   = $this->Report_model->fine_register($from, $to, $status, $type);
+
+        foreach ($rows as &$r) {
+            $r['type_label']   = self::_label($r['fine_type']);
+            $r['status_label'] = ucfirst($r['status']);
+        }
+        unset($r);
+        $by = [];
+        foreach ($rows as $r) {
+            $k = $r['type_label'] . '|' . $r['status_label'];
+            if (!isset($by[$k])) $by[$k] = ['type' => $r['type_label'], 'status' => $r['status_label'], 'count' => 0, 'amount' => 0, 'paid' => 0, 'waived' => 0, 'balance' => 0];
+            $by[$k]['count']++;
+            $by[$k]['amount']  += $r['fine_amount'];
+            $by[$k]['paid']    += $r['paid_amount'];
+            $by[$k]['waived']  += $r['waived_amount'];
+            $by[$k]['balance'] += $r['balance_amount'];
+        }
+
+        $this->_render_spec([
+            'title' => 'Fine Register', 'icon' => 'fa-gavel', 'subtitle' => self::_period($from, $to),
+            'filters' => [
+                ['name' => 'from_date', 'label' => 'From', 'type' => 'date', 'value' => $from],
+                ['name' => 'to_date', 'label' => 'To', 'type' => 'date', 'value' => $to],
+                ['name' => 'status', 'label' => 'Status', 'type' => 'select', 'value' => $status,
+                 'options' => ['' => 'All', 'open' => 'Open (pending + partial)', 'pending' => 'Pending', 'partial' => 'Partial', 'paid' => 'Paid', 'waived' => 'Waived', 'cancelled' => 'Cancelled']],
+                ['name' => 'type', 'label' => 'Type', 'type' => 'select', 'value' => $type,
+                 'options' => ['' => 'All', 'loan_late' => 'Loan late', 'savings_late' => 'Savings late', 'bounced_cheque' => 'Bounced cheque', 'other' => 'Other / manual']],
+            ],
+            'kpis' => [
+                ['label' => 'Fines', 'value' => count($rows), 'type' => 'int'],
+                ['label' => 'Levied', 'value' => self::_sum($rows, 'fine_amount'), 'type' => 'money'],
+                ['label' => 'Collected', 'value' => self::_sum($rows, 'paid_amount'), 'type' => 'money', 'color' => 'success'],
+                ['label' => 'Waived', 'value' => self::_sum($rows, 'waived_amount'), 'type' => 'money', 'color' => 'info'],
+                ['label' => 'Outstanding', 'value' => self::_sum(array_filter($rows, function ($r) { return in_array($r['status'], ['pending', 'partial']); }), 'balance_amount'), 'type' => 'money', 'color' => 'danger'],
+            ],
+            'columns' => [
+                ['key' => 'fine_code', 'label' => 'Fine #', 'type' => 'code', 'link' => function ($r) { return site_url('admin/fines/view/' . $r['id']); }],
+                ['key' => 'fine_date', 'label' => 'Fine date', 'type' => 'date'],
+                ['key' => 'member_code', 'label' => 'Member', 'type' => 'code'],
+                ['key' => 'member_name', 'label' => 'Name'],
+                ['key' => 'phone', 'label' => 'Phone', 'type' => 'code'],
+                ['key' => 'type_label', 'label' => 'Type'],
+                ['key' => 'reference_no', 'label' => 'Loan / Account', 'type' => 'code'],
+                ['key' => 'due_date', 'label' => 'Due date', 'type' => 'date'],
+                ['key' => 'days_late', 'label' => 'Days late', 'type' => 'int'],
+                ['key' => 'rule_name', 'label' => 'Rule'],
+                ['key' => 'fine_amount', 'label' => 'Fine', 'type' => 'money', 'total' => true],
+                ['key' => 'paid_amount', 'label' => 'Paid', 'type' => 'money', 'total' => true],
+                ['key' => 'waived_amount', 'label' => 'Waived', 'type' => 'money', 'total' => true],
+                ['key' => 'balance_amount', 'label' => 'Balance', 'type' => 'money', 'total' => true],
+                ['key' => 'status_label', 'label' => 'Status'],
+                ['key' => 'payment_date', 'label' => 'Paid on', 'type' => 'date'],
+                ['key' => 'remarks', 'label' => 'Remarks'],
+            ],
+            'rows' => $rows,
+            'sheets' => [[
+                'title' => 'Summary by type', 'no_total_row' => false,
+                'columns' => [
+                    ['key' => 'type', 'label' => 'Type'], ['key' => 'status', 'label' => 'Status'],
+                    ['key' => 'count', 'label' => 'Fines', 'type' => 'int', 'total' => true],
+                    ['key' => 'amount', 'label' => 'Levied', 'type' => 'money', 'total' => true],
+                    ['key' => 'paid', 'label' => 'Collected', 'type' => 'money', 'total' => true],
+                    ['key' => 'waived', 'label' => 'Waived', 'type' => 'money', 'total' => true],
+                    ['key' => 'balance', 'label' => 'Balance', 'type' => 'money', 'total' => true],
+                ],
+                'rows' => array_values($by),
+            ]],
+        ]);
+    }
+
+    /** Member-wise dues: overdue EMIs + savings dues + open fines. */
+    public function member_dues() {
+        $as_on = $this->_date_param('as_on', date('Y-m-d'));
+        $min   = (float) $this->input->get('min_amount');
+        $rows  = array_values(array_filter($this->Report_model->member_dues($as_on), function ($r) use ($min) { return $r['total_due'] >= $min; }));
+        $flagged = count(array_filter($rows, function ($r) { return $r['flag'] !== ''; }));
+
+        $this->_render_spec([
+            'title' => 'Member Dues', 'icon' => 'fa-user-clock', 'subtitle' => 'As on ' . format_date($as_on),
+            'filters' => [
+                ['name' => 'as_on', 'label' => 'As on', 'type' => 'date', 'value' => $as_on],
+                ['name' => 'min_amount', 'label' => 'Min. total due', 'type' => 'number', 'value' => $min ?: '', 'placeholder' => '0'],
+            ],
+            'kpis' => [
+                ['label' => 'Members with dues', 'value' => count($rows), 'type' => 'int'],
+                ['label' => 'EMI overdue', 'value' => self::_sum($rows, 'emi_due'), 'type' => 'money', 'color' => 'danger'],
+                ['label' => 'Savings due', 'value' => self::_sum($rows, 'savings_due'), 'type' => 'money', 'color' => 'warning'],
+                ['label' => 'Fines open', 'value' => self::_sum($rows, 'fine_due'), 'type' => 'money', 'color' => 'info'],
+                ['label' => 'Total due', 'value' => self::_sum($rows, 'total_due'), 'type' => 'money', 'color' => 'danger'],
+                ['label' => 'Check data (no payments)', 'value' => $flagged, 'type' => 'int', 'hint' => 'Members with an active loan that has no payment recorded at all'],
+            ],
+            'columns' => [
+                ['key' => 'member_code', 'label' => 'Member', 'type' => 'code', 'link' => function ($r) { return site_url('admin/members/view/' . $r['id']); }],
+                ['key' => 'member_name', 'label' => 'Name'],
+                ['key' => 'phone', 'label' => 'Phone', 'type' => 'code'],
+                ['key' => 'emi_count', 'label' => 'EMIs due', 'type' => 'int', 'total' => true],
+                ['key' => 'emi_due', 'label' => 'EMI amount', 'type' => 'money', 'total' => true],
+                ['key' => 'sav_count', 'label' => 'Savings months', 'type' => 'int', 'total' => true],
+                ['key' => 'savings_due', 'label' => 'Savings amount', 'type' => 'money', 'total' => true],
+                ['key' => 'fine_due', 'label' => 'Fines', 'type' => 'money', 'total' => true],
+                ['key' => 'total_due', 'label' => 'Total due', 'type' => 'money', 'total' => true],
+                ['key' => 'oldest_due', 'label' => 'Oldest due', 'type' => 'date'],
+                ['key' => 'days_overdue', 'label' => 'Days', 'type' => 'int'],
+                ['key' => 'flag', 'label' => 'Check'],
+            ],
+            'rows' => $rows,
+            'note' => 'EMI amount = EMI − amount already paid, for unpaid installments of active loans due on or before the date. '
+                    . '"Check" marks members whose active loan has no payment recorded at all — usually a loan whose old payments were never imported.',
+        ]);
+    }
+
+    /** Loan portfolio by product with portfolio-at-risk. */
+    public function portfolio() {
+        $rows   = $this->Report_model->loan_portfolio();
+        $status = $this->Report_model->loan_status_summary();
+        foreach ($status as &$s) $s['status_label'] = self::_label($s['status']);
+        unset($s);
+        $op = self::_sum($rows, 'outstanding_principal');
+
+        $this->_render_spec([
+            'title' => 'Loan Portfolio', 'icon' => 'fa-briefcase', 'subtitle' => 'Active loans as on ' . format_date(date('Y-m-d')),
+            'kpis' => [
+                ['label' => 'Active loans', 'value' => self::_sum($rows, 'loans'), 'type' => 'int'],
+                ['label' => 'Disbursed', 'value' => self::_sum($rows, 'disbursed'), 'type' => 'money'],
+                ['label' => 'Outstanding principal', 'value' => $op, 'type' => 'money', 'color' => 'info'],
+                ['label' => 'Overdue EMI amount', 'value' => self::_sum($rows, 'overdue_amount'), 'type' => 'money', 'color' => 'danger'],
+                ['label' => 'PAR 30', 'value' => $op > 0 ? self::_sum($rows, 'par_30') / $op * 100 : 0, 'type' => 'pct', 'color' => 'warning', 'hint' => 'Outstanding principal of loans more than 30 days overdue'],
+                ['label' => 'PAR 90', 'value' => $op > 0 ? self::_sum($rows, 'par_90') / $op * 100 : 0, 'type' => 'pct', 'color' => 'danger'],
+            ],
+            'chart' => ['type' => 'bar', 'labels' => array_column($rows, 'product_name'), 'datasets' => [
+                ['label' => 'Outstanding principal', 'data' => array_map('floatval', array_column($rows, 'outstanding_principal'))],
+                ['label' => 'PAR 30', 'data' => array_map('floatval', array_column($rows, 'par_30'))],
+                ['label' => 'Overdue EMI', 'data' => array_map('floatval', array_column($rows, 'overdue_amount'))],
+            ]],
+            'table_title' => 'By product',
+            'columns' => [
+                ['key' => 'product_name', 'label' => 'Product'],
+                ['key' => 'loans', 'label' => 'Loans', 'type' => 'int', 'total' => true],
+                ['key' => 'sanctioned', 'label' => 'Sanctioned', 'type' => 'money', 'total' => true],
+                ['key' => 'disbursed', 'label' => 'Disbursed', 'type' => 'money', 'total' => true],
+                ['key' => 'outstanding_principal', 'label' => 'Outstanding principal', 'type' => 'money', 'total' => true],
+                ['key' => 'outstanding_interest', 'label' => 'Interest due (schedule)', 'type' => 'money', 'total' => true],
+                ['key' => 'loans_overdue', 'label' => 'Loans overdue', 'type' => 'int', 'total' => true],
+                ['key' => 'overdue_amount', 'label' => 'Overdue EMI', 'type' => 'money', 'total' => true],
+                ['key' => 'par_30', 'label' => 'PAR 30 amount', 'type' => 'money', 'total' => true],
+                ['key' => 'par_30_pct', 'label' => 'PAR 30 %', 'type' => 'pct'],
+                ['key' => 'par_90', 'label' => 'PAR 90 amount', 'type' => 'money', 'total' => true],
+                ['key' => 'par_90_pct', 'label' => 'PAR 90 %', 'type' => 'pct'],
+            ],
+            'rows' => $rows,
+            'sheets' => [[
+                'title' => 'By loan status',
+                'columns' => [
+                    ['key' => 'status_label', 'label' => 'Status'],
+                    ['key' => 'loans', 'label' => 'Loans', 'type' => 'int', 'total' => true],
+                    ['key' => 'disbursed', 'label' => 'Disbursed', 'type' => 'money', 'total' => true],
+                    ['key' => 'principal_paid', 'label' => 'Principal repaid', 'type' => 'money', 'total' => true],
+                    ['key' => 'interest_paid', 'label' => 'Interest received', 'type' => 'money', 'total' => true],
+                    ['key' => 'outstanding_principal', 'label' => 'Outstanding principal', 'type' => 'money', 'total' => true],
+                ],
+                'rows' => $status,
+            ]],
+            'note' => 'PAR (portfolio at risk) = outstanding principal of loans whose oldest unpaid EMI is more than 30 / 90 days late, as % of all outstanding principal.',
+        ]);
+    }
+
+    /** Month-wise income and expenses from the general ledger. */
+    public function income() {
+        $from = $this->_date_param('from_date', $this->_get_fiscal_year_start());
+        $to   = $this->_date_param('to_date', date('Y-m-d'));
+        $rows = $this->Report_model->income_by_month($from, $to);
+
+        $this->_render_spec([
+            'title' => 'Income Analysis', 'icon' => 'fa-chart-line', 'subtitle' => self::_period($from, $to),
+            'filters' => [
+                ['name' => 'from_date', 'label' => 'From', 'type' => 'date', 'value' => $from],
+                ['name' => 'to_date', 'label' => 'To', 'type' => 'date', 'value' => $to],
+            ],
+            'kpis' => [
+                ['label' => 'Interest', 'value' => self::_sum($rows, 'interest'), 'type' => 'money', 'color' => 'success'],
+                ['label' => 'Processing fees', 'value' => self::_sum($rows, 'processing'), 'type' => 'money'],
+                ['label' => 'Fines', 'value' => self::_sum($rows, 'fines'), 'type' => 'money'],
+                ['label' => 'Membership fees', 'value' => self::_sum($rows, 'membership'), 'type' => 'money'],
+                ['label' => 'Expenses + write-off', 'value' => self::_sum($rows, 'expenses') + self::_sum($rows, 'write_off'), 'type' => 'money', 'color' => 'danger'],
+                ['label' => 'Net surplus', 'value' => self::_sum($rows, 'net'), 'type' => 'money', 'color' => 'info'],
+            ],
+            'chart' => ['type' => 'bar', 'labels' => array_column($rows, 'month'), 'datasets' => [
+                ['label' => 'Interest', 'data' => array_map('floatval', array_column($rows, 'interest'))],
+                ['label' => 'Fees + fines', 'data' => array_map(function ($r) { return $r['processing'] + $r['fines'] + $r['membership'] + $r['other_income']; }, $rows)],
+                ['label' => 'Expenses', 'data' => array_map(function ($r) { return $r['expenses'] + $r['write_off']; }, $rows)],
+            ]],
+            'columns' => [
+                ['key' => 'month', 'label' => 'Month'],
+                ['key' => 'interest', 'label' => 'Interest', 'type' => 'money', 'total' => true],
+                ['key' => 'processing', 'label' => 'Processing fee', 'type' => 'money', 'total' => true],
+                ['key' => 'fines', 'label' => 'Fines', 'type' => 'money', 'total' => true],
+                ['key' => 'membership', 'label' => 'Membership', 'type' => 'money', 'total' => true],
+                ['key' => 'other_income', 'label' => 'Other income', 'type' => 'money', 'total' => true],
+                ['key' => 'total_income', 'label' => 'Total income', 'type' => 'money', 'total' => true],
+                ['key' => 'expenses', 'label' => 'Expenses', 'type' => 'money', 'total' => true],
+                ['key' => 'write_off', 'label' => 'Principal written off', 'type' => 'money', 'total' => true],
+                ['key' => 'net', 'label' => 'Net surplus', 'type' => 'money', 'total' => true],
+            ],
+            'rows' => $rows,
+            'note' => 'From the general ledger (income and expense accounts) by voucher date.',
+        ]);
+    }
+
+    /** Savings accounts register with dues. */
+    public function savings_register() {
+        $status = $this->input->get('status');
+        $status = $status === null ? 'active' : (string) $status;
+        $rows = $this->Report_model->savings_register($status);
+        foreach ($rows as &$r) $r['status_label'] = ucfirst($r['status']);
+        unset($r);
+
+        $this->_render_spec([
+            'title' => 'Savings Register', 'icon' => 'fa-piggy-bank', 'subtitle' => 'As on ' . format_date(date('Y-m-d')),
+            'filters' => [
+                ['name' => 'status', 'label' => 'Status', 'type' => 'select', 'value' => $status,
+                 'options' => ['active' => 'Active', 'matured' => 'Matured', 'closed' => 'Closed', 'suspended' => 'Suspended', '' => 'All']],
+            ],
+            'kpis' => [
+                ['label' => 'Accounts', 'value' => count($rows), 'type' => 'int'],
+                ['label' => 'Balance held', 'value' => self::_sum($rows, 'current_balance'), 'type' => 'money', 'color' => 'success'],
+                ['label' => 'Total deposited', 'value' => self::_sum($rows, 'total_deposited'), 'type' => 'money'],
+                ['label' => 'Withdrawn / adjusted', 'value' => self::_sum($rows, 'withdrawn'), 'type' => 'money', 'color' => 'warning'],
+                ['label' => 'Monthly demand', 'value' => self::_sum($rows, 'monthly_amount'), 'type' => 'money', 'color' => 'info'],
+                ['label' => 'Overdue amount', 'value' => self::_sum($rows, 'amount_due'), 'type' => 'money', 'color' => 'danger'],
+            ],
+            'columns' => [
+                ['key' => 'account_number', 'label' => 'Account', 'type' => 'code'],
+                ['key' => 'member_code', 'label' => 'Member', 'type' => 'code'],
+                ['key' => 'member_name', 'label' => 'Name'],
+                ['key' => 'phone', 'label' => 'Phone', 'type' => 'code'],
+                ['key' => 'scheme_name', 'label' => 'Scheme'],
+                ['key' => 'start_date', 'label' => 'Opened', 'type' => 'date'],
+                ['key' => 'monthly_amount', 'label' => 'Monthly', 'type' => 'money', 'total' => true],
+                ['key' => 'total_deposited', 'label' => 'Deposited', 'type' => 'money', 'total' => true],
+                ['key' => 'withdrawn', 'label' => 'Withdrawn', 'type' => 'money', 'total' => true],
+                ['key' => 'current_balance', 'label' => 'Balance', 'type' => 'money', 'total' => true],
+                ['key' => 'last_deposit', 'label' => 'Last deposit', 'type' => 'date'],
+                ['key' => 'months_due', 'label' => 'Months due', 'type' => 'int', 'total' => true],
+                ['key' => 'amount_due', 'label' => 'Amount due', 'type' => 'money', 'total' => true],
+                ['key' => 'status_label', 'label' => 'Status'],
+            ],
+            'rows' => $rows,
+            'note' => 'Withdrawn includes automatic EMI-shortfall adjustments taken from savings under the loan rules.',
+        ]);
+    }
+
+    /** Day book: real money in and out per day (cash + bank). */
+    public function day_book() {
+        $from = $this->_date_param('from_date', date('Y-m-01'));
+        $to   = $this->_date_param('to_date', date('Y-m-d'));
+        $d    = $this->Report_model->day_book($from, $to);
+        $rows = $d['rows'];
+
+        $this->_render_spec([
+            'title' => 'Day Book', 'icon' => 'fa-calendar-day', 'subtitle' => self::_period($from, $to),
+            'filters' => [
+                ['name' => 'from_date', 'label' => 'From', 'type' => 'date', 'value' => $from],
+                ['name' => 'to_date', 'label' => 'To', 'type' => 'date', 'value' => $to],
+            ],
+            'kpis' => [
+                ['label' => 'Opening (cash + bank)', 'value' => $d['opening'], 'type' => 'money'],
+                ['label' => 'Money in', 'value' => self::_sum($rows, 'total_in'), 'type' => 'money', 'color' => 'success'],
+                ['label' => 'Money out', 'value' => self::_sum($rows, 'total_out'), 'type' => 'money', 'color' => 'danger'],
+                ['label' => 'Net', 'value' => self::_sum($rows, 'net'), 'type' => 'money', 'color' => 'info'],
+                ['label' => 'Closing (cash + bank)', 'value' => $d['closing'], 'type' => 'money'],
+            ],
+            'columns' => [
+                ['key' => 'date', 'label' => 'Date', 'type' => 'date'],
+                ['key' => 'emi', 'label' => 'EMI received', 'type' => 'money', 'total' => true],
+                ['key' => 'savings', 'label' => 'Savings received', 'type' => 'money', 'total' => true],
+                ['key' => 'fines', 'label' => 'Fines received', 'type' => 'money', 'total' => true],
+                ['key' => 'fees', 'label' => 'Fees received', 'type' => 'money', 'total' => true],
+                ['key' => 'other_in', 'label' => 'Other in', 'type' => 'money', 'total' => true],
+                ['key' => 'total_in', 'label' => 'Total in', 'type' => 'money', 'total' => true],
+                ['key' => 'disbursed', 'label' => 'Loans disbursed', 'type' => 'money', 'total' => true],
+                ['key' => 'withdrawal', 'label' => 'Savings paid out', 'type' => 'money', 'total' => true],
+                ['key' => 'expense', 'label' => 'Expenses', 'type' => 'money', 'total' => true],
+                ['key' => 'other_out', 'label' => 'Other out', 'type' => 'money', 'total' => true],
+                ['key' => 'total_out', 'label' => 'Total out', 'type' => 'money', 'total' => true],
+                ['key' => 'cash_net', 'label' => 'Cash net', 'type' => 'money', 'total' => true],
+                ['key' => 'bank_net', 'label' => 'Bank net', 'type' => 'money', 'total' => true],
+                ['key' => 'closing', 'label' => 'Closing balance', 'type' => 'money'],
+            ],
+            'rows' => $rows,
+            'note' => 'Built from the cash and bank accounts of the general ledger, so internal transfers (EMI shortfall taken from savings, excess credited to savings) are not counted as money in or out. '
+                    . 'A negative balance means opening balances / capital have not been entered in the books yet.',
+        ]);
+    }
+
+    /** Collection efficiency: EMI demand of each month vs what has been paid against it. */
+    public function collection_efficiency() {
+        $months = max(3, min(36, (int) ($this->input->get('months') ?: 12)));
+        $rows = $this->Report_model->collection_efficiency($months);
+        $demand = self::_sum($rows, 'demand');
+        $coll   = self::_sum($rows, 'collected');
+
+        $this->_render_spec([
+            'title' => 'Collection Efficiency', 'icon' => 'fa-bullseye', 'subtitle' => 'Last ' . $months . ' months (by EMI due month)',
+            'filters' => [['name' => 'months', 'label' => 'Months', 'type' => 'select', 'value' => $months,
+                           'options' => [6 => '6 months', 12 => '12 months', 24 => '24 months', 36 => '36 months']]],
+            'kpis' => [
+                ['label' => 'EMI demand', 'value' => $demand, 'type' => 'money'],
+                ['label' => 'Collected', 'value' => $coll, 'type' => 'money', 'color' => 'success'],
+                ['label' => 'Pending', 'value' => $demand - $coll, 'type' => 'money', 'color' => 'danger'],
+                ['label' => 'Efficiency', 'value' => $demand > 0 ? $coll / $demand * 100 : 0, 'type' => 'pct', 'color' => 'info'],
+            ],
+            'chart' => ['type' => 'bar', 'labels' => array_column($rows, 'month'), 'datasets' => [
+                ['label' => 'Demand', 'data' => array_map('floatval', array_column($rows, 'demand'))],
+                ['label' => 'Collected', 'data' => array_map('floatval', array_column($rows, 'collected'))],
+            ]],
+            'columns' => [
+                ['key' => 'month', 'label' => 'Due month'],
+                ['key' => 'emis', 'label' => 'EMIs due', 'type' => 'int', 'total' => true],
+                ['key' => 'demand', 'label' => 'Demand', 'type' => 'money', 'total' => true],
+                ['key' => 'collected', 'label' => 'Collected', 'type' => 'money', 'total' => true],
+                ['key' => 'pending', 'label' => 'Pending', 'type' => 'money', 'total' => true],
+                ['key' => 'efficiency', 'label' => 'Efficiency %', 'type' => 'pct'],
+                ['key' => 'paid_emis', 'label' => 'EMIs fully paid', 'type' => 'int', 'total' => true],
+                ['key' => 'on_time', 'label' => 'Paid by due date', 'type' => 'int', 'total' => true],
+                ['key' => 'on_time_pct', 'label' => 'On-time %', 'type' => 'pct'],
+            ],
+            'rows' => $rows,
+        ]);
+    }
+
+    // ---------------------------------------------------------- Excel for existing pages
+
+    private function _xls_collection($data) {
+        $r = $data['report'];
+        $loan = array_map(function ($p) {
+            $p = (array) $p;
+            return $p + ['member_name' => self::_full_name($p), 'type_label' => self::_label($p['payment_type'] ?: 'emi'),
+                         'mode_label' => self::_label($p['payment_mode']), 'receipt' => $p['receipt_number'] ?: $p['payment_code']];
+        }, $r['details']['loan'] ?? []);
+        $sav = array_map(function ($p) {
+            $p = (array) $p;
+            return $p + ['member_name' => self::_full_name($p), 'mode_label' => self::_label($p['payment_mode']), 'receipt' => $p['receipt_number'] ?: $p['transaction_code']];
+        }, $r['details']['savings'] ?? []);
+        $spec = [
+            'title' => 'Collection Report', 'subtitle' => self::_period($data['from_date'], $data['to_date']),
+            'kpis' => [
+                ['label' => 'Loan collection', 'value' => self::_sum($loan, 'total_amount'), 'type' => 'money'],
+                ['label' => 'Principal', 'value' => self::_sum($loan, 'principal_component'), 'type' => 'money'],
+                ['label' => 'Interest', 'value' => self::_sum($loan, 'interest_component'), 'type' => 'money'],
+                ['label' => 'Savings collection', 'value' => self::_sum($sav, 'amount'), 'type' => 'money'],
+                ['label' => 'Grand total', 'value' => self::_sum($loan, 'total_amount') + self::_sum($sav, 'amount'), 'type' => 'money'],
+            ],
+            'sheet_title' => 'Loan collections',
+            'columns' => [
+                ['key' => 'payment_date', 'label' => 'Date', 'type' => 'date'], ['key' => 'receipt', 'label' => 'Receipt', 'type' => 'code'],
+                ['key' => 'member_code', 'label' => 'Member', 'type' => 'code'], ['key' => 'member_name', 'label' => 'Name'],
+                ['key' => 'loan_number', 'label' => 'Loan', 'type' => 'code'], ['key' => 'type_label', 'label' => 'Type'],
+                ['key' => 'principal_component', 'label' => 'Principal', 'type' => 'money', 'total' => true],
+                ['key' => 'interest_component', 'label' => 'Interest', 'type' => 'money', 'total' => true],
+                ['key' => 'fine_component', 'label' => 'Fine', 'type' => 'money', 'total' => true],
+                ['key' => 'total_amount', 'label' => 'Total', 'type' => 'money', 'total' => true],
+                ['key' => 'mode_label', 'label' => 'Mode'], ['key' => 'reference_number', 'label' => 'Reference', 'type' => 'code'],
+            ],
+            'rows' => $loan,
+            'sheets' => [[
+                'title' => 'Savings collections',
+                'columns' => [
+                    ['key' => 'transaction_date', 'label' => 'Date', 'type' => 'date'], ['key' => 'receipt', 'label' => 'Receipt', 'type' => 'code'],
+                    ['key' => 'member_code', 'label' => 'Member', 'type' => 'code'], ['key' => 'member_name', 'label' => 'Name'],
+                    ['key' => 'account_number', 'label' => 'Account', 'type' => 'code'],
+                    ['key' => 'amount', 'label' => 'Amount', 'type' => 'money', 'total' => true],
+                    ['key' => 'mode_label', 'label' => 'Mode'], ['key' => 'narration', 'label' => 'Narration'],
+                ],
+                'rows' => $sav,
+            ]],
+        ];
+        if (!$loan && $sav) { $first = $spec['sheets'][0]; unset($spec['sheets']); $spec = array_merge($spec, $first, ['title' => 'Collection Report', 'sheet_title' => 'Savings collections']); }
+        return $spec;
+    }
+
+    private function _loan_rows($rows) {
+        return array_map(function ($l) {
+            $l = (array) $l;
+            return $l + ['member_name' => self::_full_name($l), 'status_label' => self::_label($l['status'] ?? ''),
+                         'disbursed' => $l['disbursed_amount'] ?? $l['principal_amount'] ?? 0];
+        }, $rows);
+    }
+
+    private function _xls_disbursement($data) {
+        $rows = $this->_loan_rows($data['report']['details'] ?? []);
+        return [
+            'title' => 'Disbursement Report', 'subtitle' => self::_period($data['from_date'], $data['to_date']),
+            'kpis' => [
+                ['label' => 'Loans', 'value' => count($rows), 'type' => 'int'],
+                ['label' => 'Money disbursed in period', 'value' => $data['report']['summary']->total_disbursed ?? 0, 'type' => 'money'],
+                ['label' => 'Processing fees', 'value' => $data['report']['summary']->total_fees ?? 0, 'type' => 'money'],
+            ],
+            'columns' => [
+                ['key' => 'disbursement_date', 'label' => 'Date', 'type' => 'date'], ['key' => 'loan_number', 'label' => 'Loan', 'type' => 'code'],
+                ['key' => 'member_code', 'label' => 'Member', 'type' => 'code'], ['key' => 'member_name', 'label' => 'Name'],
+                ['key' => 'product_name', 'label' => 'Product'],
+                ['key' => 'principal_amount', 'label' => 'Sanctioned', 'type' => 'money', 'total' => true],
+                ['key' => 'disbursed', 'label' => 'Disbursed so far', 'type' => 'money', 'total' => true],
+                ['key' => 'processing_fee', 'label' => 'Processing fee', 'type' => 'money', 'total' => true],
+                ['key' => 'net_disbursement', 'label' => 'Net paid', 'type' => 'money', 'total' => true],
+                ['key' => 'interest_rate', 'label' => 'Rate %', 'type' => 'number'], ['key' => 'tenure_months', 'label' => 'Tenure', 'type' => 'int'],
+                ['key' => 'emi_amount', 'label' => 'EMI', 'type' => 'money'], ['key' => 'status_label', 'label' => 'Status'],
+            ],
+            'rows' => $rows,
+            'sheets' => [[
+                'title' => 'By product',
+                'columns' => [['key' => 'product_name', 'label' => 'Product'], ['key' => 'count', 'label' => 'Loans', 'type' => 'int', 'total' => true],
+                              ['key' => 'total_disbursed', 'label' => 'Disbursed', 'type' => 'money', 'total' => true]],
+                'rows' => array_map(function ($p) { return (array) $p; }, $data['report']['by_product'] ?? []),
+            ]],
+        ];
+    }
+
+    private function _xls_outstanding($data) {
+        $rows = $this->_loan_rows($data['report']);
+        return [
+            'title' => 'Outstanding Loans', 'subtitle' => 'As on ' . format_date(date('Y-m-d')),
+            'kpis' => [
+                ['label' => 'Loans', 'value' => count($rows), 'type' => 'int'],
+                ['label' => 'Outstanding principal', 'value' => self::_sum($rows, 'outstanding_principal'), 'type' => 'money'],
+                ['label' => 'Outstanding interest', 'value' => self::_sum($rows, 'outstanding_interest'), 'type' => 'money'],
+                ['label' => 'Overdue EMI', 'value' => self::_sum($rows, 'overdue_amount'), 'type' => 'money'],
+            ],
+            'columns' => [
+                ['key' => 'loan_number', 'label' => 'Loan', 'type' => 'code'], ['key' => 'member_code', 'label' => 'Member', 'type' => 'code'],
+                ['key' => 'member_name', 'label' => 'Name'], ['key' => 'phone', 'label' => 'Phone', 'type' => 'code'], ['key' => 'product_name', 'label' => 'Product'],
+                ['key' => 'disbursement_date', 'label' => 'Disbursed on', 'type' => 'date'],
+                ['key' => 'disbursed', 'label' => 'Disbursed', 'type' => 'money', 'total' => true],
+                ['key' => 'emi_amount', 'label' => 'EMI', 'type' => 'money'],
+                ['key' => 'outstanding_principal', 'label' => 'Outstanding principal', 'type' => 'money', 'total' => true],
+                ['key' => 'outstanding_interest', 'label' => 'Outstanding interest', 'type' => 'money', 'total' => true],
+                ['key' => 'overdue_count', 'label' => 'EMIs overdue', 'type' => 'int', 'total' => true],
+                ['key' => 'overdue_amount', 'label' => 'Overdue amount', 'type' => 'money', 'total' => true],
+                ['key' => 'last_emi_date', 'label' => 'Last EMI', 'type' => 'date'],
+            ],
+            'rows' => $rows,
+        ];
+    }
+
+    private function _xls_npa($data) {
+        $rows = $this->_loan_rows($data['report']);
+        foreach ($rows as &$r) {
+            $d = (int) ($r['days_overdue'] ?? 0);
+            $r['category'] = $d > 365 ? 'Doubtful / Loss' : ($d > 90 ? 'Sub-standard' : 'SMA');
+        }
+        unset($r);
+        return [
+            'title' => 'NPA Report', 'subtitle' => 'Overdue more than ' . (int) $data['days'] . ' days, as on ' . format_date(date('Y-m-d')),
+            'kpis' => [
+                ['label' => 'NPA loans', 'value' => count($rows), 'type' => 'int'],
+                ['label' => 'Outstanding principal', 'value' => self::_sum($rows, 'outstanding_principal'), 'type' => 'money'],
+                ['label' => 'Overdue amount', 'value' => self::_sum($rows, 'total_overdue'), 'type' => 'money'],
+            ],
+            'columns' => [
+                ['key' => 'loan_number', 'label' => 'Loan', 'type' => 'code'], ['key' => 'member_code', 'label' => 'Member', 'type' => 'code'],
+                ['key' => 'member_name', 'label' => 'Name'], ['key' => 'phone', 'label' => 'Phone', 'type' => 'code'], ['key' => 'product_name', 'label' => 'Product'],
+                ['key' => 'disbursed', 'label' => 'Disbursed', 'type' => 'money', 'total' => true],
+                ['key' => 'outstanding_principal', 'label' => 'Outstanding principal', 'type' => 'money', 'total' => true],
+                ['key' => 'first_overdue_date', 'label' => 'Overdue since', 'type' => 'date'],
+                ['key' => 'days_overdue', 'label' => 'Days overdue', 'type' => 'int'],
+                ['key' => 'total_overdue', 'label' => 'Overdue amount', 'type' => 'money', 'total' => true],
+                ['key' => 'category', 'label' => 'Category'],
+            ],
+            'rows' => $rows,
+        ];
+    }
+
+    private function _xls_demand($data) {
+        $r = $data['report'];
+        $loans = array_map(function ($i) { $i = (array) $i; return $i + ['member_name' => self::_full_name($i), 'due' => (float) $i['emi_amount'] - (float) $i['total_paid'], 'status_label' => self::_label($i['status'])]; }, $r['loans'] ?? []);
+        $sav   = array_map(function ($i) { $i = (array) $i; return $i + ['member_name' => self::_full_name($i), 'due' => (float) $i['due_amount'] - (float) $i['paid_amount'], 'status_label' => self::_label($i['status'])]; }, $r['savings'] ?? []);
+        return [
+            'title' => 'Demand Report', 'subtitle' => date('F Y', strtotime($data['month'])),
+            'kpis' => [
+                ['label' => 'EMI demand', 'value' => $r['summary']['loan_due'] ?? 0, 'type' => 'money'],
+                ['label' => 'Loan members', 'value' => $r['summary']['loan_members'] ?? 0, 'type' => 'int'],
+                ['label' => 'Savings demand', 'value' => $r['summary']['savings_due'] ?? 0, 'type' => 'money'],
+                ['label' => 'Savings members', 'value' => $r['summary']['savings_members'] ?? 0, 'type' => 'int'],
+            ],
+            'sheet_title' => 'Loan EMIs',
+            'columns' => [
+                ['key' => 'due_date', 'label' => 'Due date', 'type' => 'date'], ['key' => 'loan_number', 'label' => 'Loan', 'type' => 'code'],
+                ['key' => 'installment_number', 'label' => 'EMI #', 'type' => 'int'], ['key' => 'member_code', 'label' => 'Member', 'type' => 'code'],
+                ['key' => 'member_name', 'label' => 'Name'], ['key' => 'phone', 'label' => 'Phone', 'type' => 'code'],
+                ['key' => 'emi_amount', 'label' => 'EMI', 'type' => 'money', 'total' => true], ['key' => 'total_paid', 'label' => 'Paid', 'type' => 'money', 'total' => true],
+                ['key' => 'due', 'label' => 'Due', 'type' => 'money', 'total' => true], ['key' => 'status_label', 'label' => 'Status'],
+            ],
+            'rows' => $loans,
+            'sheets' => [[
+                'title' => 'Savings dues',
+                'columns' => [
+                    ['key' => 'due_date', 'label' => 'Due date', 'type' => 'date'], ['key' => 'account_number', 'label' => 'Account', 'type' => 'code'],
+                    ['key' => 'member_code', 'label' => 'Member', 'type' => 'code'], ['key' => 'member_name', 'label' => 'Name'], ['key' => 'phone', 'label' => 'Phone', 'type' => 'code'],
+                    ['key' => 'due_amount', 'label' => 'Demand', 'type' => 'money', 'total' => true], ['key' => 'paid_amount', 'label' => 'Paid', 'type' => 'money', 'total' => true],
+                    ['key' => 'due', 'label' => 'Due', 'type' => 'money', 'total' => true], ['key' => 'status_label', 'label' => 'Status'],
+                ],
+                'rows' => $sav,
+            ]],
+        ];
+    }
+
+    private function _xls_guarantor($data) {
+        $rows = array_map(function ($g) { return (array) $g; }, $data['report'] ?? []);
+        $cols = [];
+        if ($rows) foreach (array_keys($rows[0]) as $k) {
+            if (in_array($k, ['id', 'member_id', 'loan_id', 'guarantor_member_id', 'created_at', 'updated_at'], true)) continue;
+            $t = preg_match('/amount|principal|outstanding|exposure/', $k) ? 'money' : (preg_match('/date/', $k) ? 'date' : 'text');
+            $cols[] = ['key' => $k, 'label' => self::_label($k), 'type' => $t, 'total' => $t === 'money'];
+        }
+        return ['title' => 'Guarantor Exposure', 'subtitle' => 'As on ' . format_date(date('Y-m-d')), 'columns' => $cols ?: [['key' => 'x', 'label' => 'No data']], 'rows' => $rows];
+    }
+
+    private function _xls_trial_balance($data) {
+        $rows = [];
+        foreach ($data['trial_balance'] as $a) {
+            $bal = (float) $a->total_debit - (float) $a->total_credit;
+            if (abs($bal) < 0.005 && (float) $a->total_debit == 0) continue;
+            $rows[] = ['code' => $a->account_code, 'name' => $a->account_name, 'type' => ucfirst($a->account_type),
+                       'total_debit' => $a->total_debit, 'total_credit' => $a->total_credit,
+                       'dr' => $bal > 0 ? $bal : 0, 'cr' => $bal < 0 ? -$bal : 0];
+        }
+        return [
+            'title' => 'Trial Balance', 'subtitle' => 'As on ' . format_date($data['as_on']),
+            'kpis' => [['label' => 'Debit balances', 'value' => $data['totals']['debit'], 'type' => 'money'],
+                       ['label' => 'Credit balances', 'value' => $data['totals']['credit'], 'type' => 'money'],
+                       ['label' => 'Difference', 'value' => $data['totals']['debit'] - $data['totals']['credit'], 'type' => 'money']],
+            'columns' => [
+                ['key' => 'code', 'label' => 'Code', 'type' => 'code'], ['key' => 'name', 'label' => 'Account'], ['key' => 'type', 'label' => 'Type'],
+                ['key' => 'total_debit', 'label' => 'Total debit', 'type' => 'money', 'total' => true],
+                ['key' => 'total_credit', 'label' => 'Total credit', 'type' => 'money', 'total' => true],
+                ['key' => 'dr', 'label' => 'Debit balance', 'type' => 'money', 'total' => true],
+                ['key' => 'cr', 'label' => 'Credit balance', 'type' => 'money', 'total' => true],
+            ],
+            'rows' => $rows,
+        ];
+    }
+
+    private function _xls_profit_loss($data) {
+        $r = $data['report'];
+        $rows = [['name' => 'INCOME', 'amount' => '', '_style' => 'group']];
+        foreach ($r['income'] ?? [] as $i) $rows[] = ['name' => $i->account_name, 'amount' => $i->amount];
+        $rows[] = ['name' => 'Total income', 'amount' => $r['total_income'] ?? 0, '_style' => 'subtotal'];
+        $rows[] = ['name' => 'EXPENSES', 'amount' => '', '_style' => 'group'];
+        foreach ($r['expenses'] ?? [] as $e) $rows[] = ['name' => $e->account_name, 'amount' => $e->amount];
+        $rows[] = ['name' => 'Total expenses', 'amount' => $r['total_expenses'] ?? 0, '_style' => 'subtotal'];
+        $rows[] = ['name' => ($r['net_profit'] ?? 0) >= 0 ? 'NET SURPLUS' : 'NET DEFICIT', 'amount' => $r['net_profit'] ?? 0, '_style' => 'total'];
+        return ['title' => 'Profit & Loss', 'subtitle' => self::_period($data['from_date'], $data['to_date']),
+                'columns' => [['key' => 'name', 'label' => 'Particulars', 'width' => 45], ['key' => 'amount', 'label' => 'Amount', 'type' => 'money', 'width' => 20]],
+                'rows' => $rows];
+    }
+
+    private function _xls_balance_sheet($data) {
+        $r = $data['report'];
+        $rows = [];
+        foreach (['liabilities' => 'LIABILITIES', 'equity' => 'CAPITAL & RESERVES', 'assets' => 'ASSETS'] as $k => $label) {
+            $rows[] = ['name' => $label, 'amount' => '', '_style' => 'group'];
+            foreach ($r[$k] ?? [] as $a) $rows[] = ['name' => $a->account_name, 'amount' => $a->amount ?? $a->balance ?? 0];
+            $rows[] = ['name' => 'Total ' . strtolower($label), 'amount' => $r['total_' . $k] ?? 0, '_style' => 'subtotal'];
+        }
+        $rows[] = ['name' => 'Difference (assets − liabilities − capital)', 'amount' => $r['difference'] ?? 0, '_style' => 'total'];
+        return ['title' => 'Balance Sheet', 'subtitle' => 'As on ' . format_date($data['as_on']),
+                'columns' => [['key' => 'name', 'label' => 'Particulars', 'width' => 50], ['key' => 'amount', 'label' => 'Amount', 'type' => 'money', 'width' => 20]],
+                'rows' => $rows];
+    }
+
+    private function _xls_general_ledger($data) {
+        $rows = array_map(function ($e) {
+            $e = (array) $e;
+            return $e + ['member_name' => self::_full_name($e), 'type_label' => self::_label($e['voucher_type'] ?? '')];
+        }, $data['entries'] ?? []);
+        $f = $data['filters'];
+        return [
+            'title' => 'General Ledger', 'subtitle' => self::_period($f['from_date'], $f['to_date']),
+            'columns' => [
+                ['key' => 'voucher_date', 'label' => 'Date', 'type' => 'date'], ['key' => 'voucher_number', 'label' => 'Voucher', 'type' => 'code'],
+                ['key' => 'type_label', 'label' => 'Type'], ['key' => 'account_code', 'label' => 'Code', 'type' => 'code'], ['key' => 'account_name', 'label' => 'Account'],
+                ['key' => 'member_code', 'label' => 'Member', 'type' => 'code'], ['key' => 'member_name', 'label' => 'Name'], ['key' => 'narration', 'label' => 'Narration'],
+                ['key' => 'debit_amount', 'label' => 'Debit', 'type' => 'money', 'total' => true], ['key' => 'credit_amount', 'label' => 'Credit', 'type' => 'money', 'total' => true],
+            ],
+            'rows' => $rows,
+        ];
+    }
+
+    private function _xls_account_statement($data) {
+        $st = $data['statement'] ?? ['opening_balance' => 0, 'transactions' => []];
+        $acc = $data['account'] ?? null;
+        $bal = (float) ($st['opening_balance'] ?? 0);
+        $rows = [['date' => $data['from_date'], 'voucher' => '', 'narration' => 'Opening balance', 'debit' => '', 'credit' => '', 'balance' => $bal, '_style' => 'group']];
+        foreach ($st['transactions'] ?? [] as $t) {
+            $t = (array) $t;
+            $dr = (float) ($t['debit_amount'] ?? $t['debit'] ?? 0); $cr = (float) ($t['credit_amount'] ?? $t['credit'] ?? 0);
+            $bal += $dr - $cr;
+            $rows[] = ['date' => $t['transaction_date'] ?? $t['voucher_date'] ?? '', 'voucher' => $t['voucher_number'] ?? '', 'narration' => $t['narration'] ?? '',
+                       'debit' => $dr, 'credit' => $cr, 'balance' => round($bal, 2)];
+        }
+        $rows[] = ['date' => $data['to_date'], 'voucher' => '', 'narration' => 'Closing balance', 'debit' => '', 'credit' => '', 'balance' => round($bal, 2), '_style' => 'total'];
+        return ['title' => 'Account Statement' . ($acc ? ' — ' . $acc->account_code . ' ' . $acc->account_name : ''),
+                'subtitle' => self::_period($data['from_date'], $data['to_date']),
+                'columns' => [['key' => 'date', 'label' => 'Date', 'type' => 'date'], ['key' => 'voucher', 'label' => 'Voucher', 'type' => 'code'],
+                              ['key' => 'narration', 'label' => 'Narration', 'width' => 50], ['key' => 'debit', 'label' => 'Debit', 'type' => 'money', 'total' => true],
+                              ['key' => 'credit', 'label' => 'Credit', 'type' => 'money', 'total' => true], ['key' => 'balance', 'label' => 'Balance', 'type' => 'money']],
+                'rows' => $rows];
+    }
+
+    private function _xls_member_statement($data) {
+        $s = $data['statement'] ?? null;
+        $m = $s['member'] ?? null;
+        $name = $m ? trim($m->member_code . ' — ' . $m->first_name . ' ' . $m->last_name) : 'Member';
+        $map = function ($rows) { return array_map(function ($r) { $r = (array) $r; return $r + ['type_label' => self::_label($r['transaction_type'] ?? $r['fine_type'] ?? $r['status'] ?? '')]; }, $rows ?: []); };
+        return [
+            'title' => 'Member Statement — ' . $name,
+            'subtitle' => ($data['from_date'] || $data['to_date']) ? self::_period($data['from_date'] ?: '2000-01-01', $data['to_date'] ?: date('Y-m-d')) : 'All dates',
+            'sheet_title' => 'Ledger',
+            'columns' => [['key' => 'transaction_date', 'label' => 'Date', 'type' => 'date'], ['key' => 'type_label', 'label' => 'Type'], ['key' => 'narration', 'label' => 'Narration', 'width' => 45],
+                          ['key' => 'debit_amount', 'label' => 'Debit (paid to member)', 'type' => 'money', 'total' => true],
+                          ['key' => 'credit_amount', 'label' => 'Credit (received)', 'type' => 'money', 'total' => true],
+                          ['key' => 'balance_after', 'label' => 'Balance (+Cr / −Dr)', 'type' => 'money']],
+            'rows' => $map($s['ledger'] ?? []),
+            'sheets' => [
+                ['title' => 'Savings', 'columns' => [['key' => 'transaction_date', 'label' => 'Date', 'type' => 'date'], ['key' => 'account_number', 'label' => 'Account', 'type' => 'code'],
+                    ['key' => 'type_label', 'label' => 'Type'], ['key' => 'amount', 'label' => 'Amount', 'type' => 'money', 'total' => true],
+                    ['key' => 'balance_after', 'label' => 'Balance', 'type' => 'money'], ['key' => 'narration', 'label' => 'Narration']], 'rows' => $map($s['savings'] ?? [])],
+                ['title' => 'Loans', 'columns' => [['key' => 'loan_number', 'label' => 'Loan', 'type' => 'code'], ['key' => 'disbursement_date', 'label' => 'Disbursed', 'type' => 'date'],
+                    ['key' => 'principal_amount', 'label' => 'Principal', 'type' => 'money', 'total' => true], ['key' => 'emi_amount', 'label' => 'EMI', 'type' => 'money'],
+                    ['key' => 'outstanding_principal', 'label' => 'Outstanding', 'type' => 'money', 'total' => true], ['key' => 'status', 'label' => 'Status']], 'rows' => $map($s['loans'] ?? [])],
+                ['title' => 'Fines', 'columns' => [['key' => 'fine_code', 'label' => 'Fine #', 'type' => 'code'], ['key' => 'fine_date', 'label' => 'Date', 'type' => 'date'],
+                    ['key' => 'type_label', 'label' => 'Type'], ['key' => 'fine_amount', 'label' => 'Fine', 'type' => 'money', 'total' => true],
+                    ['key' => 'paid_amount', 'label' => 'Paid', 'type' => 'money', 'total' => true], ['key' => 'balance_amount', 'label' => 'Balance', 'type' => 'money', 'total' => true],
+                    ['key' => 'status', 'label' => 'Status']], 'rows' => $map($s['fines'] ?? [])],
+            ],
+        ];
+    }
+
+    private function _xls_monthly_summary($data) {
+        $s = $data['summary'];
+        $labels = ['new_members' => ['New members', 'int'], 'new_savings_accounts' => ['New savings accounts', 'int'], 'savings_collected' => ['Savings collected', 'money'],
+                   'loans_disbursed_count' => ['Loans disbursed (count)', 'int'], 'loans_disbursed_amount' => ['Loans disbursed (amount)', 'money'],
+                   'loans_collected' => ['Loan repayments collected', 'money'], 'fines_applied' => ['Fines levied', 'money'], 'fines_collected' => ['Fines collected', 'money']];
+        $rows = [];
+        foreach ($labels as $k => [$l, $t]) $rows[] = ['metric' => $l, 'value' => (float) ($s[$k] ?? 0)];
+        return ['title' => 'Monthly Summary', 'subtitle' => date('F Y', mktime(0, 0, 0, (int) $data['month'], 1, (int) $data['year'])),
+                'columns' => [['key' => 'metric', 'label' => 'Metric', 'width' => 40], ['key' => 'value', 'label' => 'Value', 'type' => 'number', 'width' => 20]], 'rows' => $rows];
+    }
+
+    private function _xls_member_summary($data) {
+        $rows = array_map(function ($m) { $m = (array) $m; return $m + ['member_name' => self::_full_name($m), 'status_label' => ucfirst($m['status'] ?? '')]; }, $data['report'] ?? []);
+        return ['title' => 'Member Summary', 'subtitle' => 'As on ' . format_date(date('Y-m-d')),
+                'columns' => [['key' => 'member_code', 'label' => 'Member', 'type' => 'code'], ['key' => 'member_name', 'label' => 'Name'], ['key' => 'phone', 'label' => 'Phone', 'type' => 'code'],
+                              ['key' => 'join_date', 'label' => 'Joined', 'type' => 'date'], ['key' => 'savings_accounts', 'label' => 'Savings a/c', 'type' => 'int', 'total' => true],
+                              ['key' => 'total_savings', 'label' => 'Savings balance', 'type' => 'money', 'total' => true], ['key' => 'total_loans', 'label' => 'Loans', 'type' => 'int', 'total' => true],
+                              ['key' => 'outstanding_loans', 'label' => 'Loan outstanding', 'type' => 'money', 'total' => true], ['key' => 'pending_fines', 'label' => 'Fines due', 'type' => 'money', 'total' => true],
+                              ['key' => 'status_label', 'label' => 'Status']],
+                'rows' => $rows];
+    }
+
+    private function _xls_ageing($data) {
+        $rows = $this->_loan_rows($data['report'] ?? []);
+        $buckets = [];
+        foreach ($rows as $r) {
+            $b = $r['ageing_bucket'];
+            if (!isset($buckets[$b])) $buckets[$b] = ['bucket' => $b, 'loans' => 0, 'overdue' => 0, 'outstanding' => 0];
+            $buckets[$b]['loans']++; $buckets[$b]['overdue'] += $r['overdue_amount']; $buckets[$b]['outstanding'] += $r['outstanding_principal'];
+        }
+        ksort($buckets);
+        return ['title' => 'Ageing Analysis', 'subtitle' => 'As on ' . format_date(date('Y-m-d')),
+                'columns' => [['key' => 'loan_number', 'label' => 'Loan', 'type' => 'code'], ['key' => 'member_code', 'label' => 'Member', 'type' => 'code'], ['key' => 'member_name', 'label' => 'Name'],
+                              ['key' => 'product_name', 'label' => 'Product'], ['key' => 'disbursed', 'label' => 'Disbursed', 'type' => 'money', 'total' => true],
+                              ['key' => 'outstanding_principal', 'label' => 'Outstanding', 'type' => 'money', 'total' => true], ['key' => 'days_overdue', 'label' => 'Days overdue', 'type' => 'int'],
+                              ['key' => 'overdue_amount', 'label' => 'Overdue amount', 'type' => 'money', 'total' => true], ['key' => 'ageing_bucket', 'label' => 'Bucket']],
+                'rows' => $rows,
+                'sheets' => [['title' => 'By bucket', 'columns' => [['key' => 'bucket', 'label' => 'Bucket'], ['key' => 'loans', 'label' => 'Loans', 'type' => 'int', 'total' => true],
+                              ['key' => 'overdue', 'label' => 'Overdue amount', 'type' => 'money', 'total' => true], ['key' => 'outstanding', 'label' => 'Outstanding', 'type' => 'money', 'total' => true]],
+                              'rows' => array_values($buckets)]]];
+    }
+
+    private function _xls_other_transactions($data) {
+        $rows = array_map(function ($t) { $t = (array) $t; return $t + ['member_name' => self::_full_name($t), 'type_label' => self::_label($t['transaction_type']), 'mode_label' => self::_label($t['payment_mode'])]; }, $data['transactions'] ?? []);
+        return ['title' => 'Other Transactions', 'subtitle' => self::_period($data['from_date'], $data['to_date']),
+                'columns' => [['key' => 'transaction_date', 'label' => 'Date', 'type' => 'date'], ['key' => 'member_code', 'label' => 'Member', 'type' => 'code'], ['key' => 'member_name', 'label' => 'Name'],
+                              ['key' => 'phone', 'label' => 'Phone', 'type' => 'code'], ['key' => 'type_label', 'label' => 'Type'], ['key' => 'amount', 'label' => 'Amount', 'type' => 'money', 'total' => true],
+                              ['key' => 'mode_label', 'label' => 'Mode'], ['key' => 'receipt_number', 'label' => 'Receipt', 'type' => 'code'], ['key' => 'description', 'label' => 'Description'],
+                              ['key' => 'status', 'label' => 'Status']],
+                'rows' => $rows];
     }
 }

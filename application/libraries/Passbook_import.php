@@ -361,7 +361,12 @@ class Passbook_import {
                 $fine = $db->where('member_id', $mid)->where_in('status', ['pending', 'partial'])->order_by('fine_date', 'ASC')->get('fines')->row();
                 if (!$fine) { $r['issues'][] = 'Member has no pending fine'; return; }
                 $r['allocations'][] = ['type' => 'fine', 'related' => 'fine_' . $fine->id, 'amount' => $r['amount'], 'label' => 'Fine ' . ($fine->fine_code ?? '#' . $fine->id)];
-                if ($r['amount'] > (float) $fine->balance_amount + 0.01) $r['notes'][] = 'More than the pending fine (₹' . number_format((float) $fine->balance_amount, 2) . ')';
+                $open = (float) $db->select_sum('balance_amount', 's')->where('member_id', $mid)->where_in('status', ['pending', 'partial'])->get('fines')->row()->s;
+                if ($r['amount'] > $open + 0.01) {
+                    $r['issues'][] = 'More than the member\'s open fines (₹' . number_format($open, 2) . ') — book the extra as savings or another fee';
+                } elseif ($r['amount'] > (float) $fine->balance_amount + 0.01) {
+                    $r['notes'][] = 'Covers the oldest fine (₹' . number_format((float) $fine->balance_amount, 2) . ') and then the next open fines';
+                }
                 return;
             case 'auto':
                 if ($loans && $this->_loans_alloc($r, $loans, $accs, $next, $emi_alloc, $sav_alloc, true)) return;

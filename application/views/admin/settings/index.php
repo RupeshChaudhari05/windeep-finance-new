@@ -634,9 +634,9 @@
                 <div class="card card-warning">
                     <div class="card-header">
                         <h3 class="card-title"><i class="fas fa-gavel mr-1"></i> Fine Rules</h3>
-                        <button type="button" class="btn btn-sm btn-light float-right" data-toggle="modal" data-target="#addFineRuleModal">
-                            <i class="fas fa-plus"></i> Add Rule
-                        </button>
+                        <a href="<?= site_url('admin/fines/rules') ?>" class="btn btn-sm btn-light float-right">
+                            <i class="fas fa-cog"></i> Manage Rules
+                        </a>
                     </div>
                     <div class="card-body p-0">
                         <table class="table table-hover mb-0">
@@ -656,11 +656,14 @@
                                     <td><?= ucfirst(str_replace('_', ' ', $rule->fine_type)) ?></td>
                                     <td><span class="badge badge-info"><?= ucfirst($rule->calculation_type) ?></span></td>
                                     <td>
-                                        <?php if ($rule->calculation_type == 'fixed'): ?>
-                                            <?= format_amount($rule->amount, 0) ?>
+                                        <?php if ($rule->calculation_type == 'percentage'): ?>
+                                            <?= (float) $rule->fine_value ?>% of due
+                                        <?php elseif (in_array($rule->calculation_type, ['per_day', 'fixed_plus_daily'])): ?>
+                                            <?= format_amount($rule->fine_value, 0) ?> + <?= format_amount($rule->per_day_amount, 0) ?>/day
                                         <?php else: ?>
-                                            <?= $rule->amount ?>%
+                                            <?= format_amount($rule->fine_value, 0) ?>
                                         <?php endif; ?>
+                                        <?php if (!empty($rule->effective_to)): ?><br><small class="text-muted">old version, until <?= format_date($rule->effective_to) ?></small><?php endif; ?>
                                     </td>
                                     <td><?= $rule->grace_days ?> days</td>
                                     <td>
@@ -669,9 +672,9 @@
                                         </span>
                                     </td>
                                     <td>
-                                        <button class="btn btn-xs btn-warning edit-rule" data-id="<?= $rule->id ?>">
+                                        <a class="btn btn-xs btn-warning" href="<?= site_url('admin/fines/rules') ?>" title="Edit in Fines → Rules">
                                             <i class="fas fa-edit"></i>
-                                        </button>
+                                        </a>
                                     </td>
                                 </tr>
                                 <?php endforeach; ?>
@@ -1587,108 +1590,6 @@ $(document).ready(function() {
     </div>
 </div>
 
-<!-- Add Fine Rule Modal -->
-<div class="modal fade" id="addFineRuleModal" tabindex="-1" role="dialog" aria-hidden="true">
-    <div class="modal-dialog" role="document">
-        <div class="modal-content">
-            <form action="<?= site_url('admin/settings/save_fine_rule') ?>" method="post">
-                <?= form_hidden($this->security->get_csrf_token_name(), $this->security->get_csrf_hash()) ?>
-                <div class="modal-header bg-warning">
-                    <h5 class="modal-title"><i class="fas fa-gavel mr-2"></i>Add Fine Rule</h5>
-                    <button type="button" class="close" data-dismiss="modal">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <div class="form-group">
-                        <label>Rule Name <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" name="rule_name" placeholder="e.g., Late EMI Payment Fine" required>
-                    </div>
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="form-group">
-                                <label>Applies To</label>
-                                <select class="form-control" name="applies_to">
-                                    <option value="loan">Loan EMI</option>
-                                    <option value="savings">Savings Deposit</option>
-                                    <option value="both">Both</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="form-group">
-                                <label>Fine Type</label>
-                                <select class="form-control" name="fine_type">
-                                    <option value="late_payment">Late Payment</option>
-                                    <option value="overdue">Overdue</option>
-                                    <option value="missed_payment">Missed Payment</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="form-group">
-                                <label>Calculation Type</label>
-                                <select class="form-control" name="calculation_type" id="fineCalcType">
-                                    <option value="fixed">Fixed Amount</option>
-                                    <option value="percentage">Percentage of Due</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="form-group">
-                                <label id="fineValueLabel">Fine Amount (<?= get_currency_symbol() ?>)</label>
-                                <input type="number" class="form-control" name="fine_amount" value="100" min="0" step="0.01">
-                            </div>
-                        </div>
-                    </div>
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="form-group">
-                                <label>Grace Period (Days)</label>
-                                <input type="number" class="form-control" name="min_days" value="3" min="0">
-                                <small class="text-muted">Fine applies after these days</small>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="form-group">
-                                <label>Max Fine Amount (<?= get_currency_symbol() ?>)</label>
-                                <input type="number" class="form-control" name="max_fine" value="5000" min="0">
-                                <small class="text-muted">Maximum cap on fine</small>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label>Per Day Amount (<?= get_currency_symbol() ?>)</label>
-                        <input type="number" class="form-control" name="per_day_amount" value="0" min="0" step="0.01">
-                        <small class="text-muted">Additional amount per day overdue (optional)</small>
-                    </div>
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="form-group">
-                                <label>Effective From</label>
-                                <input type="date" class="form-control" name="effective_from" value="<?= date('Y-m-d') ?>">
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="form-group">
-                                <label>Status</label>
-                                <select class="form-control" name="is_active">
-                                    <option value="1">Active</option>
-                                    <option value="0">Inactive</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-warning"><i class="fas fa-save mr-1"></i> Save Rule</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
 <!-- Add Admin User Modal -->
 <div class="modal fade" id="addAdminModal" tabindex="-1" role="dialog" aria-hidden="true">
     <div class="modal-dialog" role="document">
@@ -1742,16 +1643,4 @@ $(document).ready(function() {
     </div>
 </div>
 
-<script>
-// Dynamic label for fine calculation type
-$(document).ready(function() {
-    $('#fineCalcType').on('change', function() {
-        var calcType = $(this).val();
-        if (calcType === 'percentage') {
-            $('#fineValueLabel').text('Fine Rate (%)');
-        } else {
-            $('#fineValueLabel').text('Fine Amount (<?= get_currency_symbol() ?>)');
-        }
-    });
-});
-</script>
+<!-- fine rule modal moved to Fines → Rules -->

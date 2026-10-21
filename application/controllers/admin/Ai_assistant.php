@@ -109,6 +109,26 @@ class Ai_assistant extends Admin_Controller {
         'payment_history'     => ['Payment History', 'admin/payments/history'],
         'reports'             => ['Reports', 'admin/reports'],
         'member_statement'    => ['Member Statement', 'admin/reports/member_statement'],
+        'day_book'            => ['Day Book', 'admin/reports/day_book'],
+        'member_dues'         => ['Member Dues', 'admin/reports/member_dues'],
+        'loan_portfolio'      => ['Loan Portfolio', 'admin/reports/portfolio'],
+        'fine_register'       => ['Fine Register', 'admin/reports/fines'],
+        'income_report'       => ['Income Analysis', 'admin/reports/income'],
+        'savings_register'    => ['Savings Register', 'admin/reports/savings_register'],
+        'collection_efficiency' => ['Collection Efficiency', 'admin/reports/collection_efficiency'],
+        'collection_report'   => ['Collection Report', 'admin/reports/collection'],
+        'outstanding_report'  => ['Outstanding Loans', 'admin/reports/outstanding'],
+        'npa_report'          => ['NPA Report', 'admin/reports/npa'],
+        'ageing_report'       => ['Ageing Analysis', 'admin/reports/ageing'],
+        'cash_book'           => ['Cash Book', 'admin/reports/cash-book'],
+        'bank_book'           => ['Bank Book', 'admin/reports/cash-book?book=bank'],
+        'bank_reconciliation' => ['Bank Reconciliation', 'admin/reports/bank-reconciliation'],
+        'kyc_pending'         => ['KYC Pending', 'admin/reports/kyc-pending'],
+        'trial_balance'       => ['Trial Balance', 'admin/reports/trial-balance'],
+        'profit_loss'         => ['Profit & Loss', 'admin/reports/profit-loss'],
+        'balance_sheet'       => ['Balance Sheet', 'admin/reports/balance-sheet'],
+        'fine_rules'          => ['Fine Rules', 'admin/fines/rules'],
+        'fine_preview'        => ['Auto Fine Preview', 'admin/fines/preview_auto_fines'],
         'ledger'              => ['Member Ledger', 'admin/ledger/member'],
         'settings'            => ['Settings', 'admin/settings'],
     ];
@@ -1177,8 +1197,8 @@ PROMPT;
              'parameters' => $obj(['tables' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Table names (max 10)']])],
             ['name' => 'run_sql', 'description' => 'Run ONE read-only SQL query (SELECT / WITH / SHOW / DESCRIBE) on the live database. Returns up to 100 rows. Use for any list, total, report or search.',
              'parameters' => $obj(['query' => $s('The SQL query'), 'purpose' => $s('Short description shown to the admin, e.g. "Overdue loans this month"')], ['query'])],
-            ['name' => 'get_report', 'description' => 'Ready-made report, shown to the admin as a table (prefer over run_sql). summary = society totals + collections in the period; overdue = overdue EMIs by loan; collections = daily collections; dues = EMIs due in the next N days; savings_dues; applications = open loan applications; unmapped_bank; pending_fines.',
-             'parameters' => $obj(['report' => $s('Report', ['summary', 'overdue', 'collections', 'dues', 'savings_dues', 'applications', 'unmapped_bank', 'pending_fines']),
+            ['name' => 'get_report', 'description' => 'Ready-made report, shown to the admin as a table (prefer over run_sql). summary = society totals + collections in the period; overdue = overdue EMIs by loan; collections = daily collections; dues = EMIs due in the next N days; savings_dues; applications = open loan applications; unmapped_bank; pending_fines; member_dues = per-member EMI + savings + fine dues; portfolio = product-wise outstanding / overdue / PAR 30-90; fine_register = all fines in the period; income = month-wise income & expenses from the ledger; day_book = money in/out per day (cash+bank); savings_register = every active savings account with dues; collection_efficiency = EMI demand vs collected per month; bank_reconciliation = bank lines not mapped + books bank balance; kyc_pending; fine_preview = DRY RUN of the auto-fine job (what fines would be created today, nothing saved). Each table has an Excel download of the matching report page.',
+             'parameters' => $obj(['report' => $s('Report', ['summary', 'overdue', 'collections', 'dues', 'savings_dues', 'applications', 'unmapped_bank', 'pending_fines', 'member_dues', 'portfolio', 'fine_register', 'income', 'day_book', 'savings_register', 'collection_efficiency', 'bank_reconciliation', 'kyc_pending', 'fine_preview']),
                                    'from' => $s('YYYY-MM-DD; default 1st of this month. For "today" pass today as from and to'), 'to' => $s('YYYY-MM-DD, default today'), 'days' => $n('dues: days ahead, default 7')], ['report'])],
             ['name' => 'map_bank_entries', 'description' => 'Suggest mappings for UNMAPPED bank CREDIT lines (Bank Transactions): finds the member from the bank text / UPI id / payer name / history and allocates to EMI / savings, or links to an existing manual entry. Shows a Save card. Use when the admin asks to map / reconcile bank entries.',
              'parameters' => $obj(['from' => $s('YYYY-MM-DD, optional'), 'to' => $s('YYYY-MM-DD, optional'), 'limit' => $n('Max lines, default 100'),
@@ -1324,7 +1344,8 @@ PROMPT;
         try {
             if (!$maria) { try { $this->db->simple_query('SET SESSION max_execution_time = 10000'); } catch (Exception $e) {} }
             $this->db->simple_query('START TRANSACTION READ ONLY');
-            $res = $this->db->query(($maria && $is_select ? 'SET STATEMENT max_statement_time = 10 FOR ' : '') . $q);
+            // 3rd arg TRUE: CI treats a query starting with SET as a write and would return TRUE instead of rows
+            $res = $this->db->query(($maria && $is_select ? 'SET STATEMENT max_statement_time = 10 FOR ' : '') . $q, false, $is_select ? true : null);
             $err = $this->db->error();
         } catch (Exception $e) {   // PHP 8.1+ mysqli throws instead of returning false
             $res = false;
@@ -1414,6 +1435,11 @@ PROMPT;
         $mname = "TRIM(CONCAT_WS(' ', m.first_name, NULLIF(m.middle_name, ''), m.last_name))";
         $overdue = "l.status IN ('active','npa') AND li.status IN ('pending','overdue','partial') AND li.due_date < CURDATE()";
 
+        if (!in_array($name, ['summary', 'overdue', 'collections', 'dues', 'savings_dues', 'applications', 'unmapped_bank', 'pending_fines'], true)) {
+            $res = $this->_tool_report_center($name, $from, $to);
+            if ($res !== null) return $res;
+        }
+
         switch ($name) {
             case 'summary':
                 $title = "Society summary (collections {$from} to {$to})";
@@ -1485,9 +1511,110 @@ PROMPT;
                         FROM fines f JOIN members m ON m.id = f.member_id WHERE f.status IN ('pending','partial') ORDER BY f.fine_date";
                 break;
             default:
-                return ['error' => 'Unknown report. Use one of: summary, overdue, collections, dues, savings_dues, applications, unmapped_bank, pending_fines.'];
+                return ['error' => 'Unknown report. Use one of: ' . str_replace("'", '', "'summary', 'overdue', 'collections', 'dues', 'savings_dues', 'applications', 'unmapped_bank', 'pending_fines', 'member_dues', 'portfolio', 'fine_register', 'income', 'day_book', 'savings_register', 'collection_efficiency', 'bank_reconciliation', 'kyc_pending', 'fine_preview'") . '.'];
         }
         return $this->_tool_sql(preg_replace('/\s+/', ' ', $sql), $title);
+    }
+
+    /**
+     * Report Center reports (same queries as admin/reports/*). Shown as a table card with
+     * "Open report" and the styled Excel download of that report page.
+     */
+    private function _tool_report_center($name, $from, $to) {
+        $this->load->model('Report_model');
+        $R = $this->Report_model;
+        $q = http_build_query(['from_date' => $from, 'to_date' => $to]);
+        switch ($name) {
+            case 'member_dues':
+                $rows = array_map(function ($r) { return ['member_code' => $r['member_code'], 'member' => $r['member_name'], 'phone' => $r['phone'],
+                    'emis_due' => $r['emi_count'], 'emi_due' => $r['emi_due'], 'savings_due' => $r['savings_due'], 'fine_due' => $r['fine_due'],
+                    'total_due' => $r['total_due'], 'oldest_due' => $r['oldest_due'], 'check' => $r['flag']]; }, $R->member_dues(date('Y-m-d')));
+                return $this->_tool_rows('Member dues (EMI + savings + fines) as on today', $rows, 'admin/reports/member_dues', '');
+            case 'portfolio':
+                $rows = array_map(function ($r) { return ['product' => $r['product_name'], 'loans' => $r['loans'], 'disbursed' => $r['disbursed'],
+                    'outstanding_principal' => $r['outstanding_principal'], 'overdue_amount' => $r['overdue_amount'],
+                    'par_30_amount' => $r['par_30'], 'par_30_pct' => $r['par_30_pct'], 'par_90_amount' => $r['par_90'], 'par_90_pct' => $r['par_90_pct']]; }, $R->loan_portfolio());
+                return $this->_tool_rows('Loan portfolio by product (PAR 30 / 90)', $rows, 'admin/reports/portfolio', '');
+            case 'fine_register':
+                $rows = array_map(function ($r) { return ['fine_code' => $r['fine_code'], 'fine_date' => $r['fine_date'], 'member_code' => $r['member_code'],
+                    'member' => $r['member_name'], 'type' => $r['fine_type'], 'reference' => $r['reference_no'], 'days_late' => $r['days_late'],
+                    'fine_amount' => $r['fine_amount'], 'paid_amount' => $r['paid_amount'], 'waived_amount' => $r['waived_amount'],
+                    'balance_amount' => $r['balance_amount'], 'status' => $r['status']]; }, $R->fine_register($from, $to));
+                return $this->_tool_rows("Fine register {$from} to {$to}", $rows, 'admin/reports/fines', $q);
+            case 'income':
+                $rows = $R->income_by_month($from, $to);
+                return $this->_tool_rows("Income by month {$from} to {$to} (from ledger)", $rows, 'admin/reports/income', $q);
+            case 'day_book':
+                $d = $R->day_book($from, $to);
+                $rows = array_map(function ($r) { return ['date' => $r['date'], 'emi_in' => $r['emi'], 'savings_in' => $r['savings'], 'fines_in' => $r['fines'],
+                    'fees_in' => $r['fees'], 'total_in' => $r['total_in'], 'disbursed_out' => $r['disbursed'], 'withdrawal_out' => $r['withdrawal'],
+                    'expense_out' => $r['expense'], 'total_out' => $r['total_out'], 'closing_balance' => $r['closing']]; }, $d['rows']);
+                return $this->_tool_rows("Day book {$from} to {$to} — opening ₹" . number_format($d['opening'], 2) . ', closing ₹' . number_format($d['closing'], 2),
+                                         $rows, 'admin/reports/day_book', $q);
+            case 'savings_register':
+                $rows = array_map(function ($r) { return ['account' => $r['account_number'], 'member_code' => $r['member_code'], 'member' => $r['member_name'],
+                    'monthly' => $r['monthly_amount'], 'deposited' => $r['total_deposited'], 'withdrawn' => $r['withdrawn'], 'balance' => $r['current_balance'],
+                    'last_deposit' => $r['last_deposit'], 'months_due' => $r['months_due'], 'amount_due' => $r['amount_due']]; }, $R->savings_register('active'));
+                return $this->_tool_rows('Savings register (active accounts)', $rows, 'admin/reports/savings_register', '');
+            case 'collection_efficiency':
+                $rows = array_map(function ($r) { return ['month' => $r['month'], 'emis' => $r['emis'], 'demand' => $r['demand'], 'collected' => $r['collected'],
+                    'pending' => $r['pending'], 'efficiency_pct' => $r['efficiency'], 'on_time_pct' => $r['on_time_pct']]; }, $R->collection_efficiency(12));
+                return $this->_tool_rows('Collection efficiency — last 12 months', $rows, 'admin/reports/collection_efficiency', '');
+            case 'bank_reconciliation':
+                $b = $R->bank_reconciliation_report($from, $to);
+                $rows = array_map(function ($r) { return ['date' => $r['transaction_date'], 'direction' => $r['transaction_type'], 'amount' => $r['amount'],
+                    'unmapped' => $r['pending_amount'], 'description' => $r['description'], 'detected_member' => $r['member_code']]; }, $b['unmapped']);
+                return $this->_tool_rows("Bank reconciliation {$from} to {$to} — books bank balance ₹" . number_format($b['gl_bank'], 2) . '; lines not yet mapped',
+                                         $rows, 'admin/reports/bank-reconciliation', $q);
+            case 'kyc_pending':
+                $rows = array_map(function ($m) { return ['member_code' => $m->member_code, 'member' => $m->member_name, 'phone' => $m->phone,
+                    'items_missing' => $m->pending_documents, 'missing' => $m->missing]; }, $R->kyc_pending_list());
+                return $this->_tool_rows('KYC pending members', $rows, 'admin/reports/kyc-pending', '');
+            case 'fine_preview':
+                // Full auto-fine job inside a rolled-back transaction: nothing is saved
+                $this->Fine_model->run_late_fine_job((int) $this->session->userdata('admin_id'), true);
+                $s = $this->Fine_model->last_run;
+                $rows = array_map(function ($i) { return ['action' => $i['action'] === 'created' ? 'new fine' : 'recalculated', 'reference' => $i['reference'],
+                    'member_id' => $i['member_id'], 'due_date' => $i['due_date'], 'days_late' => $i['days_late'], 'current_fine' => $i['old'],
+                    'new_fine_amount' => $i['amount']]; }, $s['items'] ?? []);
+                $res = $this->_tool_rows(sprintf('Auto-fine preview (nothing saved): %d new, %d recalculated, ₹%s added', $s['created'] ?? 0, $s['updated'] ?? 0,
+                                         number_format($s['amount_change'] ?? 0, 2)), $rows, 'admin/fines/preview_auto_fines', '');
+                $res['note'] = 'Dry run only. The admin applies it with Fines → Rules → Run Auto Fine Job. Rules start ' . ($s['rules_start'] ?? 'n/a')
+                             . '; EMIs due before that are never fined. ' . ($res['note'] ?? '');
+                return $res;
+        }
+        return null;
+    }
+
+    /** Rows from a model (not SQL) → table card with "Open report" + styled Excel of the report page. */
+    private function _tool_rows($title, array $rows, $page, $query) {
+        $rows = array_values(array_map(function ($r) { return (array) $r; }, $rows));
+        $cols = $rows ? array_keys($rows[0]) : [];
+        $this->_step('database', $title . ' — ' . count($rows) . ' row(s)', $page);
+        $totals = [];
+        if (count($rows) > 1) {
+            foreach ($cols as $col) {
+                if (preg_match('/pct|_date$|^date$|month|code|phone/i', $col)) continue;
+                if (!preg_match('/amount|due|balance|outstanding|collected|total|principal|interest|paid|fine|in$|out$|deposited|withdrawn|demand|pending|unmapped|emis|loans|interest|processing|membership|expenses|net|disbursed|par_/i', $col)) continue;
+                $sum = 0; $ok = true;
+                foreach ($rows as $r) { if ($r[$col] === null || $r[$col] === '') continue; if (!is_numeric($r[$col])) { $ok = false; break; } $sum += $r[$col]; }
+                if ($ok) $totals[$col] = round($sum, 2);
+            }
+        }
+        $sep = strpos($page, '?') === false ? '?' : '&';
+        $open = site_url($page) . ($query !== '' ? $sep . $query : '');
+        $xls  = $open . (strpos($open, '?') === false ? '?' : '&') . 'export=excel';
+        if ($rows) {
+            $this->run['cards'][] = ['type' => 'data_table', 'title' => $title, 'columns' => $cols,
+                                     'rows' => array_map('array_values', array_slice($rows, 0, 100)),
+                                     'total_rows' => count($rows), 'totals' => $totals, 'more' => count($rows) > 100,
+                                     'export_url' => $xls, 'open_url' => $open];
+        }
+        $model_rows = array_slice($rows, 0, 25);
+        return ['title' => $title, 'row_count' => count($rows), 'totals_of_all_rows' => $totals ?: null,
+                'shown_to_admin_as_table' => (bool) $rows, 'report_page' => $open,
+                'columns' => $cols, 'rows' => array_map('array_values', $model_rows),
+                'note' => count($rows) > 25 ? 'Only the first 25 of ' . count($rows) . ' rows are included here. Use row_count and totals_of_all_rows for totals.' : null];
     }
 
     /** GET t = token of a table card. Re-runs its read-only query (up to 5000 rows) and downloads it as Excel. */

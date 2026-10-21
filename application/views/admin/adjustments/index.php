@@ -438,8 +438,8 @@
             <div class="modal-body">
                 <div class="alert alert-danger py-2">
                     <i class="fas fa-exclamation-triangle mr-1"></i>
-                    You are about to permanently delete this <strong><span id="deleteTargetLabel">entry</span></strong>.
-                    This action is irreversible. The deletion will be permanently recorded in the audit trail.
+                    <span id="deleteWarnText">You are about to permanently delete this <strong><span id="deleteTargetLabel">entry</span></strong>.
+                    This action is irreversible. The deletion will be permanently recorded in the audit trail.</span>
                 </div>
                 <div class="form-group mb-0">
                     <label>Reason for Deletion <span class="text-danger">*</span></label>
@@ -835,7 +835,7 @@ $(window).on('load', function() {
                     '<td>' + (p.payment_mode || '') + '</td>' +
                     '<td><small>' + (p.narration || '') + '</small></td>' +
                     '<td>' + (p.is_reversed == 1 ? '<span class="text-muted"><i class="fas fa-ban"></i></span>' :
-                        '<button class="btn btn-danger btn-xs" onclick="confirmDelete(\'loan_payment\',' + p.id + ')" title="Delete this payment"><i class="fas fa-trash-alt"></i></button>') + '</td>' +
+                        '<button class="btn btn-danger btn-xs" onclick="confirmDelete(\'loan_payment\',' + p.id + ')" title="Reverse this payment"><i class="fas fa-undo"></i></button>') + '</td>' +
                     '</tr>';
             });
             if (!resp.payments.length) {
@@ -938,7 +938,7 @@ $(window).on('load', function() {
                         '<td>' + (t.payment_mode || '') + '</td>' +
                         '<td><small>' + (t.narration || t.remarks || '') + '</small></td>' +
                         '<td>' + (t.is_reversed == 1 ? '<span class="text-muted"><i class="fas fa-ban"></i></span>' :
-                            '<button class="btn btn-danger btn-xs" onclick="confirmDelete(\'savings_transaction\',' + t.id + ')" title="Delete this transaction"><i class="fas fa-trash-alt"></i></button>') + '</td>' +
+                            '<button class="btn btn-danger btn-xs" onclick="confirmDelete(\'savings_transaction\',' + t.id + ')" title="Reverse this transaction"><i class="fas fa-undo"></i></button>') + '</td>' +
                         '</tr>';
                 });
             } else {
@@ -1190,7 +1190,16 @@ $(window).on('load', function() {
             savings_transaction: 'savings transaction',
             fine:              'fine entry'
         };
-        $('#deleteTargetLabel').text(labels[type] || type);
+        var reversal = (type === 'loan_payment' || type === 'savings_transaction');
+        if (reversal) {
+            $('#deleteWarnText').html('This <strong>' + (labels[type] || type) + '</strong> will be <strong>reversed</strong>: it stays in the list marked reversed, '
+                + 'installments / balances are restored, linked savings adjustments are undone, the ledger gets a contra entry, '
+                + 'and a bank-mapped entry is unmapped so the bank line can be mapped again.');
+        } else {
+            $('#deleteWarnText').html('You are about to permanently delete this <strong>' + (labels[type] || type) + '</strong>. '
+                + 'Only entries with nothing paid against them can be deleted. The deletion is recorded in the audit trail.');
+        }
+        $('#btnConfirmDelete').html('<i class="fas fa-' + (reversal ? 'undo' : 'trash-alt') + ' mr-1"></i> ' + (reversal ? 'Reverse Entry' : 'Delete Entry'));
         $('#deleteReason').val('');
         $('#deleteModal').modal('show');
         setTimeout(function() { $('#deleteReason').focus(); }, 400);
@@ -1251,7 +1260,8 @@ $(window).on('load', function() {
         }, 'json').fail(function(xhr) {
             toastr.error('Server error: ' + (xhr.responseJSON ? xhr.responseJSON.message : xhr.statusText));
         }).always(function() {
-            $btn.prop('disabled', false).html('<i class="fas fa-trash-alt mr-1"></i> Delete Entry');
+            var rv = (deleteCtx.type === 'loan_payment' || deleteCtx.type === 'savings_transaction');
+            $btn.prop('disabled', false).html('<i class="fas fa-' + (rv ? 'undo' : 'trash-alt') + ' mr-1"></i> ' + (rv ? 'Reverse Entry' : 'Delete Entry'));
         });
     });
 

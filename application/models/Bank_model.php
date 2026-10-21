@@ -831,22 +831,18 @@ class Bank_model extends MY_Model {
                     break;
 
                 case 'fine':
+                    // Oldest open fines first (pending + partial), on the bank date
                     $this->load->model('Fine_model');
-                    $fine = $this->db->where('member_id', $update['paid_for_member_id'])
-                                     ->where('status', 'pending')
-                                     ->order_by('fine_date', 'ASC')
-                                     ->get('fines')
-                                     ->row();
-                    if ($fine) {
-                        $res = $this->Fine_model->record_payment($fine->id, $amount, 'bank_transfer', $transaction_id, $admin_id);
-                        if (!$res) {
-                            throw new Exception('Fine_model::record_payment failed');
-                        }
-                        $this->load->model('Ledger_model');
-                        $this->Ledger_model->post_fine_receipt($fine->id, $amount, $txn->transaction_date ?? date('Y-m-d'), 'bank_transfer', $admin_id);
-                        return $res;
+                    $open = $this->Fine_model->member_open_balance($update['paid_for_member_id']);
+                    if ($open < $amount - 0.01) {
+                        throw new Exception('Member has only ' . number_format($open, 2) . ' in open fines; map the rest to another head.');
                     }
-                    break;
+                    $res = $this->Fine_model->collect_for_member($update['paid_for_member_id'], $amount, 'bank_transfer',
+                                                                 $transaction_id, $admin_id, $txn->transaction_date ?? date('Y-m-d'));
+                    if ($res['applied'] < $amount - 0.01) {
+                        throw new Exception('Fine payment could not be recorded');
+                    }
+                    return key($res['fines']);
 
                 default:
                     // unknown type, just mark mapped
@@ -971,7 +967,12 @@ class Bank_model extends MY_Model {
                     case 'fine':
                         $this->load->model('Fine_model');
                         $fine_id = $split['related_id'];
-                        $result = $this->Fine_model->record_payment($fine_id, $split['amount'], 'bank_transfer', $transaction_id, $admin_id);
+                        $result = $this->Fine_model->record_payment($fine_id, $split['amount'], 'bank_transfer', $transaction_id, $admin_id,
+                                                                    $txn->transaction_date ?? date('Y-m-d'));
+                        if ($result) {
+                            $this->load->model('Ledger_model');
+                            $this->Ledger_model->post_fine_receipt($fine_id, $split['amount'], $txn->transaction_date ?? date('Y-m-d'), 'bank_transfer', $admin_id);
+                        }
                         
                         $results[] = [
                             'mapping_id' => $mapping_id,
@@ -1207,6 +1208,200 @@ class Bank_model extends MY_Model {
     }
 
     /**
+     * Undo one loan payment: restore installment and loan totals, reverse the savings
+     * adjustments (EMI shortfall taken from savings / excess credited) made with it,
+     * reopen a loan it closed and restore a foreclosed schedule. Marks the payment reversed.
+     * Does not touch the ledger or open a transaction — callers do both.
+     * Used by reverse_mapping() and Admin Adjustments.
+     */
+    public function reverse_loan_payment_effects($payment_id, $reason, $admin_id) {
+        $mapping = (object) ['related_id' => (int) $payment_id];
+        $this->load->model('Loan_model');
+        // Reverse the loan payment - restore outstanding amounts
+        $loan_payment = $this->db->where('id', $mapping->related_id)
+                                 ->get('loan_payments')->row();
+        if ($loan_payment) {
+            $principal_reversed = floatval($loan_payment->principal_component ?? 0);
+            $interest_reversed  = floatval($loan_payment->interest_component ?? 0);
+            $fine_reversed      = floatval($loan_payment->fine_component ?? 0);
+            $total_reversed     = floatval($loan_payment->total_amount ?? 0);
+
+            // --- Find and reverse any savings adjustment transactions linked to this payment ---
+            // When a bank payment has a shortfall, savings are deducted via adjustment transactions.
+            // When a bank payment has an overpayment, excess is credited to savings.
+            // On reversal, those savings adjustments must be reversed too, and the installment
+            // total_paid must be reduced only by the bank payment + savings withdrawals.
+            $loan = $this->db->where('id', $loan_payment->loan_id)->get('loans')->row();
+            if ($loan) {
+                // Find savings accounts for this member
+                $member_savings = $this->db->select('id')
+                                           ->where('member_id', $loan->member_id)
+                                           ->get('savings_accounts')
+                                           ->result_array();
+                $savings_account_ids = array_column($member_savings, 'id');
+
+                if (!empty($savings_account_ids)) {
+                    // Find adjustment transactions for this loan linked to this bank transaction.
+                    // Fallback to created_at window when bank_transaction_id is missing.
+                    $payment_created = $loan_payment->created_at;
+                    $this->db->where_in('savings_account_id', $savings_account_ids)
+                             ->where('payment_mode', 'adjustment')
+                             ->where('is_reversed', 0)
+                             ->like('narration', 'Loan: ' . $loan->loan_number);
+                    if (!empty($loan_payment->bank_transaction_id)) {
+                        $this->db->where('bank_transaction_id', $loan_payment->bank_transaction_id);
+                    } else {
+                        $this->db->where('created_at >=', date('Y-m-d H:i:s', strtotime($payment_created) - 60))
+                                 ->where('created_at <=', date('Y-m-d H:i:s', strtotime($payment_created) + 60));
+                    }
+                    $adj_transactions = $this->db
+                        ->get('savings_transactions')
+                        ->result();
+
+                    $savings_withdrawal_total = 0;
+
+                    foreach ($adj_transactions as $adj_txn) {
+                        $adj_amount = floatval($adj_txn->amount);
+
+                        // Restore savings balance and track type-specific totals
+                        if ($adj_txn->transaction_type === 'withdrawal') {
+                            $savings_withdrawal_total += $adj_amount;
+
+                            // Shortfall deduction: add back to savings
+                            $this->db->set('current_balance', 'current_balance + ' . $adj_amount, FALSE)
+                                     ->where('id', $adj_txn->savings_account_id)
+                                     ->update('savings_accounts');
+                        } else {
+                            // Overpayment credit: deduct from savings
+                            $this->db->set('current_balance', 'current_balance - ' . $adj_amount, FALSE)
+                                     ->set('total_deposited', 'GREATEST(0, total_deposited - ' . $adj_amount . ')', FALSE)
+                                     ->where('id', $adj_txn->savings_account_id)
+                                     ->update('savings_accounts');
+                        }
+
+                        // Mark savings adjustment as reversed
+                        $this->db->where('id', $adj_txn->id)
+                                 ->update('savings_transactions', [
+                                     'is_reversed'     => 1,
+                                     'reversed_at'     => date('Y-m-d H:i:s'),
+                                     'reversed_by'     => $admin_id,
+                                     'reversal_reason' => 'Associated bank mapping reversal',
+                                     'narration'       => 'REVERSED: ' . ($adj_txn->narration ?? '') . ' | Bank mapping reversed by admin'
+                                 ]);
+                    }
+                }
+            }
+            // Total amount to deduct from installment = bank payment + savings withdrawals that were used to cover the EMI shortfall.
+            // Do not include overpayment credits that were deposited to savings and did not increase installment total_paid.
+            $total_to_deduct_from_inst = $total_reversed + $savings_withdrawal_total;
+            // --- End savings adjustment reversal ---
+
+            // Restore loan outstanding balances
+            $loan_update_sql = 'outstanding_principal + ' . $principal_reversed;
+            $this->db->set('outstanding_principal', $loan_update_sql, FALSE)
+                     ->set('outstanding_interest', 'outstanding_interest + ' . $interest_reversed, FALSE)
+                     ->set('total_principal_paid', 'GREATEST(0, total_principal_paid - ' . $principal_reversed . ')', FALSE)
+                     ->set('total_interest_paid', 'GREATEST(0, total_interest_paid - ' . $interest_reversed . ')', FALSE)
+                     ->set('total_amount_paid', 'GREATEST(0, total_amount_paid - ' . $total_reversed . ')', FALSE);
+            // Restore outstanding_fine if the column exists
+            if ($this->db->field_exists('outstanding_fine', 'loans') && $fine_reversed > 0) {
+                $this->db->set('outstanding_fine', 'outstanding_fine + ' . $fine_reversed, FALSE)
+                         ->set('total_fine_paid', 'GREATEST(0, total_fine_paid - ' . $fine_reversed . ')', FALSE);
+            }
+            $this->db->where('id', $loan_payment->loan_id)
+                     ->update('loans');
+
+            // Mark payment as reversed (all reversal fields)
+            $this->db->where('id', $loan_payment->id)
+                     ->update('loan_payments', [
+                         'is_reversed'      => 1,
+                         'reversed_at'      => date('Y-m-d H:i:s'),
+                         'reversed_by'      => $admin_id,
+                         'reversal_reason'  => $reason,
+                         'narration'        => 'REVERSED: ' . ($loan_payment->narration ?? '') . ' | ' . $reason,
+                         'updated_at'       => date('Y-m-d H:i:s')
+                     ]);
+
+            // Revert installment — subtract full applied amount (bank + savings adjustment)
+            if (!empty($loan_payment->installment_id)) {
+                $inst_id = $loan_payment->installment_id;
+                // Reduce all paid components using full applied amount
+                $this->db->set('total_paid', 'GREATEST(0, total_paid - ' . $total_to_deduct_from_inst . ')', FALSE)
+                         ->set('principal_paid', 'GREATEST(0, principal_paid - ' . $principal_reversed . ')', FALSE)
+                         ->set('interest_paid', 'GREATEST(0, interest_paid - ' . $interest_reversed . ')', FALSE);
+                if ($this->db->field_exists('fine_paid', 'loan_installments') && $fine_reversed > 0) {
+                    $this->db->set('fine_paid', 'GREATEST(0, fine_paid - ' . $fine_reversed . ')', FALSE);
+                }
+                $this->db->where('id', $inst_id)
+                         ->update('loan_installments');
+
+                // Now re-read the installment to determine correct status
+                $updated_inst = $this->db->where('id', $inst_id)
+                                         ->get('loan_installments')->row();
+                if ($updated_inst) {
+                    $new_total_paid = floatval($updated_inst->total_paid);
+                    $emi_amount     = floatval($updated_inst->emi_amount);
+                    if ($new_total_paid <= 0) {
+                        // Determine proper unpaid status based on due date
+                        $new_inst_status = (strtotime($updated_inst->due_date) < strtotime('today'))
+                            ? 'overdue' : 'pending';
+                    } elseif ($new_total_paid < ($emi_amount - 0.01)) {
+                        $new_inst_status = 'partial';
+                    } else {
+                        $new_inst_status = 'paid'; // should rarely happen on reversal
+                    }
+                    $this->db->where('id', $inst_id)
+                             ->update('loan_installments', [
+                                 'status'     => $new_inst_status,
+                                 'paid_date'  => ($new_total_paid <= 0) ? null : $updated_inst->paid_date,
+                                 'updated_at' => date('Y-m-d H:i:s')
+                             ]);
+
+                    // --- Check if loan closure needs to be reverted ---
+                    // If reversing caused the last EMI to become unpaid/partial,
+                    // and the loan is currently closed, revert it to active
+                    $loan_to_check = $this->db->where('id', $loan_payment->loan_id)
+                                              ->get('loans')->row();
+                    if ($loan_to_check && in_array($loan_to_check->status, ['closed', 'foreclosed'], true)) {
+                        // Check if this is the last installment
+                        $last_inst = $this->db->select_max('installment_number', 'max_inst')
+                                             ->where('loan_id', $loan_payment->loan_id)
+                                             ->get('loan_installments')->row();
+                        if ($last_inst && $updated_inst->installment_number == $last_inst->max_inst) {
+                            // This is the last installment - if it's no longer fully paid, reopen the loan
+                            if ($new_inst_status !== 'paid') {
+                                $this->db->where('id', $loan_payment->loan_id)
+                                         ->update('loans', [
+                                             'status'        => 'active',
+                                             'closure_type'  => NULL,
+                                             'closure_date'  => NULL,
+                                             'updated_at'    => date('Y-m-d H:i:s')
+                                         ]);
+                            }
+                        }
+                    }
+                    // --- End loan closure reversal check ---
+                }
+            }
+
+            if ($loan_payment->payment_type === 'foreclosure') {
+                $this->Loan_model->restore_cancelled_schedule_after_reversal($loan_payment->loan_id);
+                $this->Loan_model->reinstate_guarantors($loan_payment->loan_id);
+
+                $this->db->where('id', $loan_payment->loan_id)
+                         ->update('loans', [
+                             'status' => 'active',
+                             'closure_type' => null,
+                             'closure_date' => null,
+                             'closure_remarks' => null,
+                             'updated_at' => date('Y-m-d H:i:s')
+                         ]);
+            }
+        }
+        return !empty($loan_payment);
+    }
+
+    /**
      * Reverse/Unmap a Transaction Mapping
      * Reverses financial effects and marks the mapping as reversed
      */
@@ -1230,188 +1425,7 @@ class Bank_model extends MY_Model {
                 case 'loan_payment':
                 case 'emi':
                     if ($mapping->related_id) {
-                        $this->load->model('Loan_model');
-                        // Reverse the loan payment - restore outstanding amounts
-                        $loan_payment = $this->db->where('id', $mapping->related_id)
-                                                 ->get('loan_payments')->row();
-                        if ($loan_payment) {
-                            $principal_reversed = floatval($loan_payment->principal_component ?? 0);
-                            $interest_reversed  = floatval($loan_payment->interest_component ?? 0);
-                            $fine_reversed      = floatval($loan_payment->fine_component ?? 0);
-                            $total_reversed     = floatval($loan_payment->total_amount ?? 0);
-
-                            // --- Find and reverse any savings adjustment transactions linked to this payment ---
-                            // When a bank payment has a shortfall, savings are deducted via adjustment transactions.
-                            // When a bank payment has an overpayment, excess is credited to savings.
-                            // On reversal, those savings adjustments must be reversed too, and the installment
-                            // total_paid must be reduced only by the bank payment + savings withdrawals.
-                            $loan = $this->db->where('id', $loan_payment->loan_id)->get('loans')->row();
-                            if ($loan) {
-                                // Find savings accounts for this member
-                                $member_savings = $this->db->select('id')
-                                                           ->where('member_id', $loan->member_id)
-                                                           ->get('savings_accounts')
-                                                           ->result_array();
-                                $savings_account_ids = array_column($member_savings, 'id');
-
-                                if (!empty($savings_account_ids)) {
-                                    // Find adjustment transactions for this loan linked to this bank transaction.
-                                    // Fallback to created_at window when bank_transaction_id is missing.
-                                    $payment_created = $loan_payment->created_at;
-                                    $this->db->where_in('savings_account_id', $savings_account_ids)
-                                             ->where('payment_mode', 'adjustment')
-                                             ->where('is_reversed', 0)
-                                             ->like('narration', 'Loan: ' . $loan->loan_number);
-                                    if (!empty($loan_payment->bank_transaction_id)) {
-                                        $this->db->where('bank_transaction_id', $loan_payment->bank_transaction_id);
-                                    } else {
-                                        $this->db->where('created_at >=', date('Y-m-d H:i:s', strtotime($payment_created) - 60))
-                                                 ->where('created_at <=', date('Y-m-d H:i:s', strtotime($payment_created) + 60));
-                                    }
-                                    $adj_transactions = $this->db
-                                        ->get('savings_transactions')
-                                        ->result();
-
-                                    $savings_withdrawal_total = 0;
-
-                                    foreach ($adj_transactions as $adj_txn) {
-                                        $adj_amount = floatval($adj_txn->amount);
-
-                                        // Restore savings balance and track type-specific totals
-                                        if ($adj_txn->transaction_type === 'withdrawal') {
-                                            $savings_withdrawal_total += $adj_amount;
-
-                                            // Shortfall deduction: add back to savings
-                                            $this->db->set('current_balance', 'current_balance + ' . $adj_amount, FALSE)
-                                                     ->where('id', $adj_txn->savings_account_id)
-                                                     ->update('savings_accounts');
-                                        } else {
-                                            // Overpayment credit: deduct from savings
-                                            $this->db->set('current_balance', 'current_balance - ' . $adj_amount, FALSE)
-                                                     ->set('total_deposited', 'GREATEST(0, total_deposited - ' . $adj_amount . ')', FALSE)
-                                                     ->where('id', $adj_txn->savings_account_id)
-                                                     ->update('savings_accounts');
-                                        }
-
-                                        // Mark savings adjustment as reversed
-                                        $this->db->where('id', $adj_txn->id)
-                                                 ->update('savings_transactions', [
-                                                     'is_reversed'     => 1,
-                                                     'reversed_at'     => date('Y-m-d H:i:s'),
-                                                     'reversed_by'     => $admin_id,
-                                                     'reversal_reason' => 'Associated bank mapping reversal',
-                                                     'narration'       => 'REVERSED: ' . ($adj_txn->narration ?? '') . ' | Bank mapping reversed by admin'
-                                                 ]);
-                                    }
-                                }
-                            }
-                            // Total amount to deduct from installment = bank payment + savings withdrawals that were used to cover the EMI shortfall.
-                            // Do not include overpayment credits that were deposited to savings and did not increase installment total_paid.
-                            $total_to_deduct_from_inst = $total_reversed + $savings_withdrawal_total;
-                            // --- End savings adjustment reversal ---
-
-                            // Restore loan outstanding balances
-                            $loan_update_sql = 'outstanding_principal + ' . $principal_reversed;
-                            $this->db->set('outstanding_principal', $loan_update_sql, FALSE)
-                                     ->set('outstanding_interest', 'outstanding_interest + ' . $interest_reversed, FALSE)
-                                     ->set('total_principal_paid', 'GREATEST(0, total_principal_paid - ' . $principal_reversed . ')', FALSE)
-                                     ->set('total_interest_paid', 'GREATEST(0, total_interest_paid - ' . $interest_reversed . ')', FALSE)
-                                     ->set('total_amount_paid', 'GREATEST(0, total_amount_paid - ' . $total_reversed . ')', FALSE);
-                            // Restore outstanding_fine if the column exists
-                            if ($this->db->field_exists('outstanding_fine', 'loans') && $fine_reversed > 0) {
-                                $this->db->set('outstanding_fine', 'outstanding_fine + ' . $fine_reversed, FALSE)
-                                         ->set('total_fine_paid', 'GREATEST(0, total_fine_paid - ' . $fine_reversed . ')', FALSE);
-                            }
-                            $this->db->where('id', $loan_payment->loan_id)
-                                     ->update('loans');
-
-                            // Mark payment as reversed (all reversal fields)
-                            $this->db->where('id', $loan_payment->id)
-                                     ->update('loan_payments', [
-                                         'is_reversed'      => 1,
-                                         'reversed_at'      => date('Y-m-d H:i:s'),
-                                         'reversed_by'      => $admin_id,
-                                         'reversal_reason'  => $reason,
-                                         'narration'        => 'REVERSED: ' . ($loan_payment->narration ?? '') . ' | ' . $reason,
-                                         'updated_at'       => date('Y-m-d H:i:s')
-                                     ]);
-
-                            // Revert installment — subtract full applied amount (bank + savings adjustment)
-                            if (!empty($loan_payment->installment_id)) {
-                                $inst_id = $loan_payment->installment_id;
-                                // Reduce all paid components using full applied amount
-                                $this->db->set('total_paid', 'GREATEST(0, total_paid - ' . $total_to_deduct_from_inst . ')', FALSE)
-                                         ->set('principal_paid', 'GREATEST(0, principal_paid - ' . $principal_reversed . ')', FALSE)
-                                         ->set('interest_paid', 'GREATEST(0, interest_paid - ' . $interest_reversed . ')', FALSE);
-                                if ($this->db->field_exists('fine_paid', 'loan_installments') && $fine_reversed > 0) {
-                                    $this->db->set('fine_paid', 'GREATEST(0, fine_paid - ' . $fine_reversed . ')', FALSE);
-                                }
-                                $this->db->where('id', $inst_id)
-                                         ->update('loan_installments');
-
-                                // Now re-read the installment to determine correct status
-                                $updated_inst = $this->db->where('id', $inst_id)
-                                                         ->get('loan_installments')->row();
-                                if ($updated_inst) {
-                                    $new_total_paid = floatval($updated_inst->total_paid);
-                                    $emi_amount     = floatval($updated_inst->emi_amount);
-                                    if ($new_total_paid <= 0) {
-                                        // Determine proper unpaid status based on due date
-                                        $new_inst_status = (strtotime($updated_inst->due_date) < strtotime('today'))
-                                            ? 'overdue' : 'pending';
-                                    } elseif ($new_total_paid < ($emi_amount - 0.01)) {
-                                        $new_inst_status = 'partial';
-                                    } else {
-                                        $new_inst_status = 'paid'; // should rarely happen on reversal
-                                    }
-                                    $this->db->where('id', $inst_id)
-                                             ->update('loan_installments', [
-                                                 'status'     => $new_inst_status,
-                                                 'paid_date'  => ($new_total_paid <= 0) ? null : $updated_inst->paid_date,
-                                                 'updated_at' => date('Y-m-d H:i:s')
-                                             ]);
-
-                                    // --- Check if loan closure needs to be reverted ---
-                                    // If reversing caused the last EMI to become unpaid/partial,
-                                    // and the loan is currently closed, revert it to active
-                                    $loan_to_check = $this->db->where('id', $loan_payment->loan_id)
-                                                              ->get('loans')->row();
-                                    if ($loan_to_check && in_array($loan_to_check->status, ['closed', 'foreclosed'], true)) {
-                                        // Check if this is the last installment
-                                        $last_inst = $this->db->select_max('installment_number', 'max_inst')
-                                                             ->where('loan_id', $loan_payment->loan_id)
-                                                             ->get('loan_installments')->row();
-                                        if ($last_inst && $updated_inst->installment_number == $last_inst->max_inst) {
-                                            // This is the last installment - if it's no longer fully paid, reopen the loan
-                                            if ($new_inst_status !== 'paid') {
-                                                $this->db->where('id', $loan_payment->loan_id)
-                                                         ->update('loans', [
-                                                             'status'        => 'active',
-                                                             'closure_type'  => NULL,
-                                                             'closure_date'  => NULL,
-                                                             'updated_at'    => date('Y-m-d H:i:s')
-                                                         ]);
-                                            }
-                                        }
-                                    }
-                                    // --- End loan closure reversal check ---
-                                }
-                            }
-
-                            if ($loan_payment->payment_type === 'foreclosure') {
-                                $this->Loan_model->restore_cancelled_schedule_after_reversal($loan_payment->loan_id);
-                                $this->Loan_model->reinstate_guarantors($loan_payment->loan_id);
-
-                                $this->db->where('id', $loan_payment->loan_id)
-                                         ->update('loans', [
-                                             'status' => 'active',
-                                             'closure_type' => null,
-                                             'closure_date' => null,
-                                             'closure_remarks' => null,
-                                             'updated_at' => date('Y-m-d H:i:s')
-                                         ]);
-                            }
-                        }
+                        $this->reverse_loan_payment_effects($mapping->related_id, $reason, $admin_id);
                     }
                     break;
 
@@ -2163,19 +2177,33 @@ class Bank_model extends MY_Model {
                     }
                     break;
                 case 'fine':
-                    // Apply to earliest pending fine for the member as of now
+                    // The chosen fine first, then the member's other open fines oldest first,
+                    // on the passbook/bank date. One mapping row per fine paid so a reversal
+                    // restores every fine exactly.
                     $this->load->model('Fine_model');
-                    $fine = $this->db->where('member_id', $paid_for)
-                                     ->where_in('status', ['pending', 'partial'])
-                                     ->order_by('fine_date', 'ASC')
-                                     ->get('fines')
-                                     ->row();
-                    if ($fine) {
-                        // Pass passbook date so the fine payment is recorded on the actual date
-                        $fine_mode = $mode === 'upi' ? 'online' : $mode;
-                        if ($this->Fine_model->record_payment($fine->id, $amount, $fine_mode, $transaction_id, $admin_id, $txn->transaction_date ?? date('Y-m-d'))) {
-                            $this->Ledger_model->post_fine_receipt($fine->id, $amount, $txn->transaction_date ?? date('Y-m-d'), $mode, $admin_id);
-                            if ($mapping_row_id) $this->db->where('id', $mapping_row_id)->update('transaction_mappings', ['related_id' => $fine->id]);
+                    $open = $this->Fine_model->member_open_balance($paid_for);
+                    if ($open < $amount - 0.01) {
+                        throw new Exception('Fine mapping of ' . number_format($amount, 2) . ': member has only '
+                                            . number_format($open, 2) . ' in open fines. Map the rest to savings or another head.');
+                    }
+                    $first = (!empty($insert['related_id']) && ($insert['related_type'] ?? 'fine') === 'fine') ? (int) $insert['related_id'] : null;
+                    $fine_mode = $mode === 'upi' ? 'online' : $mode;
+                    $res = $this->Fine_model->collect_for_member($paid_for, $amount, $fine_mode, $transaction_id, $admin_id,
+                                                                 $txn->transaction_date ?? date('Y-m-d'), $first, false);
+                    if ($res['applied'] < $amount - 0.01) {
+                        throw new Exception('Fine payment could not be recorded');
+                    }
+                    $n = 0;
+                    foreach ($res['fines'] as $fid => $famt) {
+                        // ledger posts with the real mode (upi → bank account)
+                        $this->Ledger_model->post_fine_receipt($fid, $famt, $txn->transaction_date ?? date('Y-m-d'), $mode, $admin_id);
+                        if ($n++ === 0) {
+                            if ($mapping_row_id) $this->db->where('id', $mapping_row_id)->update('transaction_mappings', ['related_id' => $fid, 'amount' => $famt]);
+                        } else {
+                            $extra = $insert;
+                            $extra['related_id'] = $fid;
+                            $extra['amount'] = $famt;
+                            $this->db->insert('transaction_mappings', $extra);
                         }
                     }
                     break;

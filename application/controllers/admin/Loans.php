@@ -255,10 +255,24 @@ class Loans extends Admin_Controller {
         $data['overdue_amount'] = $row->overdue ?? 0;
 
         // Part payment history
-        $data['part_payment_history'] = $this->Loan_model->get_part_payment_history($id);
-        $data['disb_parts'] = $this->Loan_model->get_disbursement_parts($id);
-        $data['disb_done'] = $this->Loan_model->disbursed_amount($loan);
-        $data['disb_pending'] = $this->Loan_model->pending_disbursement($loan);
+        // Optional panels: a failure here (e.g. a migration not run on the server yet) must not
+        // take the whole loan page down with an HTTP 500 — log it and show the page without them.
+        $data['part_payment_history'] = [];
+        $data['disb_parts'] = [];
+        $data['disb_done'] = (float) $loan->principal_amount;
+        $data['disb_pending'] = 0;
+        try {
+            $data['part_payment_history'] = $this->Loan_model->get_part_payment_history($id) ?: [];
+        } catch (Throwable $e) {
+            log_message('error', 'Loan view ' . $id . ' part payments: ' . $e->getMessage());
+        }
+        try {
+            $data['disb_parts'] = $this->Loan_model->get_disbursement_parts($id);
+            $data['disb_done'] = $this->Loan_model->disbursed_amount($loan);
+            $data['disb_pending'] = $this->Loan_model->pending_disbursement($loan);
+        } catch (Throwable $e) {
+            log_message('error', 'Loan view ' . $id . ' disbursement parts (run migration 035?): ' . $e->getMessage());
+        }
         // Unmapped bank DEBIT lines the next part can be linked to
         $data['disb_bank_lines'] = (!empty($loan->is_tranche) && $data['disb_pending'] > 0)
             ? $this->db->select('id, transaction_date, amount, mapped_amount, description, reference_number')->where('transaction_type', 'debit')
@@ -1049,7 +1063,14 @@ class Loans extends Admin_Controller {
                 $this->load->model('Member_model');
                 $data['member']         = $this->Member_model->get_by_id($data['loan']->member_id);
                 $data['product']        = $this->db->where('id', $data['loan']->loan_product_id)->get('loan_products')->row();
+                // Late fines live in the fines table (loans.outstanding_fine is never filled)
+                $pf = $this->db->query("SELECT COALESCE(SUM(f.balance_amount),0) s FROM fines f
+                      LEFT JOIN loan_installments li ON li.id = f.related_id AND f.related_type = 'loan_installment'
+                     WHERE f.status IN ('pending','partial') AND (f.loan_id = ? OR li.loan_id = ?)", [$id, $id])->row();
+                // pending_fines = what an EMI payment can absorb (loan-level). Late fines are
+                // collected separately (Fines → Collect / bank mapping), so show them apart.
                 $data['pending_fines']  = (float) ($data['loan']->outstanding_fine ?? 0);
+                $data['late_fines_open'] = (float) ($pf->s ?? 0);
 
                 // Last 5 payments for this loan
                 $data['recent_payments'] = $this->db

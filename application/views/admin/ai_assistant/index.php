@@ -108,7 +108,6 @@ $model_label = (['local' => 'Local', 'openai' => 'ChatGPT', 'gemini' => 'Gemini'
         <span class="ttl"><i class="fas fa-robot mr-1" style="color:var(--ai-brand2)"></i> AI Assistant</span>
         <span class="ai-model"><?= htmlspecialchars($model_label) ?></span>
         <?php if ($chat_only): ?><span class="badge badge-danger" title="This model cannot query the database or make entries"><i class="fas fa-exclamation-triangle mr-1"></i>Chat-only model — choose GPT-4o Mini in ⚙️ Settings</span><?php endif; ?>
-        <span class="ai-usage" id="aiUsageTop"></span>
         <div class="ml-auto d-flex align-items-center" style="gap:6px">
             <div class="custom-control custom-switch mr-2" title="On: clear entries are saved straight away. Off: every entry waits for Confirm.">
                 <input type="checkbox" class="custom-control-input" id="aiAuto" checked>
@@ -158,7 +157,6 @@ $model_label = (['local' => 'Local', 'openai' => 'ChatGPT', 'gemini' => 'Gemini'
             <?php if ($is_owner): ?>
             <li class="nav-item"><a class="nav-link active" data-toggle="tab" href="#aiTabProv">Integration</a></li>
             <?php endif; ?>
-            <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#aiTabUsage">Usage</a></li>
         </ul>
         <div class="tab-content">
         <?php if ($is_owner): ?>
@@ -226,9 +224,6 @@ $model_label = (['local' => 'Local', 'openai' => 'ChatGPT', 'gemini' => 'Gemini'
         </div>
         <?php endif; ?>
 
-        <div class="tab-pane" id="aiTabUsage">
-            <div id="aiUsageBox" class="small text-muted">Loading…</div>
-        </div>
         </div>
     </div>
     <div class="modal-footer">
@@ -261,7 +256,11 @@ $(function () {
         ['Email a member', 'reminder, statement, notice', 'Send an EMI reminder email to '],
         ['बचत जमा करा', 'उदा. योगेश औचरे बचत २००० रोख', 'योगेश औचरे यांच्या बचत खात्यात २००० रोख जमा करा'],
         ['बँक नोंदी map करा', 'unmapped बँक जमा नोंदी सभासदांशी जोडा', 'बँकेतील unmapped जमा नोंदी सभासदांशी map करा'],
-        ['पासबुक Excel अपलोड', '📎 Excel निवडा — template खाली आहे', '__upload__']
+        ['पासबुक Excel अपलोड', '📎 Excel निवडा — template खाली आहे', '__upload__'],
+        ['सभासद थकबाकी (Member dues)', 'EMI + बचत + दंड — प्रत्येक सभासद', 'Member dues report दाखवा: प्रत्येक सभासदाची EMI, बचत आणि दंड थकबाकी'],
+        ['दंड Preview (dry run)', 'आज auto fine चालवले तर किती दंड लागेल', 'Fine preview दाखवा: आज auto fine job चालवला तर कोणते दंड लागतील (काहीही save करू नका)'],
+        ['Day Book / Portfolio', 'आजची रोकड, PAR 30/90', 'या महिन्याचे day book आणि loan portfolio (PAR 30 / 90) दाखवा'],
+        ['सर्व Reports', 'Report Center — Excel सह', 'Report Center page उघडा']
     ];
 
     function csrf(d) { if (window.CSRF_NAME) d[window.CSRF_NAME] = window.CSRF_TOKEN; return d; }
@@ -344,7 +343,9 @@ $(function () {
         }
         return '<div class="ai-entry"><div class="head"><i class="fas fa-table" style="color:var(--ai-brand2)"></i> ' + esc(c.title) +
             '<small class="text-muted font-weight-normal ml-1">' + (c.rows || []).length + (c.more ? '+' : '') + ' row(s)</small>' +
+            (c.open_url ? '<a class="ai-chipbtn ml-auto" target="_blank" href="' + esc(c.open_url) + '"><i class="fas fa-external-link-alt mr-1"></i>Open report</a>' : '') +
             (c.export ? '<a class="ai-chipbtn ml-auto" href="' + URL + '/export?t=' + encodeURIComponent(c.export) + '"><i class="fas fa-file-excel mr-1" style="color:#16a34a"></i>Excel</a>' : '') +
+            (c.export_url ? '<a class="ai-chipbtn' + (c.open_url ? ' ml-1' : ' ml-auto') + '" href="' + esc(c.export_url) + '"><i class="fas fa-file-excel mr-1" style="color:#16a34a"></i>Excel</a>' : '') +
             '</div><div class="ai-md"><div class="tbl" style="max-height:340px;overflow:auto;margin:0"><table><thead><tr>' + head + '</tr></thead><tbody>' + body +
             '</tbody></table></div></div>' + (c.more ? '<div class="small text-muted mt-1">Showing the first rows — use Excel for the full list.</div>' : '') + '</div>';
     }
@@ -741,12 +742,12 @@ $(function () {
     function showUsage(u) {
         if (!u) return;
         setRecharge(u.exhausted ? u.recharge_message : '');
-        var txt = 'This month ' + inr(u.month_cost_inr) + (u.cap_inr > 0 ? ' / ' + inr(u.cap_inr) : '');
-        $('#aiUsageTop').text(u.provider === 'local' ? '' : txt).toggleClass('text-danger', u.cap_inr > 0 && u.month_cost_inr >= u.cap_inr * u.warn_pct / 100);
     }
     function loadUsage() {
+        // Usage figures are not shown on screen any more; only the budget check (recharge lock) stays
         $.getJSON(URL + '/usage', function (u) {
             showUsage(u);
+            return;
             var pct = u.cap_inr > 0 ? Math.min(100, u.month_cost_inr / u.cap_inr * 100) : 0;
             var h = '<div class="mb-2"><b>AI usage this month:</b> ' + inr(u.month_cost_inr) + (u.cap_inr > 0 ? ' of ' + inr(u.cap_inr) + ' budget' : ' (no limit)') + '</div>' +
                 (u.cap_inr > 0 ? '<div class="ai-meter mb-3"><i style="width:' + pct + '%"></i></div>' : '') +

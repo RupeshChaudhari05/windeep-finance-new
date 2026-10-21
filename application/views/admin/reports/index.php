@@ -1,277 +1,133 @@
-<!-- Reports Dashboard -->
-<div class="row">
-    <div class="col-md-12">
-        <div class="card card-primary card-outline">
-            <div class="card-header">
-                <h3 class="card-title"><i class="fas fa-chart-bar mr-1"></i> Reports & Analytics</h3>
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    <!-- Collection Reports -->
-                    <div class="col-md-4 mb-4">
-                        <div class="card bg-success text-white h-100">
-                            <div class="card-header">
-                                <h5 class="mb-0"><i class="fas fa-hand-holding-usd mr-1"></i> Collection Reports</h5>
-                            </div>
-                            <div class="card-body">
-                                <ul class="list-unstyled mb-0">
-                                    <li class="py-2 border-bottom border-light">
-                                        <a href="<?= site_url('admin/reports/collection') ?>" class="text-white">
-                                            <i class="fas fa-arrow-right mr-2"></i> Daily Collection Report
-                                        </a>
-                                    </li>
-                                    <li class="py-2 border-bottom border-light">
-                                        <a href="<?= site_url('admin/reports/collection?type=savings') ?>" class="text-white">
-                                            <i class="fas fa-arrow-right mr-2"></i> Savings Collection
-                                        </a>
-                                    </li>
-                                    <li class="py-2 border-bottom border-light">
-                                        <a href="<?= site_url('admin/reports/collection?type=loan') ?>" class="text-white">
-                                            <i class="fas fa-arrow-right mr-2"></i> Loan EMI Collection
-                                        </a>
-                                    </li>
-                                    <li class="py-2">
-                                        <a href="<?= site_url('admin/reports/collection?type=fine') ?>" class="text-white">
-                                            <i class="fas fa-arrow-right mr-2"></i> Fine Collection
-                                        </a>
-                                    </li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Loan Reports -->
-                    <div class="col-md-4 mb-4">
-                        <div class="card bg-primary text-white h-100">
-                            <div class="card-header">
-                                <h5 class="mb-0"><i class="fas fa-file-contract mr-1"></i> Loan Reports</h5>
-                            </div>
-                            <div class="card-body">
-                                <ul class="list-unstyled mb-0">
-                                    <li class="py-2 border-bottom border-light">
-                                        <a href="<?= site_url('admin/reports/disbursement') ?>" class="text-white">
-                                            <i class="fas fa-arrow-right mr-2"></i> Disbursement Report
-                                        </a>
-                                    </li>
-                                    <li class="py-2 border-bottom border-light">
-                                        <a href="<?= site_url('admin/reports/outstanding') ?>" class="text-white">
-                                            <i class="fas fa-arrow-right mr-2"></i> Outstanding Report
-                                        </a>
-                                    </li>
-                                    <li class="py-2 border-bottom border-light">
-                                        <a href="<?= site_url('admin/reports/demand') ?>" class="text-white">
-                                            <i class="fas fa-arrow-right mr-2"></i> Overdue/Demand Report
-                                        </a>
-                                    </li>
-                                    <li class="py-2">
-                                        <a href="<?= site_url('admin/reports/npa') ?>" class="text-white">
-                                            <i class="fas fa-arrow-right mr-2"></i> NPA Report
-                                        </a>
-                                    </li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Member Reports -->
-                    <div class="col-md-4 mb-4">
-                        <div class="card bg-info text-white h-100">
-                            <div class="card-header">
-                                <h5 class="mb-0"><i class="fas fa-users mr-1"></i> Member Reports</h5>
-                            </div>
-                            <div class="card-body">
-                                <ul class="list-unstyled mb-0">
-                                    <li class="py-2 border-bottom border-light">
-                                        <a href="<?= site_url('admin/reports/member_statement') ?>" class="text-white">
-                                            <i class="fas fa-arrow-right mr-2"></i> Member Statement
-                                        </a>
-                                    </li>
-                                    <li class="py-2 border-bottom border-light">
-                                        <a href="<?= site_url('admin/reports/member-summary') ?>" class="text-white">
-                                            <i class="fas fa-arrow-right mr-2"></i> Member Summary
-                                        </a>
-                                    </li>
-                                    <li class="py-2 border-bottom border-light">
-                                        <a href="<?= site_url('admin/reports/guarantor') ?>" class="text-white">
-                                            <i class="fas fa-arrow-right mr-2"></i> Guarantor Exposure
-                                        </a>
-                                    </li>
-                                    <li class="py-2">
-                                        <a href="<?= site_url('admin/reports/kyc-pending') ?>" class="text-white">
-                                            <i class="fas fa-arrow-right mr-2"></i> KYC Pending
-                                        </a>
-                                    </li>
-                                    <li class="py-2 border-top border-light">
-                                        <a href="<?= site_url('admin/reports/other-transactions') ?>" class="text-white">
-                                            <i class="fas fa-arrow-right mr-2"></i> Other Transactions
-                                        </a>
-                                    </li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Financial Reports -->
-                    <div class="col-md-4 mb-4">
-                        <div class="card bg-warning text-dark h-100">
-                            <div class="card-header">
-                                <h5 class="mb-0"><i class="fas fa-calculator mr-1"></i> Financial Reports</h5>
-                            </div>
-                            <div class="card-body">
-                                <ul class="list-unstyled mb-0">
-                                    <li class="py-2 border-bottom">
-                                        <a href="<?= site_url('admin/reports/trial_balance') ?>" class="text-dark">
-                                            <i class="fas fa-arrow-right mr-2"></i> Trial Balance
-                                        </a>
-                                    </li>
-                                    <li class="py-2 border-bottom">
-                                        <a href="<?= site_url('admin/reports/profit_loss') ?>" class="text-dark">
-                                            <i class="fas fa-arrow-right mr-2"></i> Profit & Loss
-                                        </a>
-                                    </li>
-                                    <li class="py-2 border-bottom">
-                                        <a href="<?= site_url('admin/reports/balance_sheet') ?>" class="text-dark">
-                                            <i class="fas fa-arrow-right mr-2"></i> Balance Sheet
-                                        </a>
-                                    </li>
-                                    <li class="py-2">
-                                        <a href="<?= site_url('admin/reports/general_ledger') ?>" class="text-dark">
-                                            <i class="fas fa-arrow-right mr-2"></i> General Ledger
-                                        </a>
-                                    </li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Demand Reports -->
-                    <div class="col-md-4 mb-4">
-                        <div class="card bg-danger text-white h-100">
-                            <div class="card-header">
-                                <h5 class="mb-0"><i class="fas fa-bell mr-1"></i> Demand Reports</h5>
-                            </div>
-                            <div class="card-body">
-                                <ul class="list-unstyled mb-0">
-                                    <li class="py-2 border-bottom border-light">
-                                        <a href="<?= site_url('admin/reports/demand') ?>" class="text-white">
-                                            <i class="fas fa-arrow-right mr-2"></i> Today's Demand
-                                        </a>
-                                    </li>
-                                    <li class="py-2 border-bottom border-light">
-                                        <a href="<?= site_url('admin/reports/demand?period=week') ?>" class="text-white">
-                                            <i class="fas fa-arrow-right mr-2"></i> Weekly Demand
-                                        </a>
-                                    </li>
-                                    <li class="py-2 border-bottom border-light">
-                                        <a href="<?= site_url('admin/reports/demand?period=month') ?>" class="text-white">
-                                            <i class="fas fa-arrow-right mr-2"></i> Monthly Demand
-                                        </a>
-                                    </li>
-                                    <li class="py-2">
-                                        <a href="<?= site_url('admin/reports/ageing') ?>" class="text-white">
-                                            <i class="fas fa-arrow-right mr-2"></i> Ageing Analysis
-                                        </a>
-                                    </li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Other Reports -->
-                    <div class="col-md-4 mb-4">
-                        <div class="card bg-secondary text-white h-100">
-                            <div class="card-header">
-                                <h5 class="mb-0"><i class="fas fa-file-alt mr-1"></i> Other Reports</h5>
-                            </div>
-                            <div class="card-body">
-                                <ul class="list-unstyled mb-0">
-                                    <li class="py-2 border-bottom border-light">
-                                        <a href="<?= site_url('admin/reports/audit-log') ?>" class="text-white">
-                                            <i class="fas fa-arrow-right mr-2"></i> Audit Trail
-                                        </a>
-                                    </li>
-                                    <li class="py-2 border-bottom border-light">
-                                        <a href="<?= site_url('admin/reports/cash-book') ?>" class="text-white">
-                                            <i class="fas fa-arrow-right mr-2"></i> Cash Book
-                                        </a>
-                                    </li>
-                                    <li class="py-2 border-bottom border-light">
-                                        <a href="<?= site_url('admin/reports/bank-reconciliation') ?>" class="text-white">
-                                            <i class="fas fa-arrow-right mr-2"></i> Bank Reconciliation
-                                        </a>
-                                    </li>
-                                    <li class="py-2">
-                                        <a href="<?= site_url('admin/reports/custom') ?>" class="text-white">
-                                            <i class="fas fa-arrow-right mr-2"></i> Custom Report Builder
-                                        </a>
-                                    </li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
+<?php
+/**
+ * Report Center — every report in one searchable page.
+ * Reports marked "Excel" download a styled workbook (title banner, KPI strip,
+ * frozen header, filters, totals) from the same rows shown on screen.
+ */
+$groups = [
+    ['Daily & Collections', 'fa-hand-holding-usd', 'success', [
+        ['Day Book', 'admin/reports/day_book', 'fa-calendar-day', 'Money in / out per day by head — EMI, savings, fines, fees, disbursements, expenses', true, true],
+        ['Collection Report', 'admin/reports/collection', 'fa-receipt', 'Every loan repayment and savings deposit received in a period', true, false],
+        ['Collection Efficiency', 'admin/reports/collection_efficiency', 'fa-bullseye', 'EMI demand of each month vs collected, on-time %', true, true],
+        ['Cash Book', 'admin/reports/cash-book', 'fa-book', 'Cash-in-hand ledger with running balance (switch to Bank Book)', true, true],
+        ['Other Transactions', 'admin/reports/other-transactions', 'fa-file-invoice', 'Membership, joining, processing fees and other receipts', true, false],
+    ]],
+    ['Dues & Recovery', 'fa-user-clock', 'danger', [
+        ['Member Dues', 'admin/reports/member_dues', 'fa-user-clock', 'Who owes what: overdue EMIs + savings dues + open fines per member', true, true],
+        ['Demand Report', 'admin/reports/demand', 'fa-bell', 'EMIs and savings due in a month', true, false],
+        ['Ageing Analysis', 'admin/reports/ageing', 'fa-hourglass-half', 'Overdue loans in 0-30 / 31-60 / 61-90 / 90+ day buckets', true, false],
+        ['NPA Report', 'admin/reports/npa', 'fa-exclamation-triangle', 'Loans overdue beyond the NPA threshold', true, false],
+        ['Fine Register', 'admin/reports/fines', 'fa-gavel', 'All fines with status, collected, waived and balance', true, true],
+    ]],
+    ['Loans', 'fa-file-contract', 'primary', [
+        ['Loan Portfolio', 'admin/reports/portfolio', 'fa-briefcase', 'Product-wise outstanding, overdue and PAR 30 / PAR 90', true, true],
+        ['Outstanding Loans', 'admin/reports/outstanding', 'fa-file-invoice-dollar', 'Every active loan with outstanding and overdue amount', true, false],
+        ['Disbursement Report', 'admin/reports/disbursement', 'fa-money-bill-wave', 'Loans disbursed in a period (actual money incl. parts)', true, false],
+        ['Guarantor Exposure', 'admin/reports/guarantor', 'fa-user-shield', 'Guarantors and the loans they stand for', true, false],
+    ]],
+    ['Members & Savings', 'fa-users', 'info', [
+        ['Savings Register', 'admin/reports/savings_register', 'fa-piggy-bank', 'Account-wise balance, deposits, withdrawals and months due', true, true],
+        ['Member Statement', 'admin/reports/member-statement', 'fa-file-alt', 'Full statement of one member — ledger, savings, loans, fines', true, false],
+        ['Member Summary', 'admin/reports/member-summary', 'fa-users', 'All members with savings, loans and fines at a glance', true, false],
+        ['KYC Pending', 'admin/reports/kyc-pending', 'fa-id-card', 'Members with missing documents or unverified KYC', true, true],
+    ]],
+    ['Accounts', 'fa-calculator', 'warning', [
+        ['Income Analysis', 'admin/reports/income', 'fa-chart-line', 'Month-wise interest, fees, fines, expenses and net surplus', true, true],
+        ['Profit & Loss', 'admin/reports/profit-loss', 'fa-chart-pie', 'Income and expenditure for a period', true, false],
+        ['Balance Sheet', 'admin/reports/balance-sheet', 'fa-balance-scale-right', 'Assets, liabilities and capital as on a date', true, false],
+        ['Trial Balance', 'admin/reports/trial-balance', 'fa-list-ol', 'Debit and credit balance of every account', true, false],
+        ['General Ledger', 'admin/reports/general-ledger', 'fa-book-open', 'Every voucher line for a period or account', true, false],
+        ['Account Statement', 'admin/reports/account-statement', 'fa-file-invoice', 'One account with opening and running balance', true, false],
+        ['Bank Reconciliation', 'admin/reports/bank-reconciliation', 'fa-university', 'Statement lines mapped vs not mapped, books vs statement', true, true],
+        ['Monthly Summary', 'admin/reports/monthly-summary', 'fa-calendar-alt', 'One-page summary of a month', true, false],
+    ]],
+    ['Exports & Audit', 'fa-file-export', 'secondary', [
+        ['All Loans workbook', 'admin/reports/export_loans_full', 'fa-file-excel', 'Loans + installments + fines in one Excel file', true, false],
+        ['All Savings workbook', 'admin/reports/export_savings_full', 'fa-file-excel', 'Savings accounts + transactions in one Excel file', true, false],
+        ['Members list (CSV)', 'admin/reports/export_members', 'fa-file-csv', 'All member details for re-import / backup', false, false],
+        ['Audit Trail', 'admin/reports/audit-log', 'fa-history', 'Who changed what and when', false, false],
+        ['Custom Report', 'admin/reports/custom', 'fa-sliders-h', 'Build your own report', false, false],
+    ]],
+];
+$t = $today_summary ?? [];
+$m = $mtd_summary ?? [];
+?>
+<style>
+.rc-tile{display:flex;align-items:flex-start;padding:12px 14px;border:1px solid #e3e8ef;border-radius:8px;background:#fff;color:#212529;height:100%;transition:all .15s}
+.rc-tile:hover{border-color:#2E5C8A;box-shadow:0 3px 10px rgba(46,92,138,.15);text-decoration:none;color:#212529;transform:translateY(-1px)}
+.rc-ico{width:38px;height:38px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex:0 0 38px;margin-right:12px;font-size:1rem}
+.rc-tile .t{font-weight:600;font-size:.95rem}
+.rc-tile .d{font-size:.78rem;color:#6c7a89;line-height:1.3}
+.rc-badge{font-size:.62rem;vertical-align:middle;margin-left:4px}
+.rc-stat{background:#fff;border-radius:8px;padding:10px 14px;border-left:4px solid #2E5C8A;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+.rc-stat .l{font-size:.7rem;text-transform:uppercase;color:#6c7a89;font-weight:600}
+.rc-stat .v{font-size:1.15rem;font-weight:700;color:#1F3A5F}
+</style>
+
+<div class="row mb-3">
+    <div class="col-12 mb-2 d-flex align-items-center flex-wrap">
+        <h5 class="mb-0 mr-3"><i class="fas fa-calendar-day text-primary mr-1"></i> Today <small class="text-muted"><?= format_date(date('Y-m-d')) ?></small></h5>
+    </div>
+    <?php foreach ([['Collections', $t['collections'] ?? 0, 'success'], ['Disbursed', $t['disbursements'] ?? 0, 'danger'],
+                    ['New members', $t['new_members'] ?? 0, 'info', 'int'], ['Loan applications', $t['loan_applications'] ?? 0, 'warning', 'int'],
+                    ['Month: savings', $m['savings_collection'] ?? 0, 'success'], ['Month: loan repayments', $m['loan_collection'] ?? 0, 'primary'],
+                    ['Month: disbursed', $m['loan_disbursed'] ?? 0, 'danger'], ['Month: interest earned', $m['interest_earned'] ?? 0, 'warning']] as $s): ?>
+    <div class="col-6 col-md-3 col-xl-3 mb-2">
+        <div class="rc-stat" style="border-left-color:var(--<?= $s[2] ?>)">
+            <div class="l"><?= $s[0] ?></div>
+            <div class="v"><?= ($s[3] ?? '') === 'int' ? number_format((int) $s[1]) : format_amount($s[1], 0) ?></div>
+        </div>
+    </div>
+    <?php endforeach; ?>
+</div>
+
+<div class="card card-primary card-outline">
+    <div class="card-header d-flex flex-wrap align-items-center">
+        <h3 class="card-title mb-0 mr-auto"><i class="fas fa-chart-bar mr-1"></i> Report Center</h3>
+        <div class="input-group input-group-sm mt-2 mt-md-0" style="max-width:320px">
+            <div class="input-group-prepend"><span class="input-group-text"><i class="fas fa-search"></i></span></div>
+            <input type="text" id="rcSearch" class="form-control" placeholder="Find a report… (e.g. fine, dues, bank)">
+        </div>
+    </div>
+    <div class="card-body">
+        <p class="small text-muted mb-3">
+            <span class="badge badge-success rc-badge">Excel</span> = styled Excel download with the same figures as the screen.
+            <span class="badge badge-info rc-badge">New</span> = added in this update.
+        </p>
+        <?php foreach ($groups as $g): ?>
+        <div class="rc-group mb-3">
+            <h6 class="text-<?= $g[2] ?> text-uppercase font-weight-bold mb-2" style="letter-spacing:.04em"><i class="fas <?= $g[1] ?> mr-1"></i> <?= $g[0] ?></h6>
+            <div class="row">
+                <?php foreach ($g[3] as $r): ?>
+                <div class="col-12 col-sm-6 col-lg-4 col-xl-3 mb-2 rc-item" data-q="<?= html_escape(strtolower($r[0] . ' ' . $r[3] . ' ' . $g[0])) ?>">
+                    <a class="rc-tile" href="<?= site_url($r[1]) ?>">
+                        <span class="rc-ico bg-<?= $g[2] ?>"><i class="fas <?= $r[2] ?> text-white"></i></span>
+                        <span>
+                            <span class="t"><?= $r[0] ?></span>
+                            <?php if ($r[4]): ?><span class="badge badge-success rc-badge">Excel</span><?php endif; ?>
+                            <?php if ($r[5]): ?><span class="badge badge-info rc-badge">New</span><?php endif; ?>
+                            <span class="d d-block"><?= $r[3] ?></span>
+                        </span>
+                    </a>
                 </div>
+                <?php endforeach; ?>
             </div>
         </div>
+        <?php endforeach; ?>
+        <p id="rcNone" class="text-muted text-center py-3 mb-0" style="display:none">No report matches your search.</p>
     </div>
 </div>
 
-<!-- Quick Stats -->
-<div class="row">
-    <div class="col-md-6">
-        <div class="card">
-            <div class="card-header">
-                <h3 class="card-title"><i class="fas fa-calendar-day mr-1"></i> Today's Summary</h3>
-                <span class="float-right text-muted"><?= format_date(date('Y-m-d')) ?></span>
-            </div>
-            <div class="card-body p-0">
-                <table class="table table-striped mb-0">
-                    <tr>
-                        <td><i class="fas fa-sign-in-alt text-success mr-2"></i> Collections</td>
-                        <td class="text-right font-weight-bold text-success"><?= format_amount($today_summary['collections'] ?? 0, 0) ?></td>
-                    </tr>
-                    <tr>
-                        <td><i class="fas fa-sign-out-alt text-danger mr-2"></i> Disbursements</td>
-                        <td class="text-right font-weight-bold text-danger"><?= format_amount($today_summary['disbursements'] ?? 0, 0) ?></td>
-                    </tr>
-                    <tr>
-                        <td><i class="fas fa-user-plus text-info mr-2"></i> New Members</td>
-                        <td class="text-right font-weight-bold"><?= $today_summary['new_members'] ?? 0 ?></td>
-                    </tr>
-                    <tr>
-                        <td><i class="fas fa-file-alt text-warning mr-2"></i> Loan Applications</td>
-                        <td class="text-right font-weight-bold"><?= $today_summary['loan_applications'] ?? 0 ?></td>
-                    </tr>
-                </table>
-            </div>
-        </div>
-    </div>
-    
-    <div class="col-md-6">
-        <div class="card">
-            <div class="card-header">
-                <h3 class="card-title"><i class="fas fa-chart-line mr-1"></i> Month-to-Date</h3>
-                <span class="float-right text-muted"><?= date('M Y') ?></span>
-            </div>
-            <div class="card-body p-0">
-                <table class="table table-striped mb-0">
-                    <tr>
-                        <td><i class="fas fa-piggy-bank text-success mr-2"></i> Savings Collection</td>
-                        <td class="text-right font-weight-bold text-success"><?= format_amount($mtd_summary['savings_collection'] ?? 0, 0) ?></td>
-                    </tr>
-                    <tr>
-                        <td><i class="fas fa-rupee-sign text-primary mr-2"></i> Loan Collection</td>
-                        <td class="text-right font-weight-bold text-primary"><?= format_amount($mtd_summary['loan_collection'] ?? 0, 0) ?></td>
-                    </tr>
-                    <tr>
-                        <td><i class="fas fa-money-bill text-danger mr-2"></i> Loan Disbursed</td>
-                        <td class="text-right font-weight-bold text-danger"><?= format_amount($mtd_summary['loan_disbursed'] ?? 0, 0) ?></td>
-                    </tr>
-                    <tr>
-                        <td><i class="fas fa-percentage text-warning mr-2"></i> Interest Earned</td>
-                        <td class="text-right font-weight-bold text-warning"><?= format_amount($mtd_summary['interest_earned'] ?? 0, 0) ?></td>
-                    </tr>
-                </table>
-            </div>
-        </div>
-    </div>
-</div>
+<script>
+$(function () {
+    $('#rcSearch').on('input', function () {
+        var q = $(this).val().toLowerCase().trim(), shown = 0;
+        $('.rc-item').each(function () {
+            var ok = !q || $(this).data('q').indexOf(q) !== -1;
+            $(this).toggle(ok); if (ok) shown++;
+        });
+        $('.rc-group').each(function () { $(this).toggle($(this).find('.rc-item:visible').length > 0); });
+        $('#rcNone').toggle(shown === 0);
+    }).focus();
+});
+</script>

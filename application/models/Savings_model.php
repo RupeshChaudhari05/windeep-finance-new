@@ -445,7 +445,7 @@ class Savings_model extends MY_Model {
     /**
      * Recalculate savings account balance from non-reversed transactions.
      */
-    private function recalculate_account_balance($account_id) {
+    public function recalculate_account_balance($account_id) {
         $credit_types = ['deposit', 'interest_credit', 'opening_balance', 'fine', 'adjustment'];
 
         $credits = (float) ($this->db->select_sum('amount', 'amount')
