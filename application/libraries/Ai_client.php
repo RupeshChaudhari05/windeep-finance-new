@@ -371,16 +371,32 @@ class Ai_client {
 
     // ───────────────────────── HTTP ─────────────────────────
 
+    /** Optional callable run about every 10 s while waiting for the AI server (keeps streamed replies alive). */
+    public $heartbeat = null;
+
     private function _post($url, array $body, array $headers) {
+        // Text pulled out of PDFs can hold invalid UTF-8; without the flag json_encode returns false
+        // and an empty request is sent.
+        $payload = json_encode($body, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        if ($payload === false) throw new Exception('Could not prepare the AI request: ' . json_last_error_msg());
         $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_POST           => true,
-            CURLOPT_POSTFIELDS     => json_encode($body, JSON_UNESCAPED_UNICODE),
+            CURLOPT_POSTFIELDS     => $payload,
             CURLOPT_HTTPHEADER     => $headers,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CONNECTTIMEOUT => 10,
             CURLOPT_TIMEOUT        => $this->timeout,
         ]);
+        if (is_callable($this->heartbeat)) {
+            $last = time();
+            $beat = $this->heartbeat;
+            curl_setopt($ch, CURLOPT_NOPROGRESS, false);
+            curl_setopt($ch, CURLOPT_PROGRESSFUNCTION, function () use (&$last, $beat) {
+                if (time() - $last >= 10) { $last = time(); $beat(); }
+                return 0;
+            });
+        }
         $raw  = curl_exec($ch);
         $err  = curl_error($ch);
         $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);

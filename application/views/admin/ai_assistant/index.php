@@ -605,7 +605,7 @@ $(function () {
             return chain.then(function () {
                 var text = texts.join('\n\n');
                 var letters = text.replace(/--- page \d+ ---|\s/g, '').length;
-                if (letters >= 80 * Math.min(pdf.numPages, 3)) return {name: f.name, pages: pdf.numPages, text: text.slice(0, 30000), images: []};
+                if (letters >= 80 * Math.min(pdf.numPages, 3)) return {name: f.name, pages: pdf.numPages, text: text.slice(0, 15000), cut: text.length > 15000, images: []};
                 // Scanned PDF: render the first pages as images
                 var imgs = [], c2 = Promise.resolve();
                 for (var q = 1; q <= Math.min(pdf.numPages, 4); q++) (function (q) {
@@ -620,7 +620,7 @@ $(function () {
             });
         }).then(function (d) {
             pdfDoc = d;
-            var how = d.text ? 'text of ' + Math.min(d.pages, 30) + ' page(s)' : 'scanned — ' + d.images.length + ' page image(s)';
+            var how = d.text ? 'text of ' + Math.min(d.pages, 30) + ' page(s)' + (d.cut ? ', first 15,000 characters' : '') : 'scanned — ' + d.images.length + ' page image(s)';
             $('#aiImgPreview').html('📄 ' + esc(f.name) + ' <small class="text-muted">(' + d.pages + ' page' + (d.pages > 1 ? 's' : '') + ', ' + how + ')</small> <a href="#" id="aiImgRm">remove</a>');
             $txt.focus();
         }).catch(function (e) {
@@ -671,6 +671,7 @@ $(function () {
             botRow(esc(msg), 'ai-err', (r && r.steps) || steps);
         }
         function handle(ev) {
+            if (ev.type === 'ping') return false;   // keep-alive while the AI is thinking
             if (ev.type === 'status') { $t.find('.txt').text(ev.text); down(); }
             else if (ev.type === 'step') {
                 steps.push(ev.step);

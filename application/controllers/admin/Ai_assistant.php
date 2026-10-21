@@ -367,7 +367,7 @@ class Ai_assistant extends Admin_Controller {
         // PDF attachment (read in the browser with pdf.js): its text for a digital PDF,
         // or up to 4 page images for a scanned one
         $doc_name = mb_substr(trim((string) $this->input->post('doc_name')), 0, 120);
-        $doc_text = mb_substr(trim((string) $this->input->post('doc_text')), 0, 30000);
+        $doc_text = mb_substr(trim((string) $this->input->post('doc_text')), 0, 15000);
         $doc_pages = (int) $this->input->post('doc_pages');
         $page_imgs = [];
         foreach (array_slice((array) json_decode((string) $this->input->post('images'), true), 0, 4) as $u) {
@@ -435,7 +435,7 @@ class Ai_assistant extends Admin_Controller {
             $messages[] = ['role' => 'user', 'content' => $ask . $hint . "
 
 [Attached PDF \"" . ($doc_name ?: 'document.pdf') . '" — text of ' . max(1, $doc_pages)
-                          . " page(s)" . (mb_strlen($doc_text) >= 30000 ? ', cut at 30,000 characters' : '') . ":]
+                          . " page(s)" . (mb_strlen($doc_text) >= 15000 ? ', cut at 15,000 characters — tell the admin that later pages were not read' : '') . ":]
 " . $doc_text];
         } elseif ($page_imgs) {
             $messages[] = ['role' => 'user', 'content' => ($message !== '' ? $message : 'Read this scanned PDF (pages attached as images) and create the entries it lists.') . $hint
@@ -458,6 +458,7 @@ class Ai_assistant extends Admin_Controller {
         $nudged = false;
         try {
             $client = $this->_client();
+            if ($this->stream) $client->heartbeat = function () { $this->_emit(['type' => 'ping']); };
             $tools  = $this->_tool_defs();
             for ($step = 0; $step < self::MAX_STEPS; $step++) {
                 if ($step === self::MAX_STEPS - 1) {
@@ -547,6 +548,7 @@ class Ai_assistant extends Admin_Controller {
     // ── streaming (NDJSON over a chunked response) ──
 
     private $stream = false;
+    private $stream_closed = false;
 
     private function _stream_open() {
         @ini_set('zlib.output_compression', '0');
@@ -559,6 +561,20 @@ class Ai_assistant extends Admin_Controller {
         header('X-Accel-Buffering: no');        // nginx / LiteSpeed: don't hold the chunks
         echo str_repeat(' ', 2048) . "\n";       // push through proxies that buffer the first KBs
         flush();
+        @ini_set('memory_limit', '512M');
+        // If PHP dies (fatal error, memory, time limit) tell the browser why instead of just stopping
+        register_shutdown_function(function () {
+            if ($this->stream_closed) return;
+            $e = error_get_last();
+            $msg = 'The server stopped while answering';
+            if ($e && in_array($e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+                log_message('error', 'AI chat fatal: ' . $e['message'] . ' in ' . $e['file'] . ':' . $e['line']);
+                $msg .= ' (' . (stripos($e['message'], 'Maximum execution time') !== false ? 'time limit reached — try a shorter PDF or fewer pages'
+                       : (stripos($e['message'], 'memory') !== false ? 'out of memory — try a smaller file' : mb_substr($e['message'], 0, 200))) . ')';
+            }
+            echo json_encode(['type' => 'error', 'success' => false, 'message' => $msg . '. Please try again.']) . "\n";
+            @flush();
+        });
     }
 
     /** Send one progress event to the browser (no-op when not streaming). */
@@ -573,6 +589,7 @@ class Ai_assistant extends Admin_Controller {
     private function _chat_out(array $payload, $status = 200) {
         if (!$this->stream) return $this->json_response($payload, $status);
         $this->_emit(['type' => empty($payload['success']) ? 'error' : 'done'] + $payload);
+        $this->stream_closed = true;
     }
 
     /** What the admin sees while a tool runs. */
