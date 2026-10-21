@@ -494,8 +494,10 @@ class Ai_assistant extends Admin_Controller {
                     $messages[] = ['role' => 'tool', 'tool_call_id' => $tc['id'], 'name' => $tc['name'], 'content' => $this->_json_for_model($out)];
                 }
             }
-        } catch (Exception $e) {
-            $error = $e->getMessage();
+        } catch (Throwable $e) {   // Error / TypeError too — otherwise PHP 8 ends the request silently
+            log_message('error', 'AI chat: ' . get_class($e) . ': ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            $error = $e instanceof Exception ? $e->getMessage()
+                   : 'Internal error (' . $e->getMessage() . ' — ' . basename($e->getFile()) . ':' . $e->getLine() . ')';
         }
 
         $cards = $this->run['cards'];
@@ -549,6 +551,7 @@ class Ai_assistant extends Admin_Controller {
 
     private $stream = false;
     private $stream_closed = false;
+    private $stream_stage = '';
 
     private function _stream_open() {
         @ini_set('zlib.output_compression', '0');
@@ -563,16 +566,27 @@ class Ai_assistant extends Admin_Controller {
         flush();
         @ini_set('memory_limit', '512M');
         // If PHP dies (fatal error, memory, time limit) tell the browser why instead of just stopping
+        // Uncaught Error/Exception anywhere (also outside the chat loop): report it, don't vanish
+        set_exception_handler(function ($e) {
+            log_message('error', 'AI chat uncaught: ' . get_class($e) . ': ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            if ($this->stream_closed) return;
+            $this->stream_closed = true;
+            echo json_encode(['type' => 'error', 'success' => false,
+                              'message' => 'Error' . ($this->stream_stage !== '' ? ' while "' . rtrim($this->stream_stage, '…') . '"' : '') . ': '
+                                         . $e->getMessage() . ' (' . basename($e->getFile()) . ':' . $e->getLine() . ')'], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) . "\n";
+            @flush();
+        });
         register_shutdown_function(function () {
             if ($this->stream_closed) return;
             $e = error_get_last();
-            $msg = 'The server stopped while answering';
+            $msg = 'The server stopped while answering' . ($this->stream_stage !== '' ? ' (at: ' . rtrim($this->stream_stage, '…') . ')' : '');
             if ($e && in_array($e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
                 log_message('error', 'AI chat fatal: ' . $e['message'] . ' in ' . $e['file'] . ':' . $e['line']);
                 $msg .= ' (' . (stripos($e['message'], 'Maximum execution time') !== false ? 'time limit reached — try a shorter PDF or fewer pages'
                        : (stripos($e['message'], 'memory') !== false ? 'out of memory — try a smaller file' : mb_substr($e['message'], 0, 200))) . ')';
             }
-            echo json_encode(['type' => 'error', 'success' => false, 'message' => $msg . '. Please try again.']) . "\n";
+            log_message('error', 'AI chat ended without an answer at stage "' . $this->stream_stage . '"' . ($e ? ' last error: ' . $e['message'] . ' ' . $e['file'] . ':' . $e['line'] : ''));
+            echo json_encode(['type' => 'error', 'success' => false, 'message' => $msg . '. Please try again.'], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) . "\n";
             @flush();
         });
     }
@@ -580,7 +594,8 @@ class Ai_assistant extends Admin_Controller {
     /** Send one progress event to the browser (no-op when not streaming). */
     private function _emit(array $event) {
         if (!$this->stream) return;
-        echo json_encode($event, JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR) . "\n";
+        if (($event['type'] ?? '') === 'status') $this->stream_stage = (string) $event['text'];
+        echo json_encode($event, JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE) . "\n";
         @ob_flush();
         flush();
     }
@@ -1317,7 +1332,8 @@ PROMPT;
                 case 'correct_record':  return $this->_tool_correct($args);
             }
             return ['error' => 'Unknown tool ' . $name];
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
+            log_message('error', 'AI tool ' . $name . ': ' . get_class($e) . ': ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return ['error' => $e->getMessage()];
         }
     }
