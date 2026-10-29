@@ -52,6 +52,7 @@ class Report_model extends MY_Model {
                                                  ->where('MONTH(transaction_date)', date('m'))
                                                  ->where('YEAR(transaction_date)', date('Y'))
                                                  ->where('COALESCE(is_reversed, 0) = 0', null, false)
+                                                 ->where("COALESCE(payment_mode, '') <> 'adjustment'", null, false)   // bonus / overpayment credits are not collections
                                                  ->get('savings_transactions')
                                                  ->row()
                                                  ->amount ?? 0;
@@ -200,6 +201,7 @@ class Report_model extends MY_Model {
             ->from('savings_transactions')
             ->where('transaction_type', 'deposit')
             ->where('is_reversed', 0)
+            ->where("COALESCE(payment_mode, '') <> 'adjustment'", null, false)
             ->where('transaction_date >=', $from_date)
             ->where('transaction_date <=', $to_date)
             ->get()
@@ -213,6 +215,7 @@ class Report_model extends MY_Model {
             ->join('members m', 'm.id = sa.member_id')
             ->where('st.transaction_type', 'deposit')
             ->where('st.is_reversed', 0)
+            ->where("COALESCE(st.payment_mode, '') <> 'adjustment'", null, false)
             ->where('st.transaction_date >=', $from_date)
             ->where('st.transaction_date <=', $to_date)
             ->order_by('st.transaction_date', 'ASC')
@@ -230,6 +233,13 @@ class Report_model extends MY_Model {
      * Money actually disbursed in a period: every disbursement part by its own date (a loan disbursed in parts counts
      * 1 L in June and 4 L in August), plus loans created outside the disbursement screen that have no parts.
      */
+    /** Amount released on a loan: disbursed_amount where that column exists (migration 034), else principal. */
+    private function _disb_col($alias = "l") {
+        static $has = null;
+        if ($has === null) $has = $this->db->field_exists("disbursed_amount", "loans");
+        return $has ? "COALESCE($alias.disbursed_amount, $alias.principal_amount)" : "$alias.principal_amount";
+    }
+
     public function disbursed_sum($from, $to, $product_id = null) {
         $p = $product_id ? ' AND l.loan_product_id = ' . (int) $product_id : '';
         $row = $this->db->query("SELECT COALESCE(SUM(x.amt), 0) s FROM (
@@ -434,78 +444,107 @@ class Report_model extends MY_Model {
      * Get Guarantor Exposure Report
      */
     public function get_guarantor_report() {
-        return $this->db->select('
-            m.member_code, m.first_name, m.last_name, m.phone,
-            COUNT(lg.id) as guarantee_count,
-            SUM(lg.guarantee_amount) as total_exposure,
-            SUM(CASE WHEN l.status = "active" THEN l.outstanding_principal ELSE 0 END) as active_exposure
-        ')
-        ->from('loan_guarantors lg')
-        ->join('members m', 'm.id = lg.guarantor_member_id')
-        ->join('loans l', 'l.id = lg.loan_id', 'left')
-        ->where('lg.consent_status', 'approved')
-        ->where('lg.is_released', 0)
-        ->group_by('lg.guarantor_member_id')
-        ->order_by('total_exposure', 'DESC')
-        ->get()
-        ->result();
+        // consent_status is pending/accepted/rejected; a guarantee on a closed loan or a dead application no longer counts.
+        // Older rows have loan_id empty after disbursement, so the loan is also found through its application.
+        return $this->db->query("
+          SELECT m.id AS guarantor_id, m.member_code, m.first_name, m.last_name, m.phone,
+                 COUNT(lg.id) AS guarantee_count,
+                 SUM(lg.consent_status = 'pending') AS consent_pending,
+                 SUM(lg.guarantee_amount) AS total_exposure,
+                 SUM(CASE WHEN l.status = 'active' THEN 1 ELSE 0 END) AS active_loans,
+                 SUM(CASE WHEN l.status = 'active' THEN l.outstanding_principal ELSE 0 END) AS active_exposure,
+                 SUM(CASE WHEN od.loan_id IS NOT NULL THEN 1 ELSE 0 END) AS overdue_loans,
+                 GROUP_CONCAT(DISTINCT COALESCE(l.loan_number, la.application_number) ORDER BY 1 SEPARATOR ', ') AS loans
+            FROM loan_guarantors lg
+            JOIN members m ON m.id = lg.guarantor_member_id
+       LEFT JOIN loan_applications la ON la.id = lg.loan_application_id
+       LEFT JOIN loans l ON l.id = COALESCE(lg.loan_id, (SELECT x.id FROM loans x WHERE x.loan_application_id = lg.loan_application_id LIMIT 1))
+       LEFT JOIN (SELECT DISTINCT loan_id FROM loan_installments
+                   WHERE status IN ('pending','overdue','partial') AND due_date < CURDATE()) od ON od.loan_id = l.id
+           WHERE lg.consent_status IN ('accepted','pending') AND COALESCE(lg.is_released, 0) = 0
+             AND (l.id IS NOT NULL AND l.status = 'active'
+                  OR l.id IS NULL AND la.status NOT IN ('rejected','cancelled','disbursed'))
+        GROUP BY m.id, m.member_code, m.first_name, m.last_name, m.phone
+        ORDER BY active_exposure DESC, total_exposure DESC")->result();
+    }
+
+    /** Everything already past its due date and still unpaid (any month), same shape as get_demand_report(). */
+    public function get_overdue_report() {
+        $report['savings'] = $this->db->query("
+          SELECT sch.*, sa.account_number, m.member_code, m.first_name, m.last_name, m.phone,
+                 DATEDIFF(CURDATE(), sch.due_date) AS days_late
+            FROM savings_schedule sch
+            JOIN savings_accounts sa ON sa.id = sch.savings_account_id
+            JOIN members m ON m.id = sa.member_id
+           WHERE sch.status IN ('pending','partial','overdue') AND sch.due_date < CURDATE() AND sa.status = 'active'
+        ORDER BY sch.due_date, m.member_code")->result();
+        $report['loans'] = $this->db->query("
+          SELECT li.*, l.loan_number, m.member_code, m.first_name, m.last_name, m.phone,
+                 DATEDIFF(CURDATE(), li.due_date) AS days_late
+            FROM loan_installments li
+            JOIN loans l ON l.id = li.loan_id
+            JOIN members m ON m.id = l.member_id
+           WHERE li.status IN ('pending','partial','overdue') AND li.due_date < CURDATE() AND l.status = 'active'
+        ORDER BY li.due_date, m.member_code")->result();
+        $report['summary'] = [
+            'savings_due'     => array_sum(array_column($report['savings'], 'due_amount')) - array_sum(array_column($report['savings'], 'paid_amount')),
+            'loan_due'        => array_sum(array_column($report['loans'], 'emi_amount')) - array_sum(array_column($report['loans'], 'total_paid')),
+            'savings_members' => count(array_unique(array_column($report['savings'], 'member_code'))),
+            'loan_members'    => count(array_unique(array_column($report['loans'], 'member_code'))),
+        ];
+        return $report;
     }
     
     /**
      * Get Monthly Summary
      */
     public function get_monthly_summary($year, $month) {
-        $start_date = "$year-$month-01";
+        $start_date = sprintf('%04d-%02d-01', (int) $year, (int) $month);
         $end_date = date('Y-m-t', safe_timestamp($start_date));
-        
+        $p = [$start_date, $end_date];
+        $q = function ($sql) use ($p) { $r = $this->db->query($sql, $p)->row(); return (float) ($r->s ?? 0); };
+        $pay = $this->db->query("SELECT COALESCE(SUM(total_amount),0) t, COALESCE(SUM(principal_component),0) p, COALESCE(SUM(interest_component),0) i, COUNT(*) n
+                                   FROM loan_payments WHERE is_reversed = 0 AND payment_date BETWEEN ? AND ?", $p)->row();
+
+        // by transaction / payment date (not created_at / updated_at) and without reversed entries
         return [
-            'new_members' => $this->db->where('DATE(created_at) >=', $start_date)
-                                      ->where('DATE(created_at) <=', $end_date)
-                                      ->count_all_results('members'),
-            
-            'new_savings_accounts' => $this->db->where('DATE(created_at) >=', $start_date)
-                                               ->where('DATE(created_at) <=', $end_date)
-                                               ->count_all_results('savings_accounts'),
-            
-            'savings_collected' => $this->db->select_sum('amount')
-                                            ->where('transaction_type', 'deposit')
-                                            ->where('DATE(created_at) >=', $start_date)
-                                            ->where('DATE(created_at) <=', $end_date)
-                                            ->get('savings_transactions')
-                                            ->row()
-                                            ->amount ?? 0,
-            
-            'loans_disbursed_count' => $this->db->where('disbursement_date >=', $start_date)
-                                                 ->where('disbursement_date <=', $end_date)
-                                                 ->count_all_results('loans'),
-            
+            'new_members'            => (int) $q("SELECT COUNT(*) s FROM members WHERE DATE(created_at) BETWEEN ? AND ?"),
+            'new_savings_accounts'   => (int) $q("SELECT COUNT(*) s FROM savings_accounts WHERE DATE(created_at) BETWEEN ? AND ?"),
+            'savings_collected'      => $q("SELECT COALESCE(SUM(amount),0) s FROM savings_transactions WHERE transaction_type = 'deposit' AND COALESCE(is_reversed,0) = 0 AND COALESCE(payment_mode, '') <> 'adjustment' AND transaction_date BETWEEN ? AND ?"),
+            'savings_withdrawn'      => $q("SELECT COALESCE(SUM(amount),0) s FROM savings_transactions WHERE transaction_type = 'withdrawal' AND COALESCE(is_reversed,0) = 0 AND transaction_date BETWEEN ? AND ?"),
+            'loan_applications'      => (int) $q("SELECT COUNT(*) s FROM loan_applications WHERE DATE(created_at) BETWEEN ? AND ?"),
+            'loans_disbursed_count'  => (int) $q("SELECT COUNT(*) s FROM loans WHERE disbursement_date BETWEEN ? AND ?"),
             'loans_disbursed_amount' => $this->disbursed_sum($start_date, $end_date),
-            
-            'loans_collected' => $this->db->select_sum('total_amount')
-                                          ->where('payment_date >=', $start_date)
-                                          ->where('payment_date <=', $end_date)
-                                          ->where('is_reversed', 0)
-                                          ->get('loan_payments')
-                                          ->row()
-                                          ->total_amount ?? 0,
-            
-            'fines_applied' => $this->db->select_sum('fine_amount')
-                                        ->where('fine_date >=', $start_date)
-                                        ->where('fine_date <=', $end_date)
-                                        ->get('fines')
-                                        ->row()
-                                        ->fine_amount ?? 0,
-            
-            'fines_collected' => $this->db->select_sum('paid_amount')
-                                          ->where('updated_at >=', $start_date)
-                                          ->where('updated_at <=', $end_date . ' 23:59:59')
-                                          ->where_in('status', ['paid', 'partial'])
-                                          ->get('fines')
-                                          ->row()
-                                          ->paid_amount ?? 0
+            'loans_collected'        => (float) $pay->t,
+            'principal_collected'    => (float) $pay->p,
+            'interest_collected'     => (float) $pay->i,
+            'loan_payments_count'    => (int) $pay->n,
+            'fines_applied'          => $q("SELECT COALESCE(SUM(fine_amount),0) s FROM fines WHERE fine_date BETWEEN ? AND ?"),
+            'fines_collected'        => $q("SELECT COALESCE(SUM(paid_amount),0) s FROM fines WHERE payment_date BETWEEN ? AND ?"),
+            'other_income'           => $q("SELECT COALESCE(SUM(amount),0) s FROM member_other_transactions WHERE status = 'completed' AND transaction_date BETWEEN ? AND ?"),
         ];
     }
-    
+
+    /** Day-wise collection and disbursement for one month (Monthly Summary chart). */
+    public function get_monthly_daily($year, $month) {
+        $from = sprintf('%04d-%02d-01', (int) $year, (int) $month);
+        $to = date('Y-m-t', safe_timestamp($from));
+        $col = [];
+        foreach ($this->db->query("SELECT d, SUM(a) a FROM (
+                    SELECT payment_date d, total_amount a FROM loan_payments WHERE is_reversed = 0 AND payment_date BETWEEN ? AND ?
+                    UNION ALL
+                    SELECT transaction_date, amount FROM savings_transactions WHERE transaction_type = 'deposit' AND COALESCE(is_reversed,0) = 0 AND COALESCE(payment_mode, '') <> 'adjustment' AND transaction_date BETWEEN ? AND ?
+                ) x GROUP BY d", [$from, $to, $from, $to])->result() as $r) $col[substr($r->d, 0, 10)] = (float) $r->a;
+        $out = ['labels' => [], 'collection' => [], 'disbursement' => []];
+        for ($t = strtotime($from); $t <= strtotime($to); $t += 86400) {
+            $d = date('Y-m-d', $t);
+            $out['labels'][] = date('d', $t);
+            $out['collection'][] = $col[$d] ?? 0;
+            $out['disbursement'][] = $this->disbursed_sum($d, $d);
+        }
+        return $out;
+    }
+
     /**
      * Get Chart Data - Monthly Trend
      */
@@ -526,6 +565,7 @@ class Report_model extends MY_Model {
                                           ->where('MONTH(transaction_date)', $m)
                                           ->where('YEAR(transaction_date)', $year)
                                           ->where('COALESCE(is_reversed, 0) = 0', null, false)
+                                          ->where("COALESCE(payment_mode, '') <> 'adjustment'", null, false)
                                           ->get('savings_transactions')
                                           ->row()
                                           ->amount ?? 0;
@@ -611,7 +651,7 @@ class Report_model extends MY_Model {
                     COALESCE(st.narration, 'Savings Deposit') as description,
                     st.amount as debit, 0 as credit
              FROM savings_transactions st
-             WHERE st.transaction_type = 'deposit' AND st.is_reversed = 0
+             WHERE st.transaction_type = 'deposit' AND st.is_reversed = 0 AND COALESCE(st.payment_mode, '') <> 'adjustment'
                AND st.transaction_date >= ? AND st.transaction_date <= ?)
             UNION ALL
             (SELECT DATE(lp.payment_date) as date, 'Receipt' as type,
@@ -636,7 +676,7 @@ class Report_model extends MY_Model {
             UNION ALL
             (SELECT DATE(l.disbursement_date) as date, 'Payment' as type,
                     CONCAT('Loan Disbursement - ', l.loan_number) as description,
-                    0 as debit, COALESCE(l.disbursed_amount, l.principal_amount) as credit
+                    0 as debit, {$this->_disb_col()} as credit
              FROM loans l
              WHERE l.disbursement_date >= ? AND l.disbursement_date <= ?
                AND l.disbursement_date IS NOT NULL)
@@ -695,8 +735,10 @@ class Report_model extends MY_Model {
             'metric' => 'Savings Deposits',
             'value' => $this->db->select_sum('amount')
                                ->where('transaction_type', 'deposit')
-                               ->where('DATE(created_at) >=', $start_date)
-                               ->where('DATE(created_at) <=', $end_date)
+                               ->where('transaction_date >=', $start_date)
+                               ->where('transaction_date <=', $end_date)
+                               ->where('COALESCE(is_reversed, 0) = 0', null, false)
+                               ->where("COALESCE(payment_mode, '') <> 'adjustment'", null, false)
                                ->get('savings_transactions')
                                ->row()
                                ->amount ?? 0,
@@ -1080,9 +1122,9 @@ class Report_model extends MY_Model {
         $q = function ($sql, $p) { $r = $this->db->query($sql, $p)->row(); return (float) ($r->s ?? 0); };
         return [
             'collections'        => $q("SELECT COALESCE(SUM(total_amount),0) s FROM loan_payments WHERE is_reversed = 0 AND payment_date BETWEEN ? AND ?", [$from, $to])
-                                  + $q("SELECT COALESCE(SUM(amount),0) s FROM savings_transactions WHERE is_reversed = 0 AND transaction_type = 'deposit' AND transaction_date BETWEEN ? AND ?", [$from, $to]),
+                                  + $q("SELECT COALESCE(SUM(amount),0) s FROM savings_transactions WHERE is_reversed = 0 AND transaction_type = 'deposit' AND COALESCE(payment_mode, '') <> 'adjustment' AND transaction_date BETWEEN ? AND ?", [$from, $to]),
             'loan_collection'    => $q("SELECT COALESCE(SUM(total_amount),0) s FROM loan_payments WHERE is_reversed = 0 AND payment_date BETWEEN ? AND ?", [$from, $to]),
-            'savings_collection' => $q("SELECT COALESCE(SUM(amount),0) s FROM savings_transactions WHERE is_reversed = 0 AND transaction_type = 'deposit' AND transaction_date BETWEEN ? AND ?", [$from, $to]),
+            'savings_collection' => $q("SELECT COALESCE(SUM(amount),0) s FROM savings_transactions WHERE is_reversed = 0 AND transaction_type = 'deposit' AND COALESCE(payment_mode, '') <> 'adjustment' AND transaction_date BETWEEN ? AND ?", [$from, $to]),
             'interest_earned'    => $q("SELECT COALESCE(SUM(interest_component),0) s FROM loan_payments WHERE is_reversed = 0 AND payment_date BETWEEN ? AND ?", [$from, $to]),
             'fines_collected'    => $q("SELECT COALESCE(SUM(paid_amount),0) s FROM fines WHERE payment_date BETWEEN ? AND ?", [$from, $to]),
             'disbursements'      => $this->disbursed_sum($from, $to),
@@ -1150,7 +1192,7 @@ class Report_model extends MY_Model {
         $sql = "
           SELECT lp.product_name,
                  COUNT(*) AS loans,
-                 SUM(COALESCE(l.disbursed_amount, l.principal_amount)) AS disbursed,
+                 SUM({$this->_disb_col()}) AS disbursed,
                  SUM(l.principal_amount) AS sanctioned,
                  SUM(l.outstanding_principal) AS outstanding_principal,
                  SUM(l.outstanding_interest) AS outstanding_interest,
@@ -1178,7 +1220,7 @@ class Report_model extends MY_Model {
 
     public function loan_status_summary() {
         return $this->db->query("
-          SELECT l.status, COUNT(*) loans, SUM(COALESCE(l.disbursed_amount, l.principal_amount)) disbursed,
+          SELECT l.status, COUNT(*) loans, SUM({$this->_disb_col()}) disbursed,
                  SUM(l.total_principal_paid) principal_paid, SUM(l.total_interest_paid) interest_paid,
                  SUM(l.outstanding_principal) outstanding_principal
             FROM loans l GROUP BY l.status ORDER BY loans DESC")->result_array();
@@ -1352,5 +1394,64 @@ class Report_model extends MY_Model {
             $r['on_time_pct'] = $r['emis'] > 0 ? round($r['on_time'] / $r['emis'] * 100, 2) : 0;
         }
         return $rows;
+    }
+
+    /**
+     * Processing-fee check: every loan (active, closed, foreclosed …) against the product rule,
+     * the fee on the loan, the fee record (member_other_transactions) and the ledger (3200).
+     * issue codes: not_charged, no_record, record_mismatch, ledger_missing, differs_rule; '' = OK.
+     */
+    public function processing_fee_check($status = '') {
+        $sql = "
+          SELECT l.id, l.loan_number, l.status, l.member_id, m.member_code, CONCAT(m.first_name, ' ', m.last_name) member_name, m.phone,
+                 lp.product_name, lp.processing_fee_type, lp.processing_fee_value,
+                 l.principal_amount, l.disbursement_date, l.processing_fee, l.net_disbursement,
+                 CASE WHEN lp.processing_fee_type = 'fixed' THEN COALESCE(lp.processing_fee_value, 0)
+                      ELSE ROUND(l.principal_amount * COALESCE(lp.processing_fee_value, 0) / 100, 2) END rule_fee,
+                 COALESCE(t.amt, 0) recorded, COALESCE(t.cnt, 0) record_count, t.dt record_date,
+                 COALESCE(g.amt, 0) ledger_fee
+            FROM loans l
+            JOIN members m ON m.id = l.member_id
+       LEFT JOIN loan_products lp ON lp.id = l.loan_product_id
+       LEFT JOIN (SELECT reference_id, SUM(amount) amt, COUNT(*) cnt, MIN(transaction_date) dt FROM member_other_transactions
+                   WHERE transaction_type = 'processing_fee' AND status = 'completed' AND reference_type = 'loan'
+                GROUP BY reference_id) t ON t.reference_id = l.id
+       LEFT JOIN (SELECT g.reference_id, SUM(g.credit_amount - g.debit_amount) amt FROM general_ledger g
+                    JOIN chart_of_accounts c ON c.id = g.account_id AND c.account_code = '3200'
+                   WHERE g.reference_type IN ('loan_disbursement', 'processing_fee', 'rev_loan_disbursement', 'rev_processing_fee')
+                GROUP BY g.reference_id) g ON g.reference_id = l.id"
+            . ($status !== '' ? ' WHERE l.status = ' . $this->db->escape($status) : '') . '
+        ORDER BY l.id';
+        $labels = ['not_charged' => 'No processing fee charged', 'no_record' => 'Fee not recorded (no fee entry / receipt)',
+                   'record_mismatch' => 'Fee entry amount differs from loan fee', 'ledger_missing' => 'Fee not in ledger',
+                   'differs_rule' => 'Fee differs from product rule'];
+        $rows = $this->db->query($sql)->result_array();
+        foreach ($rows as &$r) {
+            $fee = (float) $r['processing_fee'];
+            $issues = [];
+            if ($fee <= 0) $issues[] = 'not_charged';
+            else {
+                if ((float) $r['recorded'] <= 0) $issues[] = 'no_record';
+                elseif (abs((float) $r['recorded'] - $fee) > 1) $issues[] = 'record_mismatch';
+                if ((float) $r['ledger_fee'] < $fee - 1) $issues[] = 'ledger_missing';
+            }
+            if ($fee > 0 && abs($fee - (float) $r['rule_fee']) > 1) $issues[] = 'differs_rule';
+            $r['issues'] = $issues;
+            $r['issue'] = $issues ? $issues[0] : '';
+            $r['issue_label'] = $issues ? implode('; ', array_map(function ($i) use ($labels) { return $labels[$i]; }, $issues)) : 'OK';
+            $r['fee_pct'] = (float) $r['principal_amount'] > 0 ? round($fee / (float) $r['principal_amount'] * 100, 2) : 0;
+        }
+        return $rows;
+    }
+
+    /** Fee entries whose loan no longer exists (deleted / re-created loans). */
+    public function processing_fee_orphans() {
+        return $this->db->query("
+          SELECT t.id, t.member_id, t.amount, t.transaction_date, t.description, t.reference_id, m.member_code,
+                 CONCAT(m.first_name, ' ', m.last_name) member_name
+            FROM member_other_transactions t JOIN members m ON m.id = t.member_id
+           WHERE t.transaction_type = 'processing_fee' AND t.status = 'completed'
+             AND (t.reference_id IS NULL OR t.reference_id NOT IN (SELECT id FROM loans))
+        ORDER BY t.member_id, t.id")->result_array();
     }
 }

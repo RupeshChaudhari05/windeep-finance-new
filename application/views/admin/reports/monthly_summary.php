@@ -7,9 +7,7 @@
                 <input type="month" name="month" class="form-control form-control-sm mr-2" value="<?= date('Y-m', safe_timestamp($month ?? 'now')) ?>">
                 <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-filter"></i></button>
             </form>
-            <a href="<?= site_url('admin/reports/monthly_summary?export=pdf&month=' . $month) ?>" class="btn btn-danger btn-sm ml-2">
-                <i class="fas fa-file-pdf"></i>
-            </a>
+            <a href="<?= html_escape(current_url() . '?' . http_build_query(array_merge($_GET, ['export' => 'excel']))) ?>" class="btn btn-success btn-sm ml-2"><i class="fas fa-file-excel"></i> Excel</a> <button type="button" onclick="window.print()" class="btn btn-secondary btn-sm ml-1"><i class="fas fa-print"></i> Print</button>
         </div>
     </div>
 </div>

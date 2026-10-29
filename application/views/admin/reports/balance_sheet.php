@@ -1,4 +1,12 @@
 <!-- Balance Sheet -->
+<?php
+// Ledger_model::get_balance_sheet() returns one 'assets' list; every asset account here (cash, bank, member loans,
+// receivables) is a current asset. Without this the assets side showed 0 and the sheet never balanced.
+if (!isset($report['current_assets']) && !isset($report['fixed_assets'])) {
+    $report['current_assets'] = $report['assets'] ?? [];
+    $report['fixed_assets'] = [];
+}
+?>
 <div class="card">
     <div class="card-header">
         <h3 class="card-title"><i class="fas fa-file-invoice-dollar mr-1"></i> Balance Sheet</h3>
@@ -8,9 +16,7 @@
                 <input type="date" name="as_on" class="form-control form-control-sm mr-2" value="<?= $as_on ?>">
                 <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-sync"></i></button>
             </form>
-            <a href="<?= site_url('admin/reports/balance_sheet?export=pdf&as_on=' . $as_on) ?>" class="btn btn-danger btn-sm ml-2">
-                <i class="fas fa-file-pdf"></i> PDF
-            </a>
+            <a href="<?= html_escape(current_url() . '?' . http_build_query(array_merge($_GET, ['export' => 'excel']))) ?>" class="btn btn-success btn-sm ml-2"><i class="fas fa-file-excel"></i> Excel</a> <button type="button" onclick="window.print()" class="btn btn-secondary btn-sm ml-1"><i class="fas fa-print"></i> Print</button>
         </div>
     </div>
 </div>
@@ -89,6 +95,7 @@
                     </div>
                     <div class="card-body p-0">
                         <table class="table table-sm mb-0">
+                            <?php $total_fixed = 0; if (!empty($report['fixed_assets'])): ?>
                             <!-- Fixed Assets -->
                             <thead class="thead-light">
                                 <tr><th colspan="2">Fixed Assets</th></tr>
@@ -109,6 +116,7 @@
                                     <th class="text-right"><?= number_format($total_fixed, 2) ?></th>
                                 </tr>
                             </tfoot>
+                            <?php endif; ?>
                             
                             <!-- Current Assets -->
                             <thead class="thead-light">

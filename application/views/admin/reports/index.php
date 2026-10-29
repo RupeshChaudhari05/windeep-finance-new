@@ -23,6 +23,7 @@ $groups = [
         ['Loan Portfolio', 'admin/reports/portfolio', 'fa-briefcase', 'Product-wise outstanding, overdue and PAR 30 / PAR 90', true, true],
         ['Outstanding Loans', 'admin/reports/outstanding', 'fa-file-invoice-dollar', 'Every active loan with outstanding and overdue amount', true, false],
         ['Disbursement Report', 'admin/reports/disbursement', 'fa-money-bill-wave', 'Loans disbursed in a period (actual money incl. parts)', true, false],
+        ['Processing Fee Check', 'admin/reports/processing_fees', 'fa-file-invoice-dollar', 'Every loan (old, closed, active): fee charged, fee entry and ledger — fix missing fees', true, true],
         ['Guarantor Exposure', 'admin/reports/guarantor', 'fa-user-shield', 'Guarantors and the loans they stand for', true, false],
     ]],
     ['Members & Savings', 'fa-users', 'info', [

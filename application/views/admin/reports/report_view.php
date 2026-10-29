@@ -24,6 +24,7 @@ if (!function_exists('_rv_cell')) {
             case 'pct':    return [number_format((float) $v, 2) . '%', (float) $v];
             case 'date':   return [format_date($v), substr((string) $v, 0, 10)];
             case 'datetime': return [format_date_time($v), (string) $v];
+            case 'html':   return [(string) $v, null];   // trusted, built by the controller (action buttons)
             default:       return [html_escape((string) $v), null];
         }
     }
@@ -102,6 +103,10 @@ $tables = array_merge([['title' => $spec['table_title'] ?? 'Details', 'columns' 
         </div>
         <?php endif; ?>
 
+        <?php if (!empty($spec['toolbar_html'])): ?>
+        <div class="mb-3 rv-noprint"><?= $spec['toolbar_html'] ?></div>
+        <?php endif; ?>
+
         <?php if (!empty($spec['chart'])): ?>
         <div class="mb-4" style="position:relative;height:260px"><canvas id="rvChart"></canvas></div>
         <?php endif; ?>
@@ -153,6 +158,7 @@ $tables = array_merge([['title' => $spec['table_title'] ?? 'Details', 'columns' 
         <?php endif; ?>
     </div>
 </div>
+<?= $spec['after_html'] ?? '' ?>
 
 <script>
 $(function () {

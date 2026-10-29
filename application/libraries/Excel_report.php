@@ -351,6 +351,9 @@ class Excel_report {
                 $style->getNumberFormat()->setFormatCode($type === 'date' ? self::FMT_DATE : self::FMT_DT);
                 $style->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT);
                 return;
+            case 'html':
+                $v = trim(preg_replace('/\s+/', ' ', strip_tags(str_replace(['<br>', '<br/>'], ' ', (string) $v))));
+                // fall through to text
             default:
                 // Text/code: always explicit strings so phone numbers, account
                 // numbers and codes keep leading zeros and never turn into 9.0E+11

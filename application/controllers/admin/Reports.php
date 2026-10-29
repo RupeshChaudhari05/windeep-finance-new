@@ -111,8 +111,7 @@ class Reports extends Admin_Controller {
             'overdue' => array_sum(array_column($data['report'], 'overdue_amount'))
         ];
         
-        $this->_excel_if_requested('_xls_outstanding', $data);
-        $this->load_view('admin/reports/outstanding', $data);
+        $this->_render_spec($this->_xls_outstanding($data));
     }
     
     /**
@@ -211,13 +210,16 @@ class Reports extends Admin_Controller {
             ['title' => 'Demand', 'url' => '']
         ];
         
-        $month = $this->input->get('month') ?: date('Y-m-01');
+        $m = (string) $this->input->get('month');   // the month picker sends YYYY-MM; due_month is a date
+        $ts = $m !== '' ? strtotime(strlen($m) === 7 ? $m . '-01' : $m) : false;
+        $month = $ts ? date('Y-m-01', $ts) : date('Y-m-01');
         
         $data['report'] = $this->Report_model->get_demand_report($month);
         $data['month'] = $month;
         
-        $this->_excel_if_requested('_xls_demand', $data);
-        $this->load_view('admin/reports/demand', $data);
+        $spec = $this->_xls_demand($data);
+        $spec['filters'] = [['name' => 'month', 'label' => 'Month', 'type' => 'month', 'value' => date('Y-m', strtotime($month))]];
+        $this->_render_spec($spec);
     }
     
     /**
@@ -234,8 +236,7 @@ class Reports extends Admin_Controller {
         
         $data['report'] = $this->Report_model->get_guarantor_report();
         
-        $this->_excel_if_requested('_xls_guarantor', $data);
-        $this->load_view('admin/reports/guarantor', $data);
+        $this->_render_spec($this->_xls_guarantor($data));
     }
     
     /**
@@ -385,15 +386,24 @@ class Reports extends Admin_Controller {
             ['title' => 'Monthly Summary', 'url' => '']
         ];
         
-        $year = $this->input->get('year') ?: date('Y');
-        $month = $this->input->get('month') ?: date('m');
-        
+        $period = (string) $this->input->get('period');   // YYYY-MM from the month picker; year/month still accepted
+        if (preg_match('/^(\d{4})-(\d{2})$/', $period, $pm)) { $year = (int) $pm[1]; $month = (int) $pm[2]; }
+        else { $year = (int) ($this->input->get('year') ?: date('Y')); $month = (int) ($this->input->get('month') ?: date('m')); }
+        if ($month < 1 || $month > 12) $month = (int) date('m');
+
         $data['summary'] = $this->Report_model->get_monthly_summary($year, $month);
         $data['year'] = $year;
         $data['month'] = $month;
         
-        $this->_excel_if_requested('_xls_monthly_summary', $data);
-        $this->load_view('admin/reports/monthly_summary', $data);
+        // the old view read keys the model never returned (most figures showed 0)
+        $spec = $this->_xls_monthly_summary($data);
+        $spec['filters'] = [['name' => 'period', 'label' => 'Month', 'type' => 'month', 'value' => sprintf('%04d-%02d', $year, $month)]];
+        $daily = $this->Report_model->get_monthly_daily($year, $month);
+        $spec['chart'] = ['type' => 'bar', 'labels' => $daily['labels'], 'datasets' => [
+            ['label' => 'Collection (loan + savings)', 'data' => $daily['collection']],
+            ['label' => 'Disbursement', 'data' => $daily['disbursement']],
+        ]];
+        $this->_render_spec($spec);
     }
     
     /**
@@ -699,7 +709,8 @@ class Reports extends Admin_Controller {
      * Overdue Report (alias for demand)
      */
     public function overdue() {
-        $this->demand();
+        $spec = $this->_xls_demand(['report' => $this->Report_model->get_overdue_report(), 'month' => date('Y-m-d'), 'overdue' => true]);
+        $this->_render_spec($spec);
     }
     
     /**
@@ -1953,7 +1964,7 @@ class Reports extends Admin_Controller {
     private function _xls_outstanding($data) {
         $rows = $this->_loan_rows($data['report']);
         return [
-            'title' => 'Outstanding Loans', 'subtitle' => 'As on ' . format_date(date('Y-m-d')),
+            'title' => 'Outstanding Loans', 'subtitle' => 'As on ' . format_date(date('Y-m-d')), 'icon' => 'fa-hand-holding-usd',
             'kpis' => [
                 ['label' => 'Loans', 'value' => count($rows), 'type' => 'int'],
                 ['label' => 'Outstanding principal', 'value' => self::_sum($rows, 'outstanding_principal'), 'type' => 'money'],
@@ -2008,12 +2019,15 @@ class Reports extends Admin_Controller {
         $r = $data['report'];
         $loans = array_map(function ($i) { $i = (array) $i; return $i + ['member_name' => self::_full_name($i), 'due' => (float) $i['emi_amount'] - (float) $i['total_paid'], 'status_label' => self::_label($i['status'])]; }, $r['loans'] ?? []);
         $sav   = array_map(function ($i) { $i = (array) $i; return $i + ['member_name' => self::_full_name($i), 'due' => (float) $i['due_amount'] - (float) $i['paid_amount'], 'status_label' => self::_label($i['status'])]; }, $r['savings'] ?? []);
-        return [
-            'title' => 'Demand Report', 'subtitle' => date('F Y', strtotime($data['month'])),
+        $od = !empty($data['overdue']);
+        $spec = [
+            'title' => $od ? 'Overdue Report' : 'Demand Report',
+            'subtitle' => $od ? 'Unpaid and past due as on ' . format_date(date('Y-m-d')) : date('F Y', strtotime($data['month'])),
+            'icon' => $od ? 'fa-exclamation-circle' : 'fa-calendar-check',
             'kpis' => [
-                ['label' => 'EMI demand', 'value' => $r['summary']['loan_due'] ?? 0, 'type' => 'money'],
+                ['label' => $od ? 'EMI overdue' : 'EMI demand', 'value' => $r['summary']['loan_due'] ?? 0, 'type' => 'money', 'color' => $od ? 'danger' : ''],
                 ['label' => 'Loan members', 'value' => $r['summary']['loan_members'] ?? 0, 'type' => 'int'],
-                ['label' => 'Savings demand', 'value' => $r['summary']['savings_due'] ?? 0, 'type' => 'money'],
+                ['label' => $od ? 'Savings overdue' : 'Savings demand', 'value' => $r['summary']['savings_due'] ?? 0, 'type' => 'money', 'color' => $od ? 'warning' : ''],
                 ['label' => 'Savings members', 'value' => $r['summary']['savings_members'] ?? 0, 'type' => 'int'],
             ],
             'sheet_title' => 'Loan EMIs',
@@ -2036,17 +2050,43 @@ class Reports extends Admin_Controller {
                 'rows' => $sav,
             ]],
         ];
+        if ($od) {   // days late after the due date column
+            $days = ['key' => 'days_late', 'label' => 'Days late', 'type' => 'int'];
+            array_splice($spec['columns'], 1, 0, [$days]);
+            array_splice($spec['sheets'][0]['columns'], 1, 0, [$days]);
+        }
+        return $spec;
     }
 
     private function _xls_guarantor($data) {
-        $rows = array_map(function ($g) { return (array) $g; }, $data['report'] ?? []);
-        $cols = [];
-        if ($rows) foreach (array_keys($rows[0]) as $k) {
-            if (in_array($k, ['id', 'member_id', 'loan_id', 'guarantor_member_id', 'created_at', 'updated_at'], true)) continue;
-            $t = preg_match('/amount|principal|outstanding|exposure/', $k) ? 'money' : (preg_match('/date/', $k) ? 'date' : 'text');
-            $cols[] = ['key' => $k, 'label' => self::_label($k), 'type' => $t, 'total' => $t === 'money'];
-        }
-        return ['title' => 'Guarantor Exposure', 'subtitle' => 'As on ' . format_date(date('Y-m-d')), 'columns' => $cols ?: [['key' => 'x', 'label' => 'No data']], 'rows' => $rows];
+        $rows = array_map(function ($g) {
+            $g = (array) $g;
+            $risk = (int) $g['overdue_loans'] > 0 ? 'High' : ((float) $g['active_exposure'] > 500000 ? 'Medium' : 'Low');
+            return $g + ['member_name' => self::_full_name($g), 'risk' => $risk];
+        }, $data['report'] ?? []);
+        return [
+            'title' => 'Guarantor Exposure', 'subtitle' => 'As on ' . format_date(date('Y-m-d')), 'icon' => 'fa-user-shield',
+            'kpis' => [
+                ['label' => 'Guarantors', 'value' => count($rows), 'type' => 'int'],
+                ['label' => 'Guarantees', 'value' => self::_sum($rows, 'guarantee_count'), 'type' => 'int'],
+                ['label' => 'Guaranteed amount', 'value' => self::_sum($rows, 'total_exposure'), 'type' => 'money'],
+                ['label' => 'Outstanding on active loans', 'value' => self::_sum($rows, 'active_exposure'), 'type' => 'money', 'color' => 'info'],
+                ['label' => 'High risk (loan overdue)', 'value' => count(array_filter($rows, function ($r) { return $r['risk'] === 'High'; })), 'type' => 'int', 'color' => 'danger'],
+            ],
+            'columns' => [
+                ['key' => 'member_code', 'label' => 'Member', 'type' => 'code', 'link' => function ($r) { return site_url('admin/members/view/' . $r['guarantor_id']); }],
+                ['key' => 'member_name', 'label' => 'Guarantor'], ['key' => 'phone', 'label' => 'Phone', 'type' => 'code'],
+                ['key' => 'guarantee_count', 'label' => 'Guarantees', 'type' => 'int', 'total' => true],
+                ['key' => 'consent_pending', 'label' => 'Consent pending', 'type' => 'int', 'total' => true],
+                ['key' => 'total_exposure', 'label' => 'Guaranteed amount', 'type' => 'money', 'total' => true],
+                ['key' => 'active_loans', 'label' => 'Active loans', 'type' => 'int', 'total' => true],
+                ['key' => 'active_exposure', 'label' => 'Outstanding (active loans)', 'type' => 'money', 'total' => true],
+                ['key' => 'overdue_loans', 'label' => 'Loans overdue', 'type' => 'int', 'total' => true],
+                ['key' => 'risk', 'label' => 'Risk'], ['key' => 'loans', 'label' => 'Loans / applications'],
+            ],
+            'rows' => $rows,
+            'note' => 'Accepted or pending guarantees that are not released, on active loans or on applications still in progress. Risk is High when a guaranteed loan has an overdue EMI, Medium above ₹5,00,000 outstanding.',
+        ];
     }
 
     private function _xls_trial_balance($data) {
@@ -2172,13 +2212,39 @@ class Reports extends Admin_Controller {
 
     private function _xls_monthly_summary($data) {
         $s = $data['summary'];
-        $labels = ['new_members' => ['New members', 'int'], 'new_savings_accounts' => ['New savings accounts', 'int'], 'savings_collected' => ['Savings collected', 'money'],
-                   'loans_disbursed_count' => ['Loans disbursed (count)', 'int'], 'loans_disbursed_amount' => ['Loans disbursed (amount)', 'money'],
-                   'loans_collected' => ['Loan repayments collected', 'money'], 'fines_applied' => ['Fines levied', 'money'], 'fines_collected' => ['Fines collected', 'money']];
-        $rows = [];
-        foreach ($labels as $k => [$l, $t]) $rows[] = ['metric' => $l, 'value' => (float) ($s[$k] ?? 0)];
-        return ['title' => 'Monthly Summary', 'subtitle' => date('F Y', mktime(0, 0, 0, (int) $data['month'], 1, (int) $data['year'])),
-                'columns' => [['key' => 'metric', 'label' => 'Metric', 'width' => 40], ['key' => 'value', 'label' => 'Value', 'type' => 'number', 'width' => 20]], 'rows' => $rows];
+        $v = function ($k) use ($s) { return (float) ($s[$k] ?? 0); };
+        $rows = [
+            ['metric' => 'MEMBERS', '_style' => 'group'],
+            ['metric' => 'New members', 'count' => $v('new_members')],
+            ['metric' => 'New savings accounts', 'count' => $v('new_savings_accounts')],
+            ['metric' => 'SAVINGS', '_style' => 'group'],
+            ['metric' => 'Savings deposits collected', 'amount' => $v('savings_collected')],
+            ['metric' => 'Savings withdrawn', 'amount' => $v('savings_withdrawn')],
+            ['metric' => 'Net savings', 'amount' => $v('savings_collected') - $v('savings_withdrawn'), '_style' => 'subtotal'],
+            ['metric' => 'LOANS', '_style' => 'group'],
+            ['metric' => 'Loan applications received', 'count' => $v('loan_applications')],
+            ['metric' => 'Loans disbursed', 'count' => $v('loans_disbursed_count'), 'amount' => $v('loans_disbursed_amount')],
+            ['metric' => 'Loan repayments collected', 'count' => $v('loan_payments_count'), 'amount' => $v('loans_collected')],
+            ['metric' => '   of which principal', 'amount' => $v('principal_collected')],
+            ['metric' => '   of which interest', 'amount' => $v('interest_collected')],
+            ['metric' => 'FINES & OTHER', '_style' => 'group'],
+            ['metric' => 'Fines levied', 'amount' => $v('fines_applied')],
+            ['metric' => 'Fines collected', 'amount' => $v('fines_collected')],
+            ['metric' => 'Fees & other receipts', 'amount' => $v('other_income')],
+            ['metric' => 'Total collection (savings + loan + fines + fees)', 'amount' => $v('savings_collected') + $v('loans_collected') + $v('fines_collected') + $v('other_income'), '_style' => 'total'],
+        ];
+        return ['title' => 'Monthly Summary', 'subtitle' => date('F Y', mktime(0, 0, 0, (int) $data['month'], 1, (int) $data['year'])), 'icon' => 'fa-calendar-alt',
+                'kpis' => [
+                    ['label' => 'Total collection', 'value' => $rows[count($rows) - 1]['amount'], 'type' => 'money', 'color' => 'success'],
+                    ['label' => 'Loans disbursed', 'value' => $v('loans_disbursed_amount'), 'type' => 'money', 'color' => 'info'],
+                    ['label' => 'Interest earned', 'value' => $v('interest_collected'), 'type' => 'money'],
+                    ['label' => 'Net savings', 'value' => $v('savings_collected') - $v('savings_withdrawn'), 'type' => 'money'],
+                    ['label' => 'New members', 'value' => $v('new_members'), 'type' => 'int'],
+                ],
+                'columns' => [['key' => 'metric', 'label' => 'Particulars', 'width' => 45], ['key' => 'count', 'label' => 'Count', 'type' => 'int', 'width' => 12],
+                              ['key' => 'amount', 'label' => 'Amount', 'type' => 'money', 'width' => 20]],
+                'rows' => $rows,
+                'note' => 'Figures are by transaction / payment date; reversed entries are excluded.'];
     }
 
     private function _xls_member_summary($data) {
@@ -2220,5 +2286,259 @@ class Reports extends Admin_Controller {
                               ['key' => 'mode_label', 'label' => 'Mode'], ['key' => 'receipt_number', 'label' => 'Receipt', 'type' => 'code'], ['key' => 'description', 'label' => 'Description'],
                               ['key' => 'status', 'label' => 'Status']],
                 'rows' => $rows];
+    }
+
+    // =========================================================================
+    //  PROCESSING FEE CHECK — every loan's fee against rule / record / ledger
+    // =========================================================================
+
+    private function _pf_can_fix() {
+        return in_array($this->admin_data->role ?? '', ['super_admin', 'admin'], true);
+    }
+
+    public function processing_fees() {
+        $status = (string) $this->input->get('status');
+        $issue  = (string) $this->input->get('issue');
+        $all    = $this->Report_model->processing_fee_check($status);
+        $orph   = $this->Report_model->processing_fee_orphans();
+        $rows   = $issue === '' ? $all : array_values(array_filter($all, function ($r) use ($issue) {
+            return $issue === 'ok' ? !$r['issues'] : in_array($issue, $r['issues'], true);
+        }));
+        $count = function ($code) use ($all) { return count(array_filter($all, function ($r) use ($code) { return in_array($code, $r['issues'], true); })); };
+        $can = $this->_pf_can_fix();
+        $csrf = form_hidden($this->security->get_csrf_token_name(), $this->security->get_csrf_hash());
+        $back = form_hidden('back', $this->input->server('QUERY_STRING') ?: '');
+
+        // loans of each member that have a fee but no fee entry (targets for relinking orphan entries)
+        $free = [];
+        foreach ($all as $r) if (in_array('no_record', $r['issues'], true)) $free[$r['member_id']][] = $r;
+
+        foreach ($rows as &$r) {
+            $r['status_label'] = ucfirst($r['status']);
+            $r['rule'] = $r['processing_fee_type'] === 'fixed' ? '₹' . number_format((float) $r['processing_fee_value'], 2) : (float) $r['processing_fee_value'] . '%';
+            $act = '<a class="btn btn-xs btn-outline-secondary" href="' . site_url('admin/loans/view/' . $r['id']) . '" target="_blank">Loan</a>';
+            if ($can && in_array('no_record', $r['issues'], true)) {
+                $act .= ' <form method="post" action="' . site_url('admin/reports/pf_create_records') . '" class="d-inline">' . $csrf . $back
+                      . '<input type="hidden" name="ids[]" value="' . $r['id'] . '"><button class="btn btn-xs btn-success" title="Add the fee entry (fee was deducted from the disbursement)">Create record</button></form>';
+            }
+            if ($can && in_array('not_charged', $r['issues'], true)) {
+                $act .= ' <button type="button" class="btn btn-xs btn-warning pf-charge" data-id="' . $r['id'] . '" data-loan="' . html_escape($r['loan_number'])
+                      . '" data-fee="' . $r['rule_fee'] . '" data-date="' . html_escape(date('Y-m-d')) . '">Charge fee</button>';
+            }
+            $r['actions'] = $act;
+        }
+        unset($r);
+
+        $orows = [];
+        foreach ($orph as $o) {
+            $act = '';
+            if ($can) {
+                $opts = '';
+                foreach ($free[$o['member_id']] ?? [] as $l) {
+                    $opts .= '<option value="' . $l['id'] . '"' . (abs((float) $l['processing_fee'] - (float) $o['amount']) < 1 ? ' selected' : '') . '>'
+                           . html_escape($l['loan_number'] . ' — fee ₹' . number_format((float) $l['processing_fee'], 2)) . '</option>';
+                }
+                $form = '<form method="post" action="' . site_url('admin/reports/pf_orphan') . '" class="d-inline">' . $csrf . $back . '<input type="hidden" name="txn_id" value="' . $o['id'] . '">';
+                if ($opts !== '') {
+                    $act .= $form . '<select name="loan_id" class="form-control form-control-sm d-inline-block" style="width:auto">' . $opts . '</select> '
+                          . '<button name="do" value="link" class="btn btn-xs btn-primary">Link</button></form> ';
+                }
+                $act .= $form . '<button name="do" value="reverse" class="btn btn-xs btn-outline-danger" onclick="return confirm(\'Mark this fee entry as reversed (duplicate of a deleted loan)?\')">Reverse</button></form>';
+            }
+            $orows[] = $o + ['actions' => $act, 'loan_ref' => '#' . $o['reference_id'] . ' (deleted)'];
+        }
+
+        $nr = $count('no_record');
+        $toolbar = '';
+        if ($can && $nr) {
+            $toolbar = '<form method="post" action="' . site_url('admin/reports/pf_create_records') . '" class="d-inline" onsubmit="return confirm(\'Create the missing fee entry for ' . $nr . ' loan(s)? The fee was already deducted from the disbursement and is in the ledger — only the fee record is added (no new money, no ledger change).\')">'
+                     . $csrf . $back . '<input type="hidden" name="all" value="1"><button class="btn btn-sm btn-success"><i class="fas fa-plus-circle mr-1"></i>Create missing fee records (' . $nr . ' loans)</button></form>';
+        }
+        if (!$can) $toolbar = '<span class="text-muted small">Only admins can create or fix fee entries.</span>';
+
+        $modal = !$can ? '' : '
+<div class="modal fade" id="pfChargeModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+  <form method="post" action="' . site_url('admin/reports/pf_charge_fee') . '">' . $csrf . $back . '
+  <div class="modal-header bg-warning"><h5 class="modal-title">Charge processing fee — <span id="pfLoan"></span></h5><button type="button" class="close" data-dismiss="modal">&times;</button></div>
+  <div class="modal-body">
+    <input type="hidden" name="loan_id" id="pfLoanId">
+    <p class="small text-muted">This loan was disbursed without a processing fee. Use this when the member pays the fee now (or paid it separately). It records the fee on the loan, adds the fee entry and posts the receipt to the ledger (Cash/Bank Dr, Processing Fee Income Cr).</p>
+    <div class="form-row">
+      <div class="form-group col-6"><label>Amount (₹)</label><input type="number" step="0.01" min="1" name="amount" id="pfAmount" class="form-control" required><small class="text-muted">Default = product rule</small></div>
+      <div class="form-group col-6"><label>Date received</label><input type="date" name="date" id="pfDate" class="form-control" required></div>
+      <div class="form-group col-6"><label>Mode</label><select name="mode" class="form-control"><option value="cash">Cash</option><option value="bank_transfer">Bank transfer</option><option value="upi">UPI</option><option value="cheque">Cheque</option></select></div>
+      <div class="form-group col-6"><label>Reference</label><input type="text" name="reference" class="form-control" maxlength="50" placeholder="UTR / receipt no."></div>
+    </div>
+  </div>
+  <div class="modal-footer"><button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button><button class="btn btn-warning">Charge fee</button></div>
+  </form>
+</div></div></div>
+<script>
+$(document).on("click", ".pf-charge", function () {
+    var b = $(this);
+    $("#pfLoanId").val(b.data("id")); $("#pfLoan").text(b.data("loan")); $("#pfAmount").val(b.data("fee")); $("#pfDate").val(b.data("date"));
+    $("#pfChargeModal").modal("show");
+});
+</script>';
+
+        $this->_render_spec([
+            'title' => 'Processing Fee Check', 'icon' => 'fa-file-invoice-dollar',
+            'subtitle' => 'Every loan (active, closed, foreclosed) — fee on loan vs product rule, fee entry and ledger',
+            'filters' => [
+                ['name' => 'status', 'label' => 'Loan status', 'type' => 'select', 'value' => $status,
+                 'options' => ['' => 'All', 'active' => 'Active', 'closed' => 'Closed', 'foreclosed' => 'Foreclosed', 'npa' => 'NPA', 'written_off' => 'Written off']],
+                ['name' => 'issue', 'label' => 'Show', 'type' => 'select', 'value' => $issue,
+                 'options' => ['' => 'All loans', 'no_record' => 'Fee entry missing', 'not_charged' => 'No fee charged', 'record_mismatch' => 'Entry amount differs',
+                               'ledger_missing' => 'Not in ledger', 'differs_rule' => 'Differs from product rule', 'ok' => 'OK only']],
+            ],
+            'kpis' => [
+                ['label' => 'Loans checked', 'value' => count($all), 'type' => 'int'],
+                ['label' => 'Fee entry missing', 'value' => $nr, 'type' => 'int', 'color' => 'danger'],
+                ['label' => 'No fee charged', 'value' => $count('not_charged'), 'type' => 'int', 'color' => 'warning'],
+                ['label' => 'Not in ledger', 'value' => $count('ledger_missing'), 'type' => 'int', 'color' => 'danger'],
+                ['label' => 'Differs from rule', 'value' => $count('differs_rule'), 'type' => 'int', 'color' => 'info'],
+                ['label' => 'Orphan fee entries', 'value' => count($orph), 'type' => 'int', 'color' => 'warning', 'hint' => 'Fee entries of loans that were deleted'],
+            ],
+            'toolbar_html' => $toolbar,
+            'columns' => [
+                ['key' => 'loan_number', 'label' => 'Loan', 'type' => 'code'],
+                ['key' => 'status_label', 'label' => 'Status'],
+                ['key' => 'member_code', 'label' => 'Member', 'type' => 'code'],
+                ['key' => 'member_name', 'label' => 'Name'],
+                ['key' => 'disbursement_date', 'label' => 'Disbursed', 'type' => 'date'],
+                ['key' => 'principal_amount', 'label' => 'Principal', 'type' => 'money', 'total' => true],
+                ['key' => 'rule', 'label' => 'Rule'],
+                ['key' => 'rule_fee', 'label' => 'Fee as per rule', 'type' => 'money', 'total' => true],
+                ['key' => 'processing_fee', 'label' => 'Fee on loan', 'type' => 'money', 'total' => true],
+                ['key' => 'fee_pct', 'label' => 'Fee %', 'type' => 'pct'],
+                ['key' => 'recorded', 'label' => 'Fee entry', 'type' => 'money', 'total' => true],
+                ['key' => 'ledger_fee', 'label' => 'In ledger', 'type' => 'money', 'total' => true],
+                ['key' => 'issue_label', 'label' => 'Check'],
+                ['key' => 'actions', 'label' => 'Action', 'type' => 'html'],
+            ],
+            'rows' => $rows,
+            'sheets' => [[
+                'title' => 'Orphan fee entries (loan deleted)',
+                'columns' => [
+                    ['key' => 'id', 'label' => 'Entry #', 'type' => 'int'], ['key' => 'transaction_date', 'label' => 'Date', 'type' => 'date'],
+                    ['key' => 'member_code', 'label' => 'Member', 'type' => 'code'], ['key' => 'member_name', 'label' => 'Name'],
+                    ['key' => 'loan_ref', 'label' => 'Was for loan'], ['key' => 'amount', 'label' => 'Amount', 'type' => 'money', 'total' => true],
+                    ['key' => 'description', 'label' => 'Description'], ['key' => 'actions', 'label' => 'Action', 'type' => 'html'],
+                ],
+                'rows' => $orows,
+            ]],
+            'after_html' => $modal,
+            'note' => 'Fee on loan = loans.processing_fee (deducted from the disbursement). Fee entry = the processing-fee record in member transactions (shows on the member\'s statement / receipts). '
+                    . 'In ledger = Processing Fee Income (3200) posted for the loan. "Create record" only adds the missing entry — the money and ledger were already booked at disbursement. '
+                    . 'Orphan entries belong to loans that were deleted: link them to the member\'s current loan, or reverse duplicates.',
+        ]);
+    }
+
+    protected function _pf_back($msg, $ok = true) {
+        $this->session->set_flashdata($ok ? 'success' : 'error', $msg);
+        $q = (string) $this->input->post('back');
+        redirect('admin/reports/processing_fees' . ($q !== '' ? '?' . preg_replace('/[^A-Za-z0-9_=&%\-.]/', '', $q) : ''));
+    }
+
+    /** Create the missing fee entry for loans whose fee was deducted at disbursement. POST ids[] or all=1 */
+    public function pf_create_records() {
+        if ($this->input->method() !== 'post' || !$this->_pf_can_fix()) return $this->_pf_back('Not allowed.', false);
+        $want = array_map('intval', (array) $this->input->post('ids'));
+        $rows = array_filter($this->Report_model->processing_fee_check(), function ($r) use ($want) {
+            return in_array('no_record', $r['issues'], true) && ($this->input->post('all') ? true : in_array((int) $r['id'], $want, true));
+        });
+        if (!$rows) return $this->_pf_back('Nothing to create — every selected loan already has its fee entry.', false);
+
+        $admin = (int) $this->session->userdata('admin_id');
+        $this->db->trans_start();
+        $n = 0; $sum = 0;
+        foreach ($rows as $r) {
+            // re-check inside the transaction (no double entries on a double click)
+            $exists = $this->db->where('transaction_type', 'processing_fee')->where('status', 'completed')->where('reference_type', 'loan')
+                               ->where('reference_id', $r['id'])->count_all_results('member_other_transactions');
+            if ($exists) continue;
+            $this->db->insert('member_other_transactions', [
+                'member_id' => $r['member_id'], 'transaction_type' => 'processing_fee', 'amount' => $r['processing_fee'],
+                'transaction_date' => $r['disbursement_date'] ?: date('Y-m-d'),
+                'description' => 'Loan processing fee for Loan #' . $r['id'] . ' (' . $r['loan_number'] . ') — deducted from disbursement',
+                'reference_type' => 'loan', 'reference_id' => $r['id'], 'payment_mode' => 'deducted', 'status' => 'completed',
+                'created_by' => $admin, 'created_at' => date('Y-m-d H:i:s'),
+            ]);
+            $n++; $sum += (float) $r['processing_fee'];
+        }
+        $this->db->trans_complete();
+        if (!$this->db->trans_status()) return $this->_pf_back('Database error — nothing was saved.', false);
+        $this->log_audit('create', 'member_other_transactions', 'member_other_transactions', null, null,
+                         ['processing_fee_records' => $n, 'amount' => $sum], 'Processing fee check: missing fee entries created');
+        $this->_pf_back($n . ' fee entr' . ($n === 1 ? 'y' : 'ies') . ' created (₹' . number_format($sum, 2) . '). Ledger unchanged — the fees were already booked at disbursement.');
+    }
+
+    /** Loan disbursed without a fee: record the fee the member pays now (loan + entry + ledger receipt). */
+    public function pf_charge_fee() {
+        if ($this->input->method() !== 'post' || !$this->_pf_can_fix()) return $this->_pf_back('Not allowed.', false);
+        $loan_id = (int) $this->input->post('loan_id');
+        $amount  = round((float) $this->input->post('amount'), 2);
+        $date    = $this->input->post('date');
+        $mode    = in_array($this->input->post('mode'), ['cash', 'bank_transfer', 'upi', 'cheque'], true) ? $this->input->post('mode') : 'cash';
+        $ref     = mb_substr(trim((string) $this->input->post('reference')), 0, 50);
+        $loan = $this->db->where('id', $loan_id)->get('loans')->row();
+        if (!$loan) return $this->_pf_back('Loan not found.', false);
+        if ((float) $loan->processing_fee > 0) return $this->_pf_back($loan->loan_number . ' already has a processing fee of ₹' . number_format((float) $loan->processing_fee, 2) . '.', false);
+        if ($amount <= 0 || $amount > (float) $loan->principal_amount * 0.2) return $this->_pf_back('Enter a fee between ₹1 and 20% of the principal.', false);
+        $d = DateTime::createFromFormat('!Y-m-d', (string) $date);
+        if (!$d || $d->format('Y-m-d') !== $date || $date > date('Y-m-d')) return $this->_pf_back('Enter a valid date (not in the future).', false);
+
+        $admin = (int) $this->session->userdata('admin_id');
+        $this->load->model('Ledger_model');
+        $this->db->trans_begin();
+        try {
+            $this->db->where('id', $loan_id)->update('loans', ['processing_fee' => $amount, 'updated_at' => date('Y-m-d H:i:s')]);
+            $this->db->insert('member_other_transactions', [
+                'member_id' => $loan->member_id, 'transaction_type' => 'processing_fee', 'amount' => $amount, 'transaction_date' => $date,
+                'description' => 'Loan processing fee for Loan #' . $loan->id . ' (' . $loan->loan_number . ') — collected separately' . ($ref !== '' ? ', ref ' . $ref : ''),
+                'reference_type' => 'loan', 'reference_id' => $loan->id, 'payment_mode' => $mode, 'receipt_number' => $ref ?: null,
+                'status' => 'completed', 'created_by' => $admin, 'created_at' => date('Y-m-d H:i:s'),
+            ]);
+            $already = $this->db->where('reference_type', 'processing_fee')->where('reference_id', $loan->id)->count_all_results('general_ledger');
+            if (!$already && !$this->Ledger_model->post_transaction('processing_fee', $loan->id, $amount, $loan->member_id,
+                    'Processing fee for loan: ' . $loan->loan_number, $admin, $date, $mode)) {
+                throw new Exception('the ledger entry could not be posted');
+            }
+            if ($this->db->trans_status() === false) throw new Exception('database error');
+            $this->db->trans_commit();
+        } catch (Exception $e) {
+            $this->db->trans_rollback();
+            return $this->_pf_back('Nothing was saved — ' . $e->getMessage() . '.', false);
+        }
+        $this->log_audit('update', 'loans', 'loans', $loan->id, ['processing_fee' => 0], ['processing_fee' => $amount, 'mode' => $mode, 'date' => $date],
+                         'Processing fee charged from Processing Fee Check');
+        $this->_pf_back('Processing fee ₹' . number_format($amount, 2) . ' charged on ' . $loan->loan_number . ' and posted to the ledger.');
+    }
+
+    /** Fee entry of a deleted loan: link it to the member's loan that has no entry, or reverse it. */
+    public function pf_orphan() {
+        if ($this->input->method() !== 'post' || !$this->_pf_can_fix()) return $this->_pf_back('Not allowed.', false);
+        $t = $this->db->where('id', (int) $this->input->post('txn_id'))->where('transaction_type', 'processing_fee')->get('member_other_transactions')->row();
+        if (!$t || $t->status !== 'completed') return $this->_pf_back('Fee entry not found.', false);
+        if ($t->reference_id && $this->db->where('id', $t->reference_id)->count_all_results('loans')) return $this->_pf_back('This entry already belongs to an existing loan.', false);
+
+        if ($this->input->post('do') === 'link') {
+            $loan = $this->db->where('id', (int) $this->input->post('loan_id'))->where('member_id', $t->member_id)->get('loans')->row();
+            if (!$loan) return $this->_pf_back('Choose a loan of the same member.', false);
+            $has = $this->db->where('transaction_type', 'processing_fee')->where('status', 'completed')->where('reference_type', 'loan')
+                            ->where('reference_id', $loan->id)->count_all_results('member_other_transactions');
+            if ($has) return $this->_pf_back($loan->loan_number . ' already has a fee entry — reverse this one instead.', false);
+            $this->db->where('id', $t->id)->update('member_other_transactions', ['reference_type' => 'loan', 'reference_id' => $loan->id,
+                'description' => 'Loan processing fee for Loan #' . $loan->id . ' (' . $loan->loan_number . ') — relinked from deleted loan #' . $t->reference_id]);
+            $this->log_audit('update', 'member_other_transactions', 'member_other_transactions', $t->id, ['reference_id' => $t->reference_id],
+                             ['reference_id' => $loan->id], 'Orphan processing fee linked to ' . $loan->loan_number);
+            $msg = 'Fee entry #' . $t->id . ' linked to ' . $loan->loan_number . '.';
+            if (abs((float) $t->amount - (float) $loan->processing_fee) > 1) $msg .= ' Note: entry ₹' . number_format((float) $t->amount, 2) . ' differs from the loan fee ₹' . number_format((float) $loan->processing_fee, 2) . '.';
+            return $this->_pf_back($msg);
+        }
+        $this->load->model('Member_transaction_model');
+        $this->Member_transaction_model->reverse($t->id, 'Duplicate processing fee of deleted loan #' . $t->reference_id . ' (Processing Fee Check)', (int) $this->session->userdata('admin_id'));
+        $this->log_audit('reverse', 'member_other_transactions', 'member_other_transactions', $t->id, null, ['status' => 'reversed'], 'Orphan processing fee reversed');
+        $this->_pf_back('Fee entry #' . $t->id . ' reversed (it belonged to deleted loan #' . $t->reference_id . ').');
     }
 }

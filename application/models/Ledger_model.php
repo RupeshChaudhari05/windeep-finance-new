@@ -633,10 +633,17 @@ class Ledger_model extends MY_Model {
             ORDER BY voucher_date ASC, id ASC";
         
         $transactions = $this->db->query($txn_sql, [$account_id, $from_date, $to_date])->result();
-        
+        $total_debit  = round(array_sum(array_column($transactions, 'debit')), 2);
+        $total_credit = round(array_sum(array_column($transactions, 'credit')), 2);
+
+        // 'entries' and the totals are what the account statement page reads
         return [
             'opening_balance' => $opening_balance,
-            'transactions'    => $transactions
+            'transactions'    => $transactions,
+            'entries'         => $transactions,
+            'total_debit'     => $total_debit,
+            'total_credit'    => $total_credit,
+            'closing_balance' => round($opening_balance + $total_debit - $total_credit, 2),
         ];
     }
     

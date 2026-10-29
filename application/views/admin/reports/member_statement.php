@@ -3,9 +3,7 @@
     <div class="card-header d-flex justify-content-between align-items-center">
         <h3 class="card-title mb-0"><i class="fas fa-file-invoice-dollar mr-1"></i> Member Statement</h3>
         <div>
-            <a href="<?= current_url() ?>?export=pdf&<?= http_build_query($filters ?? []) ?>" class="btn btn-danger btn-sm">
-                <i class="fas fa-file-pdf"></i> PDF
-            </a>
+            <a href="<?= html_escape(current_url() . '?' . http_build_query(array_merge($_GET, ['export' => 'excel']))) ?>" class="btn btn-success btn-sm ml-2"><i class="fas fa-file-excel"></i> Excel</a> <button type="button" onclick="window.print()" class="btn btn-secondary btn-sm ml-1"><i class="fas fa-print"></i> Print</button>
             <button onclick="window.print()" class="btn btn-secondary btn-sm">
                 <i class="fas fa-print"></i> Print
             </button>

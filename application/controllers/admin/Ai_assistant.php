@@ -129,6 +129,7 @@ class Ai_assistant extends Admin_Controller {
         'balance_sheet'       => ['Balance Sheet', 'admin/reports/balance-sheet'],
         'fine_rules'          => ['Fine Rules', 'admin/fines/rules'],
         'fine_preview'        => ['Auto Fine Preview', 'admin/fines/preview_auto_fines'],
+        'processing_fee_check' => ['Processing Fee Check', 'admin/reports/processing_fees'],
         'ledger'              => ['Member Ledger', 'admin/ledger/member'],
         'settings'            => ['Settings', 'admin/settings'],
     ];
@@ -1256,8 +1257,8 @@ PROMPT;
              'parameters' => $obj(['tables' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Table names (max 10)']])],
             ['name' => 'run_sql', 'description' => 'Run ONE read-only SQL query (SELECT / WITH / SHOW / DESCRIBE) on the live database. Returns up to 100 rows. Use for any list, total, report or search.',
              'parameters' => $obj(['query' => $s('The SQL query'), 'purpose' => $s('Short description shown to the admin, e.g. "Overdue loans this month"')], ['query'])],
-            ['name' => 'get_report', 'description' => 'Ready-made report, shown to the admin as a table (prefer over run_sql). summary = society totals + collections in the period; overdue = overdue EMIs by loan; collections = daily collections; dues = EMIs due in the next N days; savings_dues; applications = open loan applications; unmapped_bank; pending_fines; member_dues = per-member EMI + savings + fine dues; portfolio = product-wise outstanding / overdue / PAR 30-90; fine_register = all fines in the period; income = month-wise income & expenses from the ledger; day_book = money in/out per day (cash+bank); savings_register = every active savings account with dues; collection_efficiency = EMI demand vs collected per month; bank_reconciliation = bank lines not mapped + books bank balance; kyc_pending; fine_preview = DRY RUN of the auto-fine job (what fines would be created today, nothing saved). Each table has an Excel download of the matching report page.',
-             'parameters' => $obj(['report' => $s('Report', ['summary', 'overdue', 'collections', 'dues', 'savings_dues', 'applications', 'unmapped_bank', 'pending_fines', 'member_dues', 'portfolio', 'fine_register', 'income', 'day_book', 'savings_register', 'collection_efficiency', 'bank_reconciliation', 'kyc_pending', 'fine_preview']),
+            ['name' => 'get_report', 'description' => 'Ready-made report, shown to the admin as a table (prefer over run_sql). summary = society totals + collections in the period; overdue = overdue EMIs by loan; collections = daily collections; dues = EMIs due in the next N days; savings_dues; applications = open loan applications; unmapped_bank; pending_fines; member_dues = per-member EMI + savings + fine dues; portfolio = product-wise outstanding / overdue / PAR 30-90; fine_register = all fines in the period; income = month-wise income & expenses from the ledger; day_book = money in/out per day (cash+bank); savings_register = every active savings account with dues; collection_efficiency = EMI demand vs collected per month; bank_reconciliation = bank lines not mapped + books bank balance; kyc_pending; processing_fees = loans whose processing fee is missing / not recorded / not in ledger (fix on the report page); fine_preview = DRY RUN of the auto-fine job (what fines would be created today, nothing saved). Each table has an Excel download of the matching report page.',
+             'parameters' => $obj(['report' => $s('Report', ['summary', 'overdue', 'collections', 'dues', 'savings_dues', 'applications', 'unmapped_bank', 'pending_fines', 'member_dues', 'portfolio', 'fine_register', 'income', 'day_book', 'savings_register', 'collection_efficiency', 'bank_reconciliation', 'kyc_pending', 'fine_preview', 'processing_fees']),
                                    'from' => $s('YYYY-MM-DD; default 1st of this month. For "today" pass today as from and to'), 'to' => $s('YYYY-MM-DD, default today'), 'days' => $n('dues: days ahead, default 7')], ['report'])],
             ['name' => 'map_bank_entries', 'description' => 'Suggest mappings for UNMAPPED bank CREDIT lines (Bank Transactions): finds the member from the bank text / UPI id / payer name / history and allocates to EMI / savings, or links to an existing manual entry. Shows a Save card. Use when the admin asks to map / reconcile bank entries.',
              'parameters' => $obj(['from' => $s('YYYY-MM-DD, optional'), 'to' => $s('YYYY-MM-DD, optional'), 'limit' => $n('Max lines, default 100'),
@@ -1626,6 +1627,12 @@ PROMPT;
                     'unmapped' => $r['pending_amount'], 'description' => $r['description'], 'detected_member' => $r['member_code']]; }, $b['unmapped']);
                 return $this->_tool_rows("Bank reconciliation {$from} to {$to} — books bank balance ₹" . number_format($b['gl_bank'], 2) . '; lines not yet mapped',
                                          $rows, 'admin/reports/bank-reconciliation', $q);
+            case 'processing_fees':
+                $rows = array_map(function ($r) { return ['loan' => $r['loan_number'], 'status' => $r['status'], 'member_code' => $r['member_code'], 'member' => $r['member_name'],
+                    'principal' => $r['principal_amount'], 'rule_fee' => $r['rule_fee'], 'fee_on_loan' => $r['processing_fee'], 'fee_entry' => $r['recorded'],
+                    'in_ledger' => $r['ledger_fee'], 'check' => $r['issue_label']]; },
+                    array_values(array_filter($R->processing_fee_check(), function ($r) { return (bool) $r['issues']; })));
+                return $this->_tool_rows('Processing fee problems (all loans)', $rows, 'admin/reports/processing_fees', '');
             case 'kyc_pending':
                 $rows = array_map(function ($m) { return ['member_code' => $m->member_code, 'member' => $m->member_name, 'phone' => $m->phone,
                     'items_missing' => $m->pending_documents, 'missing' => $m->missing]; }, $R->kyc_pending_list());

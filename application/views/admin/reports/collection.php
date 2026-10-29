@@ -44,9 +44,7 @@
                             <a href="<?= current_url() ?>?export=excel&<?= http_build_query($filters ?? []) ?>" class="btn btn-success">
                                 <i class="fas fa-download"></i> Export
                             </a>
-                            <a href="<?= current_url() ?>?export=pdf&<?= http_build_query($filters ?? []) ?>" class="btn btn-danger">
-                                <i class="fas fa-file-pdf"></i> PDF
-                            </a>
+                            <button type="button" onclick="window.print()" class="btn btn-secondary"><i class="fas fa-print"></i> Print</button>
                         </div>
                     </div>
                 </div>

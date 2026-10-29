@@ -6,9 +6,7 @@
             <a href="<?= site_url('admin/reports/disbursement?export=excel&from_date=' . $from_date . '&to_date=' . $to_date) ?>" class="btn btn-success btn-sm">
                 <i class="fas fa-file-excel"></i> Export Excel
             </a>
-            <a href="<?= site_url('admin/reports/disbursement?export=pdf&from_date=' . $from_date . '&to_date=' . $to_date) ?>" class="btn btn-danger btn-sm">
-                <i class="fas fa-file-pdf"></i> Export PDF
-            </a>
+            <button type="button" onclick="window.print()" class="btn btn-secondary btn-sm"><i class="fas fa-print"></i> Print</button>
         </div>
     </div>
     <div class="card-body">
