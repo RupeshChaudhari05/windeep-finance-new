@@ -20,6 +20,7 @@ class Ledger_model extends MY_Model {
     const AC_PROCESSING_INCOME  = '3200';
     const AC_FINE_INCOME        = '3300';
     const AC_MEMBERSHIP_INCOME  = '3400';
+    const AC_CLOSING_FEE_INCOME = '3500';   // savings account closing fee (migration 039)
     const AC_INTEREST_EXP       = '4100';
     const AC_OPERATING_EXP      = '4200';
 
@@ -936,6 +937,11 @@ class Ledger_model extends MY_Model {
             && preg_match('/^(Auto-deducted for loan EMI shortfall|Overpayment from loan EMI|Negative balance: Loan EMI shortfall)/i', (string) $s->narration);
     }
 
+    /** True for the fee row Savings_closure_model writes when an account is closed. */
+    public function is_closing_fee($s) {
+        return $s->payment_mode === 'adjustment' && stripos((string) $s->narration, 'Account closing fee') === 0;
+    }
+
     // ── savings ──
 
     public function post_savings_txn($s, $created_by = null) {
@@ -948,6 +954,12 @@ class Ledger_model extends MY_Model {
         $amt = round((float) $s->amount, 2);
         if ($amt < 0.01) return false;
         $cash = $this->cash_account_code($s->payment_mode === 'adjustment' ? 'bank_transfer' : $s->payment_mode);
+        // Closing fee kept from the balance when an account is closed: income, no money moves
+        if ($s->transaction_type === 'withdrawal' && $this->is_closing_fee($s)) {
+            return $this->_post_source('journal', $s->transaction_date, 'savings_transaction', $s->id, $s->member_id ?? null,
+                'Account closing fee' . (isset($s->account_number) ? ' ' . $s->account_number : ''),
+                [[self::AC_SAVINGS_DEP, $amt, 0], [self::AC_CLOSING_FEE_INCOME, 0, $amt]], $created_by);
+        }
         switch ($s->transaction_type) {
             case 'deposit':
             case 'opening_balance': $legs = [[$cash, $amt, 0], [self::AC_SAVINGS_DEP, 0, $amt]]; $vt = 'receipt'; break;

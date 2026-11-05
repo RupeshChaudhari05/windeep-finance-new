@@ -47,7 +47,8 @@
                                 ?></small>
                                 <?php endif; ?>
                             </td>
-                            <td><span class="badge badge-secondary"><?= $product->code ?></span></td>
+                            <td><span class="badge badge-secondary"><?= $product->code ?></span>
+                                <?php if (!empty($product->is_advance_loan)): ?><br><span class="badge badge-info mt-1" title="EMI from the first date on the full amount; money released later as per plan">Advance loan</span><?php endif; ?></td>
                             <td class="text-right"><?= format_amount($product->min_amount, 0) ?></td>
                             <td class="text-right"><?= format_amount($product->max_amount, 0) ?></td>
                             <td class="text-right">
@@ -229,6 +230,14 @@
                     </div>
                     <div class="form-group">
                         <div class="custom-control custom-checkbox">
+                            <input type="checkbox" name="is_advance_loan" id="is_advance_loan" class="custom-control-input" value="1">
+                            <label class="custom-control-label" for="is_advance_loan"><strong>Advance loan</strong></label>
+                        </div>
+                        <small class="text-muted d-block">EMI is charged from the first EMI date on the full sanctioned amount, but the money is released later in parts,
+                            as per a plan (date + amount) fixed at sanction. The processing fee is withheld from the first part.</small>
+                    </div>
+                    <div class="form-group">
+                        <div class="custom-control custom-checkbox">
                             <input type="checkbox" name="is_active" id="is_active" class="custom-control-input" value="1" checked>
                             <label class="custom-control-label" for="is_active">Active (available for new loans)</label>
                         </div>
@@ -278,6 +287,7 @@ $(document).ready(function() {
         $('#late_fine_rate').val(product.late_fine_rate);
         $('#grace_period').val(product.grace_period);
         $('#is_active').prop('checked', product.is_active == 1);
+        $('#is_advance_loan').prop('checked', product.is_advance_loan == 1);
         $('#addProductModal').modal('show');
     });
     

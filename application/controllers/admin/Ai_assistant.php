@@ -1029,6 +1029,8 @@ class Ai_assistant extends Admin_Controller {
 
         $entries = array_map(function ($r) {
             return ['row' => $r['row'], 'date' => $r['date'], 'member' => $r['member_label'], 'amount' => $r['amount'], 'mode' => $r['mode'],
+                    'receipt' => $r['receipt_label'] ?? '',
+                    'paid_by' => (!empty($r['paying_member_id']) && (int) $r['paying_member_id'] !== (int) $r['member_id']) ? ($r['payer_label'] ?? '') : '',
                     'alloc' => implode(' + ', array_map(function ($a) { return $a['label'] . ' ₹' . number_format($a['amount'], 2); }, $r['allocations'])),
                     'status' => $r['status'], 'issues' => array_merge($r['issues'], $r['notes'])];
         }, $plan['rows']);
@@ -1039,7 +1041,7 @@ class Ai_assistant extends Admin_Controller {
         }
 
         $reply = "📄 **{$name}** — {$sum['rows']} row(s) checked:\n"
-               . "- ✅ **{$sum['ready']}** ready to save (₹" . number_format($sum['amount_ready'], 2) . ")\n"
+               . "- ✅ **{$sum['ready']}** ready to save (₹" . number_format($sum['amount_ready'], 2) . (!empty($sum['receipts']) ? ' in ' . $sum['receipts'] . ' receipt(s)' : '') . ")\n"
                . ($sum['review'] ? "- ⚠️ **{$sum['review']}** need attention (see the reason on each row — fix the Excel and upload again, or tell me)\n" : '')
                . ($sum['duplicate'] ? "- ♻️ **{$sum['duplicate']}** already recorded — will be skipped\n" : '')
                . ($sum['ready'] ? "\nPress **Save entries** to record them (same rules as Bank Mapping)." : "\nNothing can be saved yet.");
@@ -1089,6 +1091,8 @@ class Ai_assistant extends Admin_Controller {
         $entries = array_map(function ($r) {
             $why = !empty($r['match']) ? ['🔎 ' . $r['match'] . (isset($r['confidence']) ? ' (' . $r['confidence'] . ')' : '')] : [];
             return ['row' => $r['row'], 'date' => $r['date'], 'member' => $r['member_label'], 'amount' => $r['amount'], 'mode' => $r['mode'],
+                    'receipt' => $r['receipt_label'] ?? '',
+                    'paid_by' => (!empty($r['paying_member_id']) && (int) $r['paying_member_id'] !== (int) $r['member_id']) ? ($r['payer_label'] ?? '') : '',
                     'alloc' => implode(' + ', array_map(function ($x) { return $x['label'] . ' ₹' . number_format($x['amount'], 2); }, $r['allocations'])),
                     'status' => $r['status'], 'issues' => array_merge($r['issues'], $r['notes'], $why), 'payer' => mb_substr($r['payer'], 0, 40)];
         }, $plan['rows']);

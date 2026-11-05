@@ -75,10 +75,8 @@ function auto_run_migrations()
             $content = file_get_contents($file_path);
             
             try {
-                $statements = array_filter(
-                    array_map('trim', explode(';', $content)),
-                    fn($stmt) => !empty($stmt) && !str_starts_with($stmt, '--')
-                );
+                // Quote / comment / DELIMITER aware (a ; inside COMMENT '…' must not split the statement)
+                $statements = sql_split_statements($content);
 
                 foreach ($statements as $statement) {
                     $CI->db->query($statement);
@@ -177,4 +175,94 @@ function backup_database()
     exec($cmd, $output, $return_var);
 
     return $return_var === 0 ? $backup_file : false;
+}
+
+if (!function_exists('sql_split_statements')) {
+    /**
+     * Split an SQL script into single statements.
+     * Unlike explode(';'): a ; inside quotes ('…', "…", `…`) or comments does not split, comments (--, #, block comments)
+     * are dropped (MySQL versioned "/*!" hints are kept) and DELIMITER $$ blocks (procedures / triggers) stay whole.
+     * A statement that starts after a comment line is therefore no longer skipped.
+     *
+     * @return string[]
+     */
+    function sql_split_statements($sql)
+    {
+        $out = [];
+        $buf = '';
+        $delim = ';';
+        $quote = null;
+        $len = strlen($sql);
+        $flush = function () use (&$buf, &$out) {
+            if (trim($buf) !== '') $out[] = trim($buf);
+            $buf = '';
+        };
+        for ($i = 0; $i < $len;) {
+            $c = $sql[$i];
+            if ($quote !== null) {
+                $buf .= $c;
+                if ($c === '\\' && $quote !== '`' && $i + 1 < $len) { $buf .= $sql[$i + 1]; $i += 2; continue; }
+                if ($c === $quote) {
+                    if ($i + 1 < $len && $sql[$i + 1] === $quote) { $buf .= $quote; $i += 2; continue; }   // '' inside a string
+                    $quote = null;
+                }
+                $i++;
+                continue;
+            }
+            // DELIMITER $$ / DELIMITER ; / DELIMITER; at the start of a line (mysql client command, not SQL)
+            if (($i === 0 || $sql[$i - 1] === "\n") && preg_match('/\G[ \t]*DELIMITER(?![A-Za-z0-9_])[ \t]*(\S+)[^\n]*(\n|$)/i', $sql, $m, 0, $i)) {
+                $flush();
+                $delim = $m[1];
+                $i += strlen($m[0]);
+                continue;
+            }
+            if (($c === '-' && substr($sql, $i, 2) === '--' && ($i + 2 >= $len || ctype_space($sql[$i + 2]))) || $c === '#') {
+                $e = strpos($sql, "\n", $i);
+                $i = $e === false ? $len : $e;
+                continue;
+            }
+            if ($c === '/' && substr($sql, $i, 2) === '/*') {
+                $e = strpos($sql, '*/', $i + 2);
+                $end = $e === false ? $len : $e + 2;
+                if (substr($sql, $i, 3) === '/*!') $buf .= substr($sql, $i, $end - $i);   // executable version hint
+                else $buf .= ' ';
+                $i = $end;
+                continue;
+            }
+            if ($c === "'" || $c === '"' || $c === '`') { $quote = $c; $buf .= $c; $i++; continue; }
+            if (substr_compare($sql, $delim, $i, strlen($delim)) === 0) { $flush(); $i += strlen($delim); continue; }
+            $buf .= $c;
+            $i++;
+        }
+        $flush();
+        return $out;
+    }
+}
+
+if (!function_exists('sql_split_top_level')) {
+    /** Split on commas that are outside quotes and parentheses (the clauses of one ALTER TABLE). */
+    function sql_split_top_level($s)
+    {
+        $parts = [];
+        $buf = '';
+        $depth = 0;
+        $quote = null;
+        $len = strlen($s);
+        for ($i = 0; $i < $len; $i++) {
+            $c = $s[$i];
+            if ($quote !== null) {
+                $buf .= $c;
+                if ($c === '\\' && $quote !== '`' && $i + 1 < $len) { $buf .= $s[++$i]; continue; }
+                if ($c === $quote) $quote = null;
+                continue;
+            }
+            if ($c === "'" || $c === '"' || $c === '`') $quote = $c;
+            elseif ($c === '(') $depth++;
+            elseif ($c === ')') $depth--;
+            elseif ($c === ',' && $depth === 0) { $parts[] = trim($buf); $buf = ''; continue; }
+            $buf .= $c;
+        }
+        if (trim($buf) !== '') $parts[] = trim($buf);
+        return $parts;
+    }
 }

@@ -108,7 +108,7 @@
                 <!-- Disbursement in parts -->
                 <div class="card card-outline card-primary mb-2" id="disbursementCard">
                     <div class="card-header py-2">
-                        <h3 class="card-title"><i class="fas fa-layer-group mr-1"></i> Disbursement in parts</h3>
+                        <h3 class="card-title"><i class="fas fa-layer-group mr-1"></i> <?= !empty($loan->is_advance) ? 'Advance loan — release plan' : 'Disbursement in parts' ?></h3>
                     </div>
                     <div class="card-body p-2">
                         <?php $pct = $loan->principal_amount > 0 ? min(100, round($disb_done / $loan->principal_amount * 100)) : 100; ?>
@@ -130,7 +130,12 @@
                                         <?php if ((float) $p->processing_fee > 0): ?><br><small class="text-muted">fee <?= format_amount($p->processing_fee, 0) ?> · paid <?= format_amount($p->net_amount, 0) ?></small><?php endif; ?>
                                     </td>
                                     <td>
-                                        <?php if ($p->status !== 'completed'): ?><span class="badge badge-secondary"><?= htmlspecialchars($p->status) ?></span>
+                                        <?php if ($p->status === 'pending' && !empty($loan->is_advance)): ?>
+                                            <?php $is_next = !empty($next_planned) && (int) $next_planned->id === (int) $p->id; $due = ($p->planned_date ?: $p->disbursement_date) <= date('Y-m-d'); ?>
+                                            <?php if ($is_next && $due && in_array($loan->status, ['active', 'npa'], true)): ?>
+                                                <button type="button" class="btn btn-xs btn-success" data-toggle="modal" data-target="#releasePartModal"><i class="fas fa-paper-plane"></i> Release</button>
+                                            <?php else: ?><span class="badge badge-info" title="Planned — can be released on or after this date">planned</span><?php endif; ?>
+                                        <?php elseif ($p->status !== 'completed'): ?><span class="badge badge-secondary"><?= htmlspecialchars($p->status) ?></span>
                                         <?php elseif ($p->bank_transaction_id): ?><span class="badge badge-success" title="<?= htmlspecialchars((string) $p->bank_description) ?>"><i class="fas fa-link"></i> mapped</span>
                                         <?php else: ?><span class="badge badge-warning" title="Map the bank debit in Bank Mapping → Loan disbursement">not mapped</span><?php endif; ?>
                                     </td>
@@ -138,7 +143,13 @@
                             <?php endforeach; ?>
                             </tbody>
                         </table>
-                        <?php if (!empty($loan->is_tranche) && $disb_pending > 0 && in_array($loan->status, ['active', 'npa'], true)): ?>
+                        <?php if (!empty($loan->is_advance) && !empty($next_planned)): $np_date = $next_planned->planned_date ?: $next_planned->disbursement_date; ?>
+                        <p class="small mb-0 <?= $np_date <= date('Y-m-d') ? 'text-success' : 'text-muted' ?>">
+                            <i class="fas fa-clock mr-1"></i> Next: part <?= (int) $next_planned->tranche_no ?> · <?= format_amount($next_planned->disbursement_amount, 0) ?>
+                            <?= $np_date <= date('Y-m-d') ? 'due since ' : 'planned for ' ?><?= format_date($np_date) ?>
+                        </p>
+                        <?php endif; ?>
+                        <?php if (!empty($loan->is_tranche) && empty($loan->is_advance) && $disb_pending > 0 && in_array($loan->status, ['active', 'npa'], true)): ?>
                         <button type="button" class="btn btn-primary btn-sm btn-block" data-toggle="modal" data-target="#addDisbursementModal">
                             <i class="fas fa-plus mr-1"></i> Add disbursement
                         </button>
@@ -146,7 +157,69 @@
                     </div>
                 </div>
 
-                <?php if (!empty($loan->is_tranche) && $disb_pending > 0): ?>
+                <?php if (!empty($loan->is_advance) && !empty($next_planned)):
+                    $np = $next_planned; $np_date = $np->planned_date ?: $np->disbursement_date; ?>
+                <div class="modal fade" id="releasePartModal" tabindex="-1">
+                    <div class="modal-dialog"><div class="modal-content">
+                        <form method="post" action="<?= site_url('admin/loans/release_part/' . $loan->id) ?>">
+                            <input type="hidden" name="part_id" value="<?= (int) $np->id ?>">
+                            <div class="modal-header"><h5 class="modal-title">Release part <?= (int) $np->tranche_no ?> — <?= htmlspecialchars($loan->loan_number) ?></h5>
+                                <button type="button" class="close" data-dismiss="modal">&times;</button></div>
+                            <div class="modal-body">
+                                <?php if ($overdue_count > 0): ?>
+                                <div class="alert alert-warning py-2"><i class="fas fa-exclamation-triangle mr-1"></i>
+                                    Member has <strong><?= (int) $overdue_count ?> overdue EMI(s)</strong> of <strong><?= format_amount($overdue_amount) ?></strong>. You can still release.</div>
+                                <?php endif; ?>
+                                <table class="table table-sm mb-3">
+                                    <tr><td>Planned date</td><td class="text-right"><?= format_date($np_date) ?></td></tr>
+                                    <tr><td>Part amount (fixed by plan)</td><td class="text-right"><strong><?= format_amount($np->disbursement_amount) ?></strong></td></tr>
+                                    <?php if ((float) $np->processing_fee > 0): ?>
+                                    <tr><td>Processing fee withheld</td><td class="text-right text-danger">- <?= format_amount($np->processing_fee) ?></td></tr>
+                                    <?php endif; ?>
+                                    <tr class="table-success"><th>Paid to member</th><th class="text-right"><?= format_amount($np->net_amount) ?></th></tr>
+                                </table>
+                                <div class="form-group">
+                                    <label>Bank debit line (optional — maps it in Bank Mapping)</label>
+                                    <select name="bank_transaction_id" id="relBankLine" class="form-control" data-no-search="1">
+                                        <option value="">— not from bank / map later —</option>
+                                        <?php foreach ($disb_bank_lines as $b): $left = (float) $b->amount - (float) $b->mapped_amount;
+                                            if (abs($left - (float) $np->net_amount) > 1 || $b->transaction_date < $np_date) continue; ?>
+                                        <option value="<?= $b->id ?>" data-date="<?= $b->transaction_date ?>">
+                                            <?= format_date($b->transaction_date) ?> · <?= format_amount($left) ?> · <?= htmlspecialchars(mb_substr((string) $b->description, 0, 60)) ?>
+                                        </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group col-6"><label>Release date *</label>
+                                        <input type="date" name="date" id="relDate" class="form-control" min="<?= $np_date ?>" max="<?= date('Y-m-d') ?>" value="<?= date('Y-m-d') ?>" required></div>
+                                    <div class="form-group col-6"><label>Mode</label>
+                                        <select name="mode" class="form-control" data-no-search="1">
+                                            <option value="bank_transfer">Bank transfer</option><option value="cheque">Cheque</option><option value="upi">UPI</option><option value="cash">Cash</option>
+                                        </select></div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group col-6"><label>Reference</label><input type="text" name="reference" class="form-control" maxlength="100"></div>
+                                    <div class="form-group col-6"><label>Remarks</label><input type="text" name="remarks" class="form-control" maxlength="255"></div>
+                                </div>
+                            </div>
+                            <div class="modal-footer"><button type="submit" class="btn btn-success" onclick="return confirm('Release this part? The ledger entry is posted now.')"><i class="fas fa-paper-plane mr-1"></i> Release <?= format_amount($np->net_amount) ?></button></div>
+                        </form>
+                    </div></div>
+                </div>
+                <script>
+                document.addEventListener('DOMContentLoaded', function () {
+                    var sel = document.getElementById('relBankLine');
+                    if (!sel) return;
+                    sel.addEventListener('change', function () {
+                        var o = sel.options[sel.selectedIndex];
+                        if (o && o.dataset.date) document.getElementById('relDate').value = o.dataset.date;
+                    });
+                });
+                </script>
+                <?php endif; ?>
+
+                <?php if (!empty($loan->is_tranche) && empty($loan->is_advance) && $disb_pending > 0): ?>
                 <div class="modal fade" id="addDisbursementModal" tabindex="-1">
                     <div class="modal-dialog"><div class="modal-content">
                         <form method="post" action="<?= site_url('admin/loans/add_disbursement/' . $loan->id) ?>">
