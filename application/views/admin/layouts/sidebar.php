@@ -181,6 +181,17 @@ if (!function_exists('nav_active')) {
                                     <p>Bonus</p>
                                 </a>
                             </li>
+                            <?php
+                            $_ci = get_instance();
+                            $_closure_pending = $_ci->db->table_exists('savings_closure_requests')
+                                ? $_ci->db->where('status', 'pending')->count_all_results('savings_closure_requests') : 0;
+                            ?>
+                            <li class="nav-item">
+                                <a href="<?= base_url('admin/savings/closure_requests') ?>" class="nav-link <?= nav_active('savings/closure_requests', $nav_current, $nav_controller) ?>">
+                                    <i class="far fa-circle nav-icon"></i>
+                                    <p>Closure Requests<?php if ($_closure_pending): ?> <span class="badge badge-warning right"><?= (int) $_closure_pending ?></span><?php endif; ?></p>
+                                </a>
+                            </li>
                         </ul>
                     </li>
 

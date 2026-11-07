@@ -1,4 +1,36 @@
 <!-- Disbursement Queue -->
+<?php if (!empty($advance_due)): ?>
+<!-- Advance loans: planned parts due (or due within 30 days) -->
+<div class="card card-outline card-info">
+    <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-calendar-alt mr-1"></i> Advance loan releases — due now or in the next 30 days</h3>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead class="thead-light"><tr><th>Loan</th><th>Member</th><th>Part</th><th>Planned date</th>
+                    <th class="text-right">Amount</th><th class="text-right">Paid to member</th><th class="text-right">Overdue EMIs</th><th></th></tr></thead>
+                <tbody>
+                <?php foreach ($advance_due as $a): $due = (int) $a->days_due >= 0; ?>
+                    <tr class="<?= $due ? '' : 'text-muted' ?>">
+                        <td><a href="<?= site_url('admin/loans/view/' . $a->loan_id) ?>"><?= htmlspecialchars($a->loan_number) ?></a></td>
+                        <td><?= htmlspecialchars(trim($a->first_name . ' ' . $a->last_name)) ?> <small class="text-muted"><?= htmlspecialchars($a->member_code) ?></small></td>
+                        <td><?= (int) $a->tranche_no ?></td>
+                        <td><?= format_date($a->planned_date ?: $a->disbursement_date) ?>
+                            <?php if ($due): ?><span class="badge badge-<?= $a->days_due > 0 ? 'danger' : 'success' ?>"><?= $a->days_due > 0 ? $a->days_due . ' days late' : 'today' ?></span>
+                            <?php else: ?><span class="badge badge-light">in <?= -(int) $a->days_due ?> days</span><?php endif; ?></td>
+                        <td class="text-right"><?= format_amount($a->disbursement_amount, 0) ?></td>
+                        <td class="text-right"><?= format_amount($a->net_amount, 0) ?></td>
+                        <td class="text-right <?= $a->overdue_amount > 0 ? 'text-danger' : '' ?>"><?= $a->overdue_amount > 0 ? format_amount($a->overdue_amount, 0) : '—' ?></td>
+                        <td class="text-right"><?php if ($due): ?><a href="<?= site_url('admin/loans/view/' . $a->loan_id) ?>#disbursementCard" class="btn btn-xs btn-success">Release</a><?php endif; ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 <div class="card">
     <div class="card-header">
         <h3 class="card-title"><i class="fas fa-money-bill-wave mr-1"></i> Ready for Disbursement</h3>

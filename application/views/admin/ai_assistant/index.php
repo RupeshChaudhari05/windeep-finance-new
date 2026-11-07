@@ -376,7 +376,9 @@ $(function () {
         if (a.type === 'passbook_import') {
             var s = a.summary || {}, st = {ready: ['✅', 'Ready'], review: ['⚠️', 'Check'], duplicate: ['♻️', 'Duplicate']};
             var body = (a.entries || []).map(function (e) {
-                return '<tr' + (e.status !== 'ready' ? ' style="background:#fff7ed"' : '') + '><td>' + (a.bank ? '#' : '') + e.row + '</td><td>' + esc(e.date || '') + '</td><td>' + esc(e.member) +
+                return '<tr' + (e.status !== 'ready' ? ' style="background:#fff7ed"' : '') + '><td>' + (a.bank ? '#' : '') + e.row +
+                    (e.receipt ? '<div class="small text-muted" style="white-space:nowrap">' + esc(e.receipt) + '</div>' : '') + '</td><td>' + esc(e.date || '') + '</td><td>' + esc(e.member) +
+                    (e.paid_by ? '<div class="small text-info" style="white-space:normal">paid by ' + esc(e.paid_by) + '</div>' : '') +
                     (e.payer ? '<div class="small text-muted" style="white-space:normal">bank: ' + esc(e.payer) + '</div>' : '') +
                     '</td><td>' + inr(e.amount) + '</td><td>' + esc(e.mode) + '</td><td>' + esc(e.alloc || '—') + '</td><td>' + (st[e.status] || ['', e.status])[0] + ' ' +
                     (st[e.status] || ['', e.status])[1] + (e.issues && e.issues.length ? '<div class="small text-muted" style="white-space:normal;min-width:180px">' +

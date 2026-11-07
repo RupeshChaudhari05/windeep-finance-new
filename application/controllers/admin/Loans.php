@@ -273,6 +273,7 @@ class Loans extends Admin_Controller {
         } catch (Throwable $e) {
             log_message('error', 'Loan view ' . $id . ' disbursement parts (run migration 035?): ' . $e->getMessage());
         }
+        $data['next_planned'] = !empty($loan->is_advance) ? $this->Loan_model->next_planned_part($id) : null;
         // Unmapped bank DEBIT lines the next part can be linked to
         $data['disb_bank_lines'] = (!empty($loan->is_tranche) && $data['disb_pending'] > 0)
             ? $this->db->select('id, transaction_date, amount, mapped_amount, description, reference_number')->where('transaction_type', 'debit')
@@ -923,7 +924,9 @@ class Loans extends Admin_Controller {
                     'first_emi_date' => $this->input->post('first_emi_date'),
                     'disbursement_mode' => $this->input->post('disbursement_mode'),
                     'reference_number' => $this->input->post('reference_number'),
-                    'first_amount' => $this->input->post('first_amount')
+                    'first_amount' => $this->input->post('first_amount'),
+                    'plan' => array_map(function ($d, $a) { return ['date' => $d, 'amount' => $a]; },
+                                        (array) $this->input->post('plan_date'), (array) $this->input->post('plan_amount')),
                 ];
                 
                 $loan_id = $this->Loan_model->disburse_loan($id, $disbursement_data, $this->session->userdata('admin_id'));
@@ -942,7 +945,8 @@ class Loans extends Admin_Controller {
                     if ($part1) $this->Ledger_model->post_disbursement_part($part1, $this->session->userdata('admin_id'));
 
                     // Processing fee: member other transaction (its income is already inside the voucher above)
-                    if ($loan->processing_fee > 0) {
+                    // Advance loan: nothing is paid out yet — the fee entry is made when part 1 is released
+                    if ($loan->processing_fee > 0 && empty($loan->is_advance)) {
 
                         // Auto-record in member other transactions
                         $this->load->model('Member_transaction_model');
@@ -956,7 +960,9 @@ class Loans extends Admin_Controller {
                     }
                     
                     $this->log_audit('disbursed', 'loans', 'loans', $loan_id, null, $disbursement_data);
-                    $this->session->set_flashdata('success', 'Loan disbursed successfully.');
+                    $this->session->set_flashdata('success', !empty($loan->is_advance)
+                        ? 'Advance loan created. EMIs start on ' . format_date($loan->first_emi_date) . '; release each part from the loan page on its planned date.'
+                        : 'Loan disbursed successfully.');
                     redirect('admin/loans/view/' . $loan_id);
                 }
                 
@@ -1011,6 +1017,30 @@ class Loans extends Admin_Controller {
             ], $this->session->userdata('admin_id'));
             $this->log_activity('Loan part disbursed', 'Loan #' . (int) $loan_id . ' part #' . $part_id, 'loans');
             $this->session->set_flashdata('success', 'Disbursement part saved.');
+        } catch (Exception $e) {
+            $this->session->set_flashdata('error', $e->getMessage());
+        }
+        redirect('admin/loans/view/' . (int) $loan_id);
+    }
+
+    /**
+     * Release the next planned part of an advance loan (POST part_id, date, mode, reference, remarks, bank_transaction_id).
+     */
+    public function release_part($loan_id) {
+        $this->check_permission('loans_approve');
+        if ($this->input->method() !== 'post') redirect('admin/loans/view/' . (int) $loan_id);
+        try {
+            $part_id = (int) $this->input->post('part_id');
+            $part = $this->db->where('id', $part_id)->where('loan_id', (int) $loan_id)->get('disbursement_tracking')->row();
+            if (!$part) throw new Exception('Planned part not found on this loan');
+            $this->Loan_model->release_planned_part($part_id, [
+                'date' => $this->input->post('date'), 'mode' => $this->input->post('mode'),
+                'reference' => $this->input->post('reference'), 'remarks' => $this->input->post('remarks'),
+                'bank_transaction_id' => $this->input->post('bank_transaction_id') ?: null, 'source' => 'loan_page',
+            ], $this->session->userdata('admin_id'));
+            $this->log_activity('Advance loan part released', 'Loan #' . (int) $loan_id . ' part ' . $part->tranche_no, 'loans');
+            $this->session->set_flashdata('success', 'Part ' . $part->tranche_no . ' released: ' . format_amount($part->disbursement_amount)
+                . ((float) $part->processing_fee > 0 ? ' (fee ' . format_amount($part->processing_fee) . ' withheld, paid ' . format_amount($part->net_amount) . ')' : '') . '.');
         } catch (Exception $e) {
             $this->session->set_flashdata('error', $e->getMessage());
         }
@@ -1641,6 +1671,8 @@ class Loans extends Admin_Controller {
         
         // Get approved applications ready for disbursement
         $data['applications'] = $this->Loan_model->get_ready_for_disbursement();
+        // Advance loans: planned parts due now or in the next 30 days
+        $data['advance_due'] = $this->Loan_model->get_due_advance_releases(30);
         
         // Calculate totals
         $data['total_amount'] = 0;
@@ -1809,6 +1841,9 @@ class Loans extends Admin_Controller {
             'grace_period_days' => $this->input->post('grace_period') ?: 0,
             'is_active' => $this->input->post('is_active') ? 1 : 0
         ];
+        if ($this->db->field_exists('is_advance_loan', 'loan_products')) {   // migration 038
+            $data['is_advance_loan'] = $this->input->post('is_advance_loan') ? 1 : 0;
+        }
         
         // Validation
         if (empty($data['product_name']) || empty($data['product_code'])) {

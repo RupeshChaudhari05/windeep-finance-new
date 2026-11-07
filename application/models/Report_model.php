@@ -511,7 +511,7 @@ class Report_model extends MY_Model {
             'new_members'            => (int) $q("SELECT COUNT(*) s FROM members WHERE DATE(created_at) BETWEEN ? AND ?"),
             'new_savings_accounts'   => (int) $q("SELECT COUNT(*) s FROM savings_accounts WHERE DATE(created_at) BETWEEN ? AND ?"),
             'savings_collected'      => $q("SELECT COALESCE(SUM(amount),0) s FROM savings_transactions WHERE transaction_type = 'deposit' AND COALESCE(is_reversed,0) = 0 AND COALESCE(payment_mode, '') <> 'adjustment' AND transaction_date BETWEEN ? AND ?"),
-            'savings_withdrawn'      => $q("SELECT COALESCE(SUM(amount),0) s FROM savings_transactions WHERE transaction_type = 'withdrawal' AND COALESCE(is_reversed,0) = 0 AND transaction_date BETWEEN ? AND ?"),
+            'savings_withdrawn'      => $q("SELECT COALESCE(SUM(amount),0) s FROM savings_transactions WHERE transaction_type = 'withdrawal' AND COALESCE(is_reversed,0) = 0 AND COALESCE(payment_mode, '') <> 'adjustment' AND transaction_date BETWEEN ? AND ?"),
             'loan_applications'      => (int) $q("SELECT COUNT(*) s FROM loan_applications WHERE DATE(created_at) BETWEEN ? AND ?"),
             'loans_disbursed_count'  => (int) $q("SELECT COUNT(*) s FROM loans WHERE disbursement_date BETWEEN ? AND ?"),
             'loans_disbursed_amount' => $this->disbursed_sum($start_date, $end_date),
@@ -1402,6 +1402,9 @@ class Report_model extends MY_Model {
      * issue codes: not_charged, no_record, record_mismatch, ledger_missing, differs_rule; '' = OK.
      */
     public function processing_fee_check($status = '') {
+        // Advance loan whose part 1 is still planned: the fee is withheld (and recorded) only when part 1 is released
+        $part1_pending = $this->db->field_exists('tranche_no', 'disbursement_tracking')
+            ? "(SELECT COUNT(*) FROM disbursement_tracking d WHERE d.loan_id = l.id AND d.tranche_no = 1 AND d.status = 'pending')" : '0';
         $sql = "
           SELECT l.id, l.loan_number, l.status, l.member_id, m.member_code, CONCAT(m.first_name, ' ', m.last_name) member_name, m.phone,
                  lp.product_name, lp.processing_fee_type, lp.processing_fee_value,
@@ -1409,7 +1412,7 @@ class Report_model extends MY_Model {
                  CASE WHEN lp.processing_fee_type = 'fixed' THEN COALESCE(lp.processing_fee_value, 0)
                       ELSE ROUND(l.principal_amount * COALESCE(lp.processing_fee_value, 0) / 100, 2) END rule_fee,
                  COALESCE(t.amt, 0) recorded, COALESCE(t.cnt, 0) record_count, t.dt record_date,
-                 COALESCE(g.amt, 0) ledger_fee
+                 COALESCE(g.amt, 0) ledger_fee, {$part1_pending} part1_pending
             FROM loans l
             JOIN members m ON m.id = l.member_id
        LEFT JOIN loan_products lp ON lp.id = l.loan_product_id
@@ -1430,7 +1433,7 @@ class Report_model extends MY_Model {
             $fee = (float) $r['processing_fee'];
             $issues = [];
             if ($fee <= 0) $issues[] = 'not_charged';
-            else {
+            elseif ((int) $r['part1_pending'] === 0) {
                 if ((float) $r['recorded'] <= 0) $issues[] = 'no_record';
                 elseif (abs((float) $r['recorded'] - $fee) > 1) $issues[] = 'record_mismatch';
                 if ((float) $r['ledger_fee'] < $fee - 1) $issues[] = 'ledger_missing';
@@ -1438,7 +1441,8 @@ class Report_model extends MY_Model {
             if ($fee > 0 && abs($fee - (float) $r['rule_fee']) > 1) $issues[] = 'differs_rule';
             $r['issues'] = $issues;
             $r['issue'] = $issues ? $issues[0] : '';
-            $r['issue_label'] = $issues ? implode('; ', array_map(function ($i) use ($labels) { return $labels[$i]; }, $issues)) : 'OK';
+            $r['issue_label'] = $issues ? implode('; ', array_map(function ($i) use ($labels) { return $labels[$i]; }, $issues))
+                               : ((int) $r['part1_pending'] > 0 && $fee > 0 ? 'OK — fee is taken when part 1 is released (advance loan)' : 'OK');
             $r['fee_pct'] = (float) $r['principal_amount'] > 0 ? round($fee / (float) $r['principal_amount'] * 100, 2) : 0;
         }
         return $rows;
