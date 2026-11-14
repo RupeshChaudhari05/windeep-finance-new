@@ -9,7 +9,7 @@ defined('BASEPATH') OR exit('No direct script access allowed');
  *                ◄── tool results ──┘  (repeats up to MAX_STEPS)
  *   write tools (payment, deposit, fine, member edit, status, reverse, foreclose, email, correct_record)
  *   only PROPOSE: the server resolves the real records, stores the proposal in the session and the browser
- *   shows a card. Simple, unambiguous entries may auto-save; everything risky waits for Confirm.
+ *   shows a card. Every change waits for the admin's Confirm; saved entries can be undone from their card.
  *   execute() runs the stored proposal through the normal models (ledger posting + audit log).
  *
  * The AI never writes to the database itself.
@@ -261,7 +261,7 @@ class Ai_assistant extends Admin_Controller {
               'month_tokens_in' => 0, 'month_tokens_out' => 0, 'by_model' => [], 'tracking' => false,
               'markup' => max(1, (float) $c['markup']), 'real_cost_inr' => 0.0,
               'real_cap_inr' => (float) $c['monthly_cap_inr'] > 0 ? round((float) $c['monthly_cap_inr'] / max(1, (float) $c['markup']), 2) : 0];
-        if (!$this->db->table_exists('ai_chat_logs') || !$this->db->field_exists('cost_usd', 'ai_chat_logs')) return $u;
+        if (!$this->_has_column('ai_chat_logs', 'cost_usd')) return $u;
 
         $u['tracking'] = true;
         $rate = (float) $c['usd_inr'];
@@ -414,7 +414,8 @@ class Ai_assistant extends Admin_Controller {
         }
 
         $conv = $this->_conv();
-        $this->run = ['auto' => $this->input->post('auto') !== '0', 'message' => $message, 'cards' => [], 'steps' => [], 'log' => [], 'conv' => $conv];
+        $this->run = ['auto' => false,   // nothing is saved until the admin presses Confirm
+                      'message' => $message, 'cards' => [], 'steps' => [], 'log' => [], 'conv' => $conv];
 
         $messages = [['role' => 'system', 'content' => $this->_system_prompt()]];
         // History: last 12 messages; only the 2 latest assistant turns keep their tool log (follow-ups like "his loan")
@@ -467,6 +468,7 @@ class Ai_assistant extends Admin_Controller {
                 }
                 $this->_emit(['type' => 'status', 'text' => $step === 0 ? 'Thinking…' : 'Reading the results…']);
                 $res = $client->chat_tools($messages, $tools, $opts);
+                $this->_db_wake();   // the AI call may outlast the live server's 20 s idle timeout
                 $tin  += $client->last_usage['in'];
                 $tout += $client->last_usage['out'];
                 $tcached += $client->last_usage['cached'] ?? 0;
@@ -621,6 +623,8 @@ class Ai_assistant extends Admin_Controller {
             'foreclose_loan'  => 'Calculating the ' . (($a['closure_type'] ?? '') === 'force_close' ? 'force-close' : 'foreclosure') . ' settlement…',
             'send_email'      => 'Drafting the email…',
             'correct_record'  => 'Preparing the correction…',
+            'fix_processing_fees' => 'Checking the processing fee of every loan…',
+            'ask_admin'       => 'Preparing a question for you…',
         ];
         return $labels[$name] ?? 'Preparing ' . str_replace('_', ' ', $name) . '…';
     }
@@ -719,6 +723,7 @@ class Ai_assistant extends Admin_Controller {
         if ($type === 'send_email')     return $this->_perform_email($f);
         if ($type === 'correct_record') return $this->_perform_correct($f);
         if ($type === 'passbook_import') return $this->_perform_passbook($f);
+        if ($type === 'fee_records')    return $this->_perform_fee_records($f);
         if ($type === 'update_member') {
             return $this->_perform_update_member((int) $in('member_id'), $in('changes'));
         }
@@ -749,8 +754,10 @@ class Ai_assistant extends Admin_Controller {
             if (!$ok) return $this->_fail('Status could not be changed.');
             $this->log_audit('status_change', 'members', 'members', $member_id, ['status' => $member->status],
                              ['status' => $status, 'reason' => $remarks], 'AI assistant');
+            $this->_undo_put('member_status:' . $member_id, $member->status);   // Undo sets it back
             return $this->_done($this->_member_name($member) . ' is now ' . $status . '.', [
                 'link' => site_url('admin/members/view/' . $member_id), 'link_text' => 'Open member',
+                'kind' => 'member_status', 'target_id' => $member_id, 'member_id' => $member_id,
             ]);
         }
         if ($amount <= 0) return $this->_fail('Amount must be greater than zero.');
@@ -872,7 +879,7 @@ class Ai_assistant extends Admin_Controller {
                 $out[] = ['type' => $c['type'], 'executed' => true, 'result' => $c['result']];
             } elseif (($c['type'] ?? '') === 'data_table') {
                 $out[] = ['rows' => array_slice($c['rows'], 0, 15), 'more' => $c['more'] || count($c['rows']) > 15] + $c;
-            } elseif (($c['type'] ?? '') === 'navigate' || !empty($c['token'])) {
+            } elseif (in_array($c['type'] ?? '', ['navigate', 'question'], true) || !empty($c['token'])) {
                 $out[] = $c;   // pending cards stay confirmable after a reload
             }
         }
@@ -914,11 +921,85 @@ class Ai_assistant extends Admin_Controller {
                 return $this->_done('Cancelled fine of ₹' . number_format((float) $fine->fine_amount, 2) . '.');
 
             case 'loan_payment':
-                $lp = $this->db->select('loan_id')->where('id', $id)->get('loan_payments')->row();
-                return $this->_fail('Loan payments can\'t be reversed from chat yet (it changes EMIs and interest). Open the loan to correct it.'
-                    . ($lp ? ' ' . site_url('admin/loans/view/' . $lp->loan_id) : ''));
+                // Same reversal as Admin → Adjustments: EMIs, loan totals, savings adjustments, ledger (and the bank line if mapped)
+                if (!$this->_can('loans_edit') && !in_array($this->admin_data->role, ['super_admin', 'admin'], true)) {
+                    return $this->_fail('You do not have permission to reverse loan payments.');
+                }
+                $p = $this->db->select('lp.*, l.loan_number')->from('loan_payments lp')->join('loans l', 'l.id = lp.loan_id')->where('lp.id', $id)->get()->row();
+                if (!$p) return $this->_fail('Loan payment not found.');
+                if (!empty($p->is_reversed)) return $this->_fail('This payment is already reversed.');
+                $this->load->model(['Bank_model', 'Ledger_model']);
+                $mapping = $this->db->where_in('mapping_type', ['emi', 'loan_payment'])->where('related_id', $id)
+                                    ->where('is_reversed', 0)->order_by('id', 'DESC')->get('transaction_mappings')->row();
+                $this->db->trans_begin();
+                try {
+                    if ($mapping) {
+                        if (!$this->Bank_model->reverse_mapping($mapping->id, $reason, $admin_id)) throw new Exception('Could not reverse the bank mapping of this payment.');
+                    } else {
+                        if (!$this->Bank_model->reverse_loan_payment_effects($id, $reason, $admin_id)) throw new Exception('Could not reverse the payment.');
+                        $this->Ledger_model->reverse_source('loan_payment', $id, $reason, date('Y-m-d'), $admin_id);
+                        $this->Ledger_model->reverse_source('loan_write_off', $id, $reason, date('Y-m-d'), $admin_id);
+                    }
+                    if ($this->db->trans_status() === false) throw new Exception('Database error while reversing.');
+                    $this->db->trans_commit();
+                } catch (Exception $e) {
+                    $this->db->trans_rollback();
+                    return $this->_fail($e->getMessage());
+                }
+                $this->log_audit('reverse', 'loan_payments', 'loan_payments', $id, (array) $p, ['is_reversed' => 1], 'AI assistant: ' . $reason);
+                $this->_mark_reversed('loan_payment', $id);
+                return $this->_done('Reversed payment of ₹' . number_format((float) $p->total_amount, 2) . ' on ' . $p->loan_number
+                    . ' — EMIs, loan totals and ledger restored' . ($mapping ? '; the bank line can be mapped again' : '') . '.');
+
+            case 'member_status':
+                $prev = $this->_undo_get('member_status:' . $id);
+                $member = $this->Member_model->get_by_id($id);
+                if (!$member) return $this->_fail('Member not found.');
+                if ($prev === null) return $this->_fail('Undo is no longer available — change the status on the member page.');
+                if (!$this->Member_model->update_status($id, $prev, $reason, $admin_id)) return $this->_fail('Status could not be changed back.');
+                $this->log_audit('status_change', 'members', 'members', $id, ['status' => $member->status], ['status' => $prev, 'reason' => $reason], 'AI assistant (undo)');
+                $this->_undo_put('member_status:' . $id, null);
+                $this->_mark_reversed('member_status', $id);
+                return $this->_done($this->_member_name($member) . ' is back to ' . $prev . '.');
+
+            case 'member_update':
+                $old = $this->_undo_get('member_update:' . $id);
+                $member = $this->Member_model->get_by_id($id);
+                if (!$member) return $this->_fail('Member not found.');
+                if (!is_array($old) || !$old) return $this->_fail('Undo is no longer available — edit the member page.');
+                if (!$this->Member_model->update($id, $old)) return $this->_fail('Could not restore the old details.');
+                $this->log_audit('update', 'members', 'members', $id, null, $old, 'AI assistant (undo)');
+                $this->_undo_put('member_update:' . $id, null);
+                $this->_mark_reversed('member_update', $id);
+                return $this->_done('Restored the previous details of ' . $this->_member_name($member) . '.');
+
+            case 'fee_records':
+                // A batch of processing-fee entries created from chat: all rows carry the same batch tag
+                $first = $this->db->where('id', $id)->where('transaction_type', 'processing_fee')->get('member_other_transactions')->row();
+                if (!$first || !preg_match('/\[AI batch ([0-9a-f]{8})\]/', (string) $first->description, $m)) return $this->_fail('Fee batch not found.');
+                $this->db->like('description', '[AI batch ' . $m[1] . ']')->where('transaction_type', 'processing_fee')->where('status', 'completed')
+                         ->update('member_other_transactions', ['status' => 'reversed', 'reversed_at' => date('Y-m-d H:i:s'),
+                                                                 'reversed_by' => $admin_id, 'reversal_reason' => mb_substr($reason, 0, 255)]);
+                $n = $this->db->affected_rows();
+                if (!$n) return $this->_fail('These fee entries are already reversed.');
+                $this->log_audit('reverse', 'member_other_transactions', 'member_other_transactions', $id, null, ['batch' => $m[1], 'rows' => $n], 'AI assistant: ' . $reason);
+                $this->_mark_reversed('fee_records', $id);
+                return $this->_done($n . ' processing-fee entr' . ($n === 1 ? 'y' : 'ies') . ' reversed.');
         }
         return $this->_fail('Tell me which entry to delete.');
+    }
+
+    /** Server-side memory for undo of changes that need the old value (status, member details). */
+    private function _undo_put($key, $data) {
+        $u = $this->session->userdata('ai_undo');
+        $u = is_array($u) ? $u : [];
+        if ($data === null) unset($u[$key]); else $u[$key] = $data;
+        $this->session->set_userdata('ai_undo', array_slice($u, -50, null, true));
+    }
+
+    private function _undo_get($key) {
+        $u = $this->session->userdata('ai_undo');
+        return is_array($u) && array_key_exists($key, $u) ? $u[$key] : null;
     }
 
     private function _perform_update_member($member_id, $changes) {
@@ -950,10 +1031,12 @@ class Ai_assistant extends Admin_Controller {
             return $this->_fail('Could not update the member' . (!empty($e['message']) ? ' (' . $e['message'] . ')' : '') . '.');
         }
         $this->log_audit('update', 'members', 'members', $member_id, $old, $data, 'AI assistant');
+        $this->_undo_put('member_update:' . $member_id, $old);   // Undo restores these values
         $list = [];
         foreach ($data as $k => $v) if (!in_array($k, ['account_number', 'ifsc_code', 'nominee_relation'], true)) $list[] = str_replace('_', ' ', $k) . ' → ' . ($v === '' ? '(blank)' : $v);
         return $this->_done('Updated ' . $this->_member_name($member) . ': ' . implode(', ', $list) . '.', [
             'link' => site_url('admin/members/view/' . $member_id), 'link_text' => 'Open member',
+            'kind' => 'member_update', 'target_id' => $member_id, 'member_id' => $member_id,
         ]);
     }
 
@@ -1139,6 +1222,7 @@ class Ai_assistant extends Admin_Controller {
                                              . 'Reply with JSON only: {"names": {"<original>": "<English>"}}'],
             ['role' => 'user', 'content' => json_encode(array_slice($names, 0, 100), JSON_UNESCAPED_UNICODE)],
         ], ['json' => true, 'temperature' => 0, 'max_tokens' => 1500]);
+        $this->_db_wake();   // the passbook resolve continues with queries after this AI call
         $model = $cfg[$cfg['provider'] . '_model'] ?? '';
         $tok = $client->last_usage;
         $this->_log_chat('[passbook transliteration] ' . implode(', ', array_slice($names, 0, 20)), $raw, [],
@@ -1170,12 +1254,22 @@ HOW TO WORK
   reply with a short summary (count, totals, the top 3-5 names) and any insight. For counts and totals use the tool's
   row_count / totals_of_all_rows (exact) — never add up rows yourself. State the period of period-based figures.
   A one-row result (e.g. the summary) is already shown as a list — give only 3-4 highlights or concerns.
-- To CHANGE anything use the write tools. They return "executed" (saved) or "awaiting_admin_confirmation" (a Confirm card is
-  shown). Never say something is saved / closed / sent unless the tool said "executed"; when awaiting, summarise in one line.
+- To CHANGE anything use the write tools. NOTHING is saved by a write tool: it shows the admin a Confirm card and returns
+  "awaiting_admin_confirmation". Say in one line what the card will do (who, what, how much) and that it waits for Confirm.
+  Never say saved / closed / sent / inserted — the admin decides on the card. Every saved card has an Undo button; to undo
+  from chat use reverse_entry (loan payment, savings deposit, fine — also status / member edits / fee batches made in this chat).
 - Prefer the dedicated tools (they post the ledger). correct_record only fixes a wrong field no other tool covers — say that
-  ledger entries are not re-posted.
-- Ambiguous or missing member / loan → ask one short question with the options.
+  ledger entries are not re-posted. Processing fee check / insert → fix_processing_fees (never write SQL for it).
+- run_sql: use ONLY the columns listed in the schema below; if a table is not listed, describe_tables first. If a query
+  fails, read the error (it lists the real columns) and fix it — do not guess again.
 - Defaults (never ask): mode cash, date today, deposit_type regular, payment_type emi.
+
+UNDERSTAND FIRST, THEN ACT
+- Work out what the admin wants before any tool. If the request is unclear, mixes several tasks, or a write misses a key
+  detail (which member / loan / month / amount / which action), call ask_admin with ONE short question and 2-6 answer
+  options — never guess on writes. Reading data may assume sensible defaults (this month, active loans) — state them.
+- Several tasks in one message: list them in one line ("I'll do 1) … 2) …") and do them in order.
+- Say briefly what you checked and why (the admin sees each step); end with what needs their Confirm, if anything.
 - Foreclosure: regular = principal + configured % of remaining interest + pending fines; force_close = only next month's interest,
   remaining interest and fines waived. Show the quote from get_loan when the admin asks for an amount.
 - Loans can be "disbursed in parts": EMI is on the sanctioned amount, money is released in parts (get_loan → disbursement).
@@ -1186,10 +1280,17 @@ HOW TO WORK
   "Save entries" card follows. Help fix rows that were not ready, or record them one by one.
 - Emails: polite and professional, in the admin's language, signed "Windeep Finance".
 
-LANGUAGE: Reply in the admin's language (Marathi / Hindi / English / mix). DB names are in English letters — transliterate before
-searching ("रमेश पाटील" → "Ramesh Patil"); Devanagari digits → normal (५००० → 5000).
-Marathi: भरले/जमा paid, हप्ता EMI, बचत savings, दंड fine, व्याज interest, रोख cash, काल yesterday, थकबाकी overdue, अर्ज application,
-सभासद member, बंद करा close, रद्द/काढून टाका cancel (reverse_entry), दुरुस्ती correction.
+LANGUAGE: The admin writes English, Hindi, Hinglish or Marathi — in Devanagari OR in English letters ("ramesh ne 5000 bhare",
+"kist jama karo", "bachat kiti aahe", "loan band karo"), with typos and short forms. Understand all of it. Reply in the SAME
+language and script the admin used (English letters in → English letters out; Devanagari in → Devanagari out); numbers and
+codes stay as they are. DB names are in English letters — transliterate before searching ("रमेश पाटील" → "Ramesh Patil");
+Devanagari digits → normal (५००० → 5000). Common words (Marathi / Hindi, either script):
+  paid: भरले/जमा/bharle/bhare/bharla/jama/diya/dile · EMI: हप्ता/किस्त/hapta/kist/kisht/installment · savings: बचत/ठेव/bachat/
+  saving/deposit · fine: दंड/जुर्माना/dand/jurmana/penalty · interest: व्याज/byaj/vyaj · cash: रोख/नकद/rokh/nakad/cash ·
+  yesterday/today: काल/कल/kal · आज/aaj · overdue: थकबाकी/बकाया/thakbaki/baki/bakaya · application: अर्ज/arj · member: सभासद/
+  सदस्य/sabhasad/sadasya · close: बंद करा/बंद करो/band kara/band karo · undo / cancel / delete: रद्द/काढून टाका/हटाओ/radd/kadhun
+  taka/hatao/undo (reverse_entry) · correction: दुरुस्ती/सुधार/durusti/sudhar · check / show: तपासा/देखो/दिखाओ/tapasa/dekho/
+  dikhao/check karo · how much: किती/कितना/kiti/kitna · processing fee: प्रोसेसिंग फी/processing fee/fees.
 
 OUTPUT: short Markdown, **bold** key amounts. Pages for open_page: {$pages}.
 
@@ -1301,6 +1402,11 @@ PROMPT;
             ['name' => 'send_email', 'description' => 'Send an email to a member (by member code/name) or to an email address.',
              'parameters' => $obj(['to' => $s('Member code / name, or an email address'), 'subject' => $s('Subject'), 'body' => $s('Plain-text email body')],
                                   ['to', 'subject', 'body'])],
+            ['name' => 'ask_admin', 'description' => 'Ask the admin ONE short clarifying question instead of guessing — when the request is unclear, could mean different things, or a write is missing a key detail (which member / loan / month / amount / action). Give 2-6 short answers shown as clickable buttons. Then stop and wait for the answer.',
+             'parameters' => $obj(['question' => $s('The question, in the admin\'s language'),
+                                   'options' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => '2-6 short answers the admin can click']], ['question'])],
+            ['name' => 'fix_processing_fees', 'description' => 'Check every loan (active, closed, foreclosed …) for its processing fee: lists loans that have a fee but no fee entry and proposes ONE Confirm card that creates the missing entries without duplicates (Undo available); also reports loans with no fee at all. Use for any request to check / insert / fix processing fee records.',
+             'parameters' => $obj(['status' => $s('Only loans with this status (optional)', ['active', 'closed', 'foreclosed', 'npa'])])],
             ['name' => 'correct_record', 'description' => 'Correct wrong values in ONE row of a table by its id (audit-logged, needs Confirm). Tables: ' . implode(', ', self::CORRECTABLE_TABLES) . '. Ledger is NOT re-posted.',
              'parameters' => $obj(['table' => $s('Table', self::CORRECTABLE_TABLES), 'record_id' => $n('Row id'), 'changes' => $changes, 'reason' => $s('Why the correction is needed')],
                                   ['table', 'record_id', 'changes', 'reason'])],
@@ -1331,6 +1437,14 @@ PROMPT;
                 case 'foreclose_loan':  return $this->_tool_foreclose($args);
                 case 'send_email':      return $this->_tool_email($args);
                 case 'correct_record':  return $this->_tool_correct($args);
+                case 'fix_processing_fees': return $this->_tool_fee_records($args);
+                case 'ask_admin':
+                    $q = trim((string) ($args['question'] ?? ''));
+                    if ($q === '') return ['error' => 'Question missing.'];
+                    $opts = array_slice(array_values(array_filter(array_map(function ($o) { return mb_substr(trim((string) $o), 0, 80); }, (array) ($args['options'] ?? [])), 'strlen')), 0, 6);
+                    $this->run['cards'][] = ['type' => 'question', 'question' => mb_substr($q, 0, 400), 'options' => $opts];
+                    $this->_step('question-circle', 'Asked you a question', $q);
+                    return ['status' => 'question_shown', 'note' => 'The question and its options are shown as buttons. Stop now: reply with the question in one short line and wait for the answer.'];
             }
             return ['error' => 'Unknown tool ' . $name];
         } catch (Throwable $e) {
@@ -1445,7 +1559,18 @@ PROMPT;
         list($rows, $err, $ms, $more) = $this->_sql_run($q, 1000);
         if ($err) {
             $this->_step('database', ($purpose ?: 'Database query') . ' — failed', $q . "\n→ " . $err);
-            return ['error' => $err];
+            $out = ['error' => $err];
+            // Wrong column guessed → give the real columns of the tables used, so the next try is right
+            if (stripos($err, 'Unknown column') !== false && preg_match_all('/\b(?:FROM|JOIN)\s+`?(\w+)`?/i', $q, $m)) {
+                foreach (array_slice(array_unique($m[1]), 0, 5) as $t) {
+                    if (in_array($t, self::SQL_BLOCKED_TABLES, true)) continue;
+                    $c = $this->db->query('SELECT GROUP_CONCAT(COLUMN_NAME ORDER BY ORDINAL_POSITION) c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?', [$t]);
+                    $c = $c ? $c->row() : null;
+                    if ($c && $c->c) $out['real_columns'][$t] = $c->c;
+                }
+                if (!empty($out['real_columns'])) $out['hint'] = 'Use only these columns and run the query again.';
+            }
+            return $out;
         }
         $cols = $rows ? array_keys($rows[0]) : [];
         $this->_step('database', ($purpose ?: 'Database query') . ' — ' . count($rows) . ($more ? '+' : '') . ' row(s), ' . $ms . ' ms', $q);
@@ -1875,10 +2000,6 @@ PROMPT;
             $this->_step('undo', $label . ' — record not found');
             return ['error' => implode(' ', $card['warnings']) ?: 'Record not found.'];
         }
-        if ($card['type'] === 'reverse_entry' && $card['kind'] === 'loan_payment') {
-            $this->_step('undo', $label . ' — not supported');
-            return ['error' => 'Loan payments cannot be reversed from chat (it changes EMIs and interest). Offer open_page or correct_record if a single field is wrong.'];
-        }
         if (in_array($card['type'], ['loan_payment', 'savings_deposit', 'fine', 'member_status', 'update_member'], true)
             && empty($card['member_id']) && empty($card['member_candidates'])) {
             $this->_step('user', $label . ' — member not found');
@@ -2023,6 +2144,87 @@ PROMPT;
         $this->run['cards'][] = $card;
         $this->_step('pen', 'Correction of ' . $table . ' #' . $id . ' — waiting for Confirm');
         return $this->_awaiting($card, ['changes' => $changes]);
+    }
+
+    /**
+     * Loans that carry a processing fee but have no fee entry (member_other_transactions): the list is shown as a table
+     * and ONE Confirm card creates the missing entries (the fee was withheld at disbursement, so the ledger is unchanged).
+     * Loans whose fee was never calculated are only reported — charging them is a separate decision.
+     */
+    private function _tool_fee_records(array $a) {
+        if (!in_array($this->admin_data->role, ['super_admin', 'admin'], true)) return ['error' => 'Only an admin can create fee entries.'];
+        $this->load->model('Report_model');
+        $status = in_array($a['status'] ?? '', ['active', 'closed', 'foreclosed', 'npa'], true) ? $a['status'] : '';
+        $all = $this->Report_model->processing_fee_check($status);
+        $rows = array_values(array_filter($all, function ($r) { return in_array('no_record', $r['issues'], true); }));
+        $no_fee = array_values(array_filter($all, function ($r) { return in_array('not_charged', $r['issues'], true); }));
+        $no_fee_list = array_map(function ($r) { return $r['loan_number'] . ' (' . $r['status'] . ', rule fee ₹' . number_format((float) $r['rule_fee'], 2) . ')'; }, $no_fee);
+        if (!$rows) {
+            $this->_step('check-circle', 'Processing-fee entries — nothing missing' . ($status ? ' (' . $status . ' loans)' : ''));
+            return ['status' => 'nothing_to_do', 'message' => 'Every loan with a processing fee already has its fee entry.',
+                    'loans_without_any_fee' => $no_fee_list];
+        }
+        $total = round(array_sum(array_column($rows, 'processing_fee')), 2);
+        $by = [];
+        foreach ($rows as $r) $by[$r['status']] = ($by[$r['status']] ?? 0) + 1;
+        $by_text = implode(', ', array_map(function ($k, $v) { return $v . ' ' . $k; }, array_keys($by), $by));
+
+        $this->run['cards'][] = ['type' => 'data_table', 'title' => 'Loans with a processing fee but no fee entry',
+            'columns' => ['loan', 'member', 'status', 'fee', 'disbursed_on'],
+            'rows' => array_map(function ($r) { return [$r['loan_number'], $r['member_code'] . ' ' . $r['member_name'], $r['status'], (float) $r['processing_fee'], $r['disbursement_date']]; },
+                                array_slice($rows, 0, 100)),
+            'total_rows' => count($rows), 'totals' => ['fee' => $total], 'more' => count($rows) > 100,
+            'open_url' => site_url('admin/reports/processing_fees')];
+
+        $card = ['type' => 'fee_records', 'title' => 'Create ' . count($rows) . ' missing processing-fee entr' . (count($rows) === 1 ? 'y' : 'ies'),
+                 'warnings' => $no_fee ? [count($no_fee) . ' loan(s) have no processing fee at all and are NOT included: ' . implode(', ', $no_fee_list)
+                                          . '. Charge those with "Charge fee" on the Processing Fee Check report when the member pays.'] : [],
+                 'rows' => [['Loans', count($rows) . ' (' . $by_text . ')'], ['Total fee', '₹' . number_format($total, 2)],
+                            ['Entry date', 'disbursement date of each loan'], ['Ledger', 'not changed — the fee was already withheld at disbursement'],
+                            ['Undo', 'one click on the saved card']]];
+        $this->_add_pending($card, ['loan_ids' => array_map('intval', array_column($rows, 'id'))]);
+        $this->run['cards'][] = $card;
+        $this->_step('hand-paper', 'Missing processing-fee entries — waiting for Confirm', count($rows) . ' loans, ₹' . number_format($total, 2));
+        return $this->_awaiting($card, ['loans' => count($rows), 'total_fee' => $total, 'by_status' => $by, 'loans_without_any_fee' => $no_fee_list]);
+    }
+
+    /** Confirmed: create the fee entries (re-checked one by one, so a double click or a second admin never duplicates). */
+    private function _perform_fee_records(array $c) {
+        if (!in_array($this->admin_data->role, ['super_admin', 'admin'], true)) return $this->_fail('Only an admin can create fee entries.');
+        $ids = array_map('intval', (array) ($c['loan_ids'] ?? []));
+        if (!$ids) return $this->_fail('Nothing to create.');
+        $batch = bin2hex(random_bytes(4));
+        $admin = (int) $this->session->userdata('admin_id');
+        $first = null; $n = 0; $sum = 0.0;
+        $this->db->trans_begin();
+        try {
+            foreach ($this->db->select('id, loan_number, member_id, processing_fee, disbursement_date, created_at')->where_in('id', $ids)->where('processing_fee >', 0)->get('loans')->result() as $l) {
+                $has = $this->db->where('transaction_type', 'processing_fee')->where('status', 'completed')->where('reference_type', 'loan')
+                                ->where('reference_id', $l->id)->count_all_results('member_other_transactions');
+                if ($has) continue;
+                $this->db->insert('member_other_transactions', [
+                    'member_id' => $l->member_id, 'transaction_type' => 'processing_fee', 'amount' => $l->processing_fee,
+                    'transaction_date' => $l->disbursement_date ?: substr($l->created_at, 0, 10),
+                    'description' => 'Loan processing fee for Loan #' . $l->id . ' (' . $l->loan_number . ') — deducted from disbursement [AI batch ' . $batch . ']',
+                    'reference_type' => 'loan', 'reference_id' => $l->id, 'payment_mode' => 'deducted', 'status' => 'completed',
+                    'created_by' => $admin, 'created_at' => date('Y-m-d H:i:s'),
+                ]);
+                $first = $first ?: (int) $this->db->insert_id();
+                $n++; $sum += (float) $l->processing_fee;
+            }
+            if ($this->db->trans_status() === false) throw new Exception('Database error — nothing was saved.');
+            $this->db->trans_commit();
+        } catch (Exception $e) {
+            $this->db->trans_rollback();
+            return $this->_fail($e->getMessage());
+        }
+        if (!$n) return $this->_fail('Nothing created — every loan already has its fee entry.');
+        $this->log_audit('create', 'member_other_transactions', 'member_other_transactions', $first, null,
+                         ['processing_fee_records' => $n, 'amount' => round($sum, 2), 'batch' => $batch], 'AI assistant: missing fee entries');
+        return $this->_done($n . ' processing-fee entr' . ($n === 1 ? 'y' : 'ies') . ' created (₹' . number_format($sum, 2) . '). Ledger unchanged.', [
+            'link' => site_url('admin/reports/processing_fees'), 'link_text' => 'Processing Fee Check',
+            'kind' => 'fee_records', 'target_id' => $first, 'amount' => round($sum, 2),
+        ]);
     }
 
     /** Devanagari digits → Latin, without stripping commas (free-text values). */
@@ -2337,8 +2539,8 @@ PROMPT;
                       'label' => ucfirst($names[$kind]) . ' ₹' . number_format((float) $row->amount, 2) . ' on ' . $row->d
                                  . ' (' . $row->ref . ') — ' . $this->_member_name($m)];
         }
-        if ($card['kind'] === 'loan_payment') {
-            $card['warnings'][] = 'Loan payments can\'t be reversed from chat yet — open the loan to correct it.';
+        if ($card['kind'] === 'loan_payment' && !empty($card['target_id'])) {
+            $card['warnings'][] = 'Reversing a loan payment puts the EMI(s) back to unpaid and restores the loan totals and ledger.';
         }
         return $card;
     }
@@ -2539,17 +2741,54 @@ PROMPT;
     }
 
     private function _log_chat($message, $raw, $cards, array $meta = []) {
-        if (!$this->db->table_exists('ai_chat_logs')) return;
-        $row = [
-            'admin_id'   => (int) $this->session->userdata('admin_id'),
-            'message'    => mb_substr($message, 0, 5000),
-            'response'   => mb_substr((string) $raw, 0, 20000),
-            'actions'    => json_encode($cards, JSON_UNESCAPED_UNICODE),
-            'created_at' => date('Y-m-d H:i:s'),
-        ];
-        if ($meta && $this->db->field_exists('cost_usd', 'ai_chat_logs')) {
-            $row += $meta;
+        // Logging must never cost the admin the answer (it runs after the slow AI call)
+        try {
+            $this->_db_wake();
+            $debug = $this->db->db_debug;
+            $this->db->db_debug = false;
+            if (!$this->_has_column('ai_chat_logs', 'message')) { $this->db->db_debug = $debug; return; }
+            $row = [
+                'admin_id'   => (int) $this->session->userdata('admin_id'),
+                'message'    => mb_substr($message, 0, 5000),
+                'response'   => mb_substr((string) $raw, 0, 20000),
+                'actions'    => json_encode($cards, JSON_UNESCAPED_UNICODE),
+                'created_at' => date('Y-m-d H:i:s'),
+            ];
+            if ($meta && $this->_has_column('ai_chat_logs', 'cost_usd')) $row += $meta;
+            $this->db->insert('ai_chat_logs', $row);
+            $this->db->db_debug = $debug;
+        } catch (Throwable $e) {
+            log_message('error', 'AI chat log not saved: ' . $e->getMessage());
         }
-        $this->db->insert('ai_chat_logs', $row);
+    }
+
+    /**
+     * The live MySQL server closes a connection that is idle for 20 s (wait_timeout). An AI answer often takes
+     * longer, so the next query failed ("result_array() on false"). Call after every AI call: if the server
+     * dropped the connection, CodeIgniter opens a new one on the next query.
+     */
+    private function _db_wake() {
+        $c = $this->db->conn_id;
+        if (!$c) return;
+        try {
+            $alive = @$c->ping();
+        } catch (Throwable $e) {
+            $alive = false;
+        }
+        if (!$alive) {
+            try { @$c->close(); } catch (Throwable $e) {}
+            $this->db->conn_id = false;   // CI reconnects on the next query
+        }
+    }
+
+    /** Column check that does not crash when the query fails (CI's field_exists() calls result_array() on false). */
+    private function _has_column($table, $column) {
+        static $cache = [];
+        $k = $table . '.' . $column;
+        if (!isset($cache[$k])) {
+            $q = $this->db->query('SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?', [$table, $column]);
+            $cache[$k] = $q && $q->num_rows() > 0;
+        }
+        return $cache[$k];
     }
 }

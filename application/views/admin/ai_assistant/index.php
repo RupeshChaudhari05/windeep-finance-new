@@ -109,10 +109,7 @@ $model_label = (['local' => 'Local', 'openai' => 'ChatGPT', 'gemini' => 'Gemini'
         <span class="ai-model"><?= htmlspecialchars($model_label) ?></span>
         <?php if ($chat_only): ?><span class="badge badge-danger" title="This model cannot query the database or make entries"><i class="fas fa-exclamation-triangle mr-1"></i>Chat-only model — choose GPT-4o Mini in ⚙️ Settings</span><?php endif; ?>
         <div class="ml-auto d-flex align-items-center" style="gap:6px">
-            <div class="custom-control custom-switch mr-2" title="On: clear entries are saved straight away. Off: every entry waits for Confirm.">
-                <input type="checkbox" class="custom-control-input" id="aiAuto" checked>
-                <label class="custom-control-label small" for="aiAuto">Auto-save</label>
-            </div>
+            <span class="small text-muted mr-2" title="Nothing is saved until you press Confirm on the card"><i class="fas fa-shield-alt mr-1"></i>Confirm before saving</span>
             <button class="ai-iconbtn" id="aiNew" title="New chat"><i class="fas fa-edit"></i></button>
             <?php if ($is_super): ?>
             <button class="ai-iconbtn" data-toggle="modal" data-target="#aiSettings" title="AI settings"><i class="fas fa-cog"></i></button>
@@ -248,7 +245,7 @@ $(function () {
     var MODES = {cash: 'Cash / रोख', upi: 'UPI', bank_transfer: 'Bank transfer', cheque: 'Cheque'};
     var TITLES = {loan_payment: '💰 Loan EMI payment', savings_deposit: '🏦 Savings deposit', fine: '⚠️ Fine',
                   member_status: '👤 Member status', reverse_entry: '🗑️ Delete entry', update_member: '✏️ Update member',
-                  foreclose_loan: '🔒 ', send_email: '✉️ ', correct_record: '🛠️ '};
+                  foreclose_loan: '🔒 ', send_email: '✉️ ', correct_record: '🛠️ ', fee_records: '🧾 '};
     var TILES = [
         ['थकबाकी कर्जे', 'कोणाचे हप्ते थकले आहेत, किती रक्कम', 'थकबाकी असलेल्या सर्व सभासदांची यादी रकमेसह दाखवा'],
         ['आजचा सारांश', 'सभासद, कर्जे, बचत, दंड', 'आजचा संपूर्ण सारांश सांगा: सभासद, कर्जे, बचत, दंड आणि या महिन्याची वसुली'],
@@ -312,6 +309,7 @@ $(function () {
         (cards || []).forEach(function (c) {
             if (c.type === 'navigate') { links += '<a class="ai-chipbtn mr-1" href="' + esc(c.url) + '"><i class="fas fa-arrow-right mr-1"></i>' + esc(c.label) + '</a>'; return; }
             if (c.type === 'data_table') { $body.append(tableCardHtml(c)); return; }
+            if (c.type === 'question') { $body.append(questionHtml(c)); return; }
             if (c.executed) { $body.append(savedHtml(c)); return; }
             if (c.stale) { $body.append('<div class="ai-entry stale"><div class="msg text-muted"><i class="fas fa-history mr-1"></i>' +
                 esc((TITLES[c.type] || '') + (c.title || '')) + ' — already handled.</div></div>'); return; }
@@ -349,9 +347,17 @@ $(function () {
             '</div><div class="ai-md"><div class="tbl" style="max-height:340px;overflow:auto;margin:0"><table><thead><tr>' + head + '</tr></thead><tbody>' + body +
             '</tbody></table></div></div>' + (c.more ? '<div class="small text-muted mt-1">Showing the first rows — use Excel for the full list.</div>' : '') + '</div>';
     }
+    // The assistant asks instead of guessing: one click sends the answer
+    function questionHtml(c) {
+        return '<div class="ai-entry ai-question"><div class="msg"><i class="fas fa-question-circle mr-1" style="color:var(--ai-brand2)"></i>' + esc(c.question) + '</div>' +
+            ((c.options || []).length ? '<div class="acts">' + c.options.map(function (o) {
+                return '<button class="ai-chipbtn ai-qopt" data-v="' + esc(o) + '">' + esc(o) + '</button>'; }).join('') + '</div>' : '') +
+            '<div class="small text-muted mt-1">Click an answer or type your own.</div></div>';
+    }
+    var UNDOABLE = ['savings_deposit', 'fine', 'loan_payment', 'member_status', 'member_update', 'fee_records'];
     function savedHtml(c) {
         var r = c.result || {}, d = r.data || {};
-        var undo = (d.kind === 'savings_deposit' || d.kind === 'fine')
+        var undo = (UNDOABLE.indexOf(d.kind) !== -1 && d.target_id)
             ? '<button class="ai-chipbtn red ai-undo" data-kind="' + d.kind + '" data-id="' + d.target_id + '"><i class="fas fa-undo mr-1"></i>Undo</button>' : '';
         var results = '';
         if (d.results && d.results.length) {
@@ -390,7 +396,7 @@ $(function () {
                 body + '</tbody></table></div></div>' +
                 (a.token ? actBtns((a.bank ? 'Map ' : 'Save ') + (s.ready || 0) + ' entries', 'success') : '<div class="res text-muted small">Nothing ready to save — fix the rows and upload again.</div>') + '</div>';
         }
-        if (a.type === 'foreclose_loan' || a.type === 'send_email' || a.type === 'correct_record') {
+        if (a.type === 'foreclose_loan' || a.type === 'send_email' || a.type === 'correct_record' || a.type === 'fee_records') {
             var kv = (a.rows || []).map(function (r) { return '<tr><td>' + esc(r[0]) + '</td><td>' + esc(r[1]) + '</td></tr>'; }).join('');
             var extra = '';
             if (a.type === 'send_email') extra = '<div class="mailbody">' + esc(a.body) + '</div>';
@@ -401,7 +407,7 @@ $(function () {
                                '</s></td><td><b>' + esc(c.new == null ? 'NULL' : c.new) + '</b></td></tr>';
                     }).join('') + '</tbody></table>';
             }
-            var btn = {foreclose_loan: a.title, send_email: 'Send email', correct_record: 'Save correction'}[a.type];
+            var btn = {foreclose_loan: a.title, send_email: 'Send email', correct_record: 'Save correction', fee_records: 'Create entries'}[a.type];
             return '<div class="ai-entry' + (a.danger ? ' danger' : '') + '" data-type="' + a.type + '"><div class="head">' + TITLES[a.type] + esc(a.title) + '</div>' +
                 '<table class="kv">' + kv + '</table>' + extra + warns(a) + actBtns(esc(btn), a.danger ? 'danger' : 'primary') + '</div>';
         }
@@ -687,7 +693,7 @@ $(function () {
             else if (ev.type === 'error') { showError(ev.message || 'Error', ev); return true; }
         }
 
-        var payload = {message: text, image: sentImage, auto: $('#aiAuto').is(':checked') ? '1' : '0',
+        var payload = {message: text, image: sentImage, 
                        mentions: JSON.stringify(sentMentions), stream: '1'};
         if (sentPdf) {
             payload.doc_name = sentPdf.name; payload.doc_pages = sentPdf.pages;
@@ -756,7 +762,7 @@ $(function () {
         $card.data('busy', 1);
         var $btn = $card.find('.ai-confirm').prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i>');
         var type = $card.data('type');
-        var d = /^(foreclose_loan|send_email|correct_record|passbook_import)$/.test(type) ? {type: type}
+        var d = /^(foreclose_loan|send_email|correct_record|passbook_import|fee_records)$/.test(type) ? {type: type}
             : type === 'reverse_entry'
             ? {type: 'reverse_entry', kind: $card.data('kind'), target_id: $card.data('id'), remarks: $card.find('.f-remarks').val()}
             : type === 'update_member'
@@ -790,9 +796,20 @@ $(function () {
         var $b = $(this).prop('disabled', true), cards = $b.closest('.ai-body').find('.ai-entry:not(.saved):not(.undone)').toArray();
         (function next() { if (!cards.length) { $b.remove(); return; } confirmCard($(cards.shift())).always(next); })();
     });
+    $log.on('click', '.ai-qopt', function () {
+        if (busy) return;
+        var $q = $(this).closest('.ai-question');
+        $q.find('.ai-qopt').prop('disabled', true);
+        $(this).addClass('active');
+        $txt.val(String($(this).data('v'))); send();
+    });
     $log.on('click', '.ai-undo', function () {
         var $b = $(this), $e = $b.closest('.ai-entry');
-        if (!confirm('Delete this entry? / ही नोंद काढून टाकायची?')) return;
+        if (!confirm({loan_payment: 'Reverse this loan payment? The EMI(s) become unpaid again and the ledger is reversed.\nहा हप्ता भरणा रद्द करायचा?',
+                      member_status: 'Change the member status back? / स्थिती पूर्वीसारखी करायची?',
+                      member_update: 'Restore the old member details? / जुनी माहिती परत आणायची?',
+                      fee_records: 'Reverse all fee entries created by this card? / या सर्व फी नोंदी रद्द करायच्या?'}[$b.data('kind')]
+                     || 'Delete this entry? / ही नोंद काढून टाकायची?')) return;
         $b.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i>');
         post({type: 'reverse_entry', kind: $b.data('kind'), target_id: $b.data('id'), remarks: 'Undo from AI chat'}).done(function (r) {
             if (r.success) {
@@ -867,8 +884,6 @@ $(function () {
             .fail(function (x) { $('#aiTestResult').html('<span class="text-danger">' + esc((x.responseJSON && x.responseJSON.message) || 'Failed') + '</span>'); });
     });
 
-    try { if (localStorage.getItem('aiAuto') === '0') $('#aiAuto').prop('checked', false); } catch (e) {}
-    $('#aiAuto').on('change', function () { try { localStorage.setItem('aiAuto', this.checked ? '1' : '0'); } catch (e) {} });
     $txt.focus();
 });
 </script>
