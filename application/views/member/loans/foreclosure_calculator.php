@@ -5,7 +5,8 @@ $total_interest = (float)($calculation['total_interest']          ?? 0);
 $interest_pct   = (float)($calculation['interest_charge_pct']     ?? 30);
 $interest_charge = (float)($calculation['interest_charge']         ?? 0);
 $fines          = (float)($calculation['pending_fines']           ?? 0);
-$total          = (float)($calculation['total_amount']            ?? 0);
+$total          = (float)($calculation['total_amount']            ?? 0);   // whole rupees
+$round_off      = (float)($calculation['round_off']               ?? 0);
 ?>
 
 <div class="row">
@@ -35,14 +36,20 @@ $total          = (float)($calculation['total_amount']            ?? 0);
                 <td class="text-right text-danger"><?= $cs.number_format($fines,2) ?></td>
             </tr>
             <?php endif; ?>
+            <?php if (abs($round_off) >= 0.01): ?>
+            <tr>
+                <td>Round off</td>
+                <td class="text-right text-muted"><?= ($round_off < 0 ? '− ' : '+ ') . $cs.number_format(abs($round_off),2) ?></td>
+            </tr>
+            <?php endif; ?>
             <tr class="table-primary">
                 <td><strong>Total Foreclosure Amount</strong></td>
-                <td class="text-right font-weight-bold" id="calculatedAmount"><?= $cs.number_format($total,2) ?></td>
+                <td class="text-right font-weight-bold" id="calculatedAmount"><?= $cs.number_format($total,0) ?></td>
             </tr>
         </table>
         <div class="alert alert-info py-2 mb-0">
             <small>
-                <strong>Formula:</strong> Settlement = Principal + (Total Interest × Admin %) + Fines
+                <strong>Formula:</strong> Settlement = Principal + (Total Interest × Admin %) + Fines, rounded to the nearest rupee
                 <br><i class="fas fa-info-circle mr-1"></i>
                 Estimate only. Final amount may vary on settlement date. Contact admin for exact figure.
             </small>
@@ -52,7 +59,7 @@ $total          = (float)($calculation['total_amount']            ?? 0);
         <div class="card border-danger">
             <div class="card-body text-center py-3">
                 <div class="text-muted small">Total Amount Due</div>
-                <h3 class="text-danger font-weight-bold mb-0"><?= $cs.number_format($total,2) ?></h3>
+                <h3 class="text-danger font-weight-bold mb-0"><?= $cs.number_format($total,0) ?></h3>
                 <small class="text-muted">Including all charges</small>
             </div>
         </div>

@@ -2124,6 +2124,18 @@ class Loan_model extends MY_Model {
         return ['ok' => $ok, 'total' => round($total, 2), 'schedule' => round($sched, 2), 'diff' => $diff, 'unlinked_payments' => $unlinked];
     }
 
+    /**
+     * A settlement is collected in whole rupees: nearest rupee, but never below $floor (principal + fines),
+     * so rounding can never leave a few paise of principal unpaid. The difference lands in the interest part.
+     */
+    public function round_settlement($exact, $floor = 0) {
+        $exact = round((float) $exact, 2);
+        $r = round($exact);
+        if ($r < (float) $floor - 0.004) $r = ceil((float) $floor - 0.004);
+        if ($r <= 0 && $exact > 0) $r = 1;
+        return (float) $r;
+    }
+
     public function calculate_foreclosure_amount($loan_id, $override_pct = null) {
         $loan = $this->db->where('id', $loan_id)->get('loans')->row();
         if (!$loan) {
@@ -2170,10 +2182,9 @@ class Loan_model extends MY_Model {
                                       ->row();
         $pending_fines = $pending_fines_row && $pending_fines_row->fine_amount ? (float)$pending_fines_row->fine_amount : 0;
 
-        // Final Settlement Amount: Principal + Interest Charge + Fines
-        $total_amount = $outstanding_principal
-                      + $interest_charge
-                      + $pending_fines;
+        // Final Settlement Amount: Principal + Interest Charge + Fines — collected in whole rupees
+        $exact_amount = round($outstanding_principal + $interest_charge + $pending_fines, 2);
+        $total_amount = $this->round_settlement($exact_amount, $outstanding_principal + $pending_fines);
 
         return [
             'outstanding_principal'   => $outstanding_principal,
@@ -2182,6 +2193,8 @@ class Loan_model extends MY_Model {
             'default_interest_pct'    => $default_pct,
             'interest_charge'         => $interest_charge,
             'pending_fines'           => $pending_fines,
+            'exact_amount'            => $exact_amount,                             // before rounding
+            'round_off'               => round($total_amount - $exact_amount, 2),   // + / − paise
             'total_amount'            => $total_amount,
             'principal_check'         => $this->principal_check($loan),   // ok = false → figures must be verified first
             'pending_fines_list'      => $this->db->select('f.*')
@@ -2227,7 +2240,9 @@ class Loan_model extends MY_Model {
             'annual_interest_rate' => $annual_rate,
             'interest_charge_pct' => 0,
             'next_month_interest' => $next_month_interest,
-            'total_amount' => $next_month_interest,
+            'exact_amount' => $next_month_interest,
+            'round_off' => round($this->round_settlement($next_month_interest) - $next_month_interest, 2),
+            'total_amount' => $this->round_settlement($next_month_interest),   // whole rupees
             'waived_interest' => $outstanding_interest,
             'waived_fines' => round($pending_fines, 2),
             'type' => 'force_close',
@@ -2957,6 +2972,107 @@ class Loan_model extends MY_Model {
     }
 
     /**
+     * Rebuild the unpaid part of the EMI schedule so that it covers exactly the principal still owed.
+     * EMIs that carry no payment are recalculated in place (ids, due dates, status and fines stay); EMIs are added at
+     * the end when the EMI amount does not clear the balance in the months left, and surplus ones are removed.
+     * EMIs with money on them (partial) and settled months (paid, interest-only …) are left as they are.
+     * Call inside a transaction.
+     *
+     * @param int        $loan_id
+     * @param float|null $emi       EMI to use; null = the loan's current EMI
+     * @param int|null   $admin_id
+     * @return array ['emi', 'installments', 'added', 'removed', 'last_emi_date', 'remaining_interest']
+     */
+    public function reamortize_unpaid_schedule($loan_id, $emi = null, $admin_id = null) {
+        $loan = $this->db->where('id', (int) $loan_id)->get($this->table)->row();
+        if (!$loan) throw new Exception('Loan not found.');
+        $emi  = round((float) ($emi ?: $loan->emi_amount), 2);
+        $rate = ((float) $loan->interest_rate / 12) / 100;
+        $flat = $loan->interest_type === 'flat';
+
+        $open = $this->db->where('loan_id', $loan->id)->where_in('status', ['upcoming', 'pending', 'overdue'])
+                         ->where('COALESCE(total_paid, 0) <= 0', null, false)
+                         ->order_by('installment_number', 'ASC')->get('loan_installments')->result();
+        $open_ids = array_map(function ($r) { return (int) $r->id; }, $open);
+
+        // principal still due on EMIs that are not rebuilt (partly paid ones)
+        $this->db->select('COALESCE(SUM(GREATEST(principal_amount - principal_paid, 0)), 0) AS s', false)->where('loan_id', $loan->id)
+                 ->where_not_in('status', ['paid', 'waived', 'cancelled', 'interest_only']);
+        if ($open_ids) $this->db->where_not_in('id', $open_ids);
+        $kept = (float) $this->db->get('loan_installments')->row()->s;
+
+        $balance = round((float) $loan->outstanding_principal - $kept, 2);
+        if ($balance < -0.01) throw new Exception('Partly paid EMIs already cover more than the outstanding principal.');
+        if ($emi <= 0) throw new Exception('EMI amount is missing.');
+        if (!$flat && $rate > 0 && $emi <= round($balance * $rate, 2)) {
+            throw new Exception('EMI ' . number_format($emi, 2) . ' does not cover the monthly interest on ' . number_format($balance, 2) . '.');
+        }
+
+        $last = $this->db->select('installment_number, due_date')->where('loan_id', $loan->id)
+                         ->order_by('installment_number', 'DESC')->limit(1)->get('loan_installments')->row();
+        $next_no  = $last ? (int) $last->installment_number + 1 : 1;
+        $next_due = new DateTime($last ? $last->due_date : ($loan->first_emi_date ?: date('Y-m-d')));
+        if ($last) $next_due->modify('+1 month');
+
+        $flat_n = max(1, count($open));
+        $flat_interest  = round($balance * $rate, 2);
+        $flat_principal = round($balance / $flat_n, 2);
+        $now = date('Y-m-d H:i:s');
+        $i = 0; $added = 0; $removed = 0;
+        $fold = max(1.00, round($emi * 0.01, 2));
+
+        while ($balance > 0.004) {
+            if ($i > 600) throw new Exception('The schedule could not be rebuilt (too many EMIs).');
+            $interest  = $flat ? $flat_interest : round($balance * $rate, 2);
+            $principal = $flat ? $flat_principal : round($emi - $interest, 2);
+            // last EMI closes exactly; a remainder of a few rupees (paise rounding) is not worth an EMI of its own
+            if ($principal >= $balance - $fold || ($flat && $i === $flat_n - 1)) $principal = $balance;
+            $after = round($balance - $principal, 2);
+            $row = [
+                'principal_amount' => $principal, 'interest_amount' => $interest, 'emi_amount' => round($principal + $interest, 2),
+                'outstanding_principal_before' => $balance, 'outstanding_principal_after' => $after, 'updated_at' => $now,
+            ];
+            if (isset($open[$i])) {
+                $this->db->where('id', $open[$i]->id)->update('loan_installments', $row);
+            } else {
+                $this->db->insert('loan_installments', $row + [
+                    'loan_id' => $loan->id, 'installment_number' => $next_no++, 'due_date' => $next_due->format('Y-m-d'),
+                    'status' => 'upcoming', 'created_at' => $now,
+                ]);
+                $next_due->modify('+1 month');
+                $added++;
+            }
+            $balance = $after;
+            $i++;
+        }
+        // EMIs that are no longer needed (they carry no payment)
+        for (; $i < count($open); $i++) {
+            $this->db->where('related_type', 'loan_installment')->where('related_id', $open[$i]->id)->where('status', 'pending')->delete('fines');
+            $this->db->where('id', $open[$i]->id)->delete('loan_installments');
+            $removed++;
+        }
+
+        $rem_interest = round((float) $this->db->query("SELECT COALESCE(SUM(GREATEST(interest_amount - interest_paid, 0)), 0) s FROM loan_installments
+                                                        WHERE loan_id = ? AND status NOT IN ('paid','waived','cancelled','interest_only')", [$loan->id])->row()->s, 2);
+        $last = $this->db->select('due_date')->where('loan_id', $loan->id)->order_by('installment_number', 'DESC')->limit(1)->get('loan_installments')->row();
+        $count = $this->get_total_installment_count($loan->id);
+        $upd = [
+            'emi_amount'           => $emi,
+            'tenure_months'        => $count,
+            'outstanding_interest' => $rem_interest,
+            'total_interest'       => round((float) $loan->total_interest_paid + $rem_interest, 2),
+            'total_payable'        => round((float) $loan->principal_amount + (float) $loan->total_interest_paid + $rem_interest, 2),
+            'last_emi_date'        => $last ? $last->due_date : $loan->last_emi_date,
+            'updated_at'           => $now,
+        ];
+        if ($admin_id) $upd['updated_by'] = $admin_id;
+        $this->db->where('id', $loan->id)->update($this->table, $upd);
+
+        return ['emi' => $emi, 'installments' => $count, 'added' => $added, 'removed' => $removed,
+                'last_emi_date' => $upd['last_emi_date'], 'remaining_interest' => $rem_interest];
+    }
+
+    /**
      * Industry Standard: Validate Schedule Integrity
      * Ensures generated schedule has logical consistency:
      * 1. Outstanding principal always decreases (except interest-only)
@@ -3115,21 +3231,39 @@ class Loan_model extends MY_Model {
                                     ->row();
             }
             
-            // ── Restore loan outstanding amounts to previous values ──
-            $new_outstanding_principal = $part_payment->previous_principal;
-            $new_outstanding_interest = (float)$part_payment->interest_rate; // Keep existing interest
-            
-            $this->db->set([
+            // ── Restore the loan: the reversed amount is owed again, and the EMI schedule must cover it ──
+            // The part payment rebuilt the schedule on the reduced principal. Restoring only the loan total left the
+            // schedule short by the part payment, and every figure built on it (foreclosure, statements) wrong.
+            $loan = $this->db->query('SELECT * FROM ' . $this->table . ' WHERE id = ? FOR UPDATE', [$part_payment->loan_id])->row();
+            if (!$loan || !in_array($loan->status, ['active', 'npa'], true)) {
+                throw new Exception('The loan is not running (status: ' . ($loan ? $loan->status : 'not found') . ') — a part payment can be removed only while the loan is active.');
+            }
+            $pp_amount  = round((float) $part_payment->part_payment_amount, 2);
+            $pp_penalty = round((float) ($part_payment->prepayment_penalty_amount ?? 0), 2);
+            // what is owed now + the reversed amount (EMIs may have been paid since the part payment)
+            $new_outstanding_principal = round((float) $loan->outstanding_principal + $pp_amount, 2);
+
+            $this->db->where('id', $loan->id)->update('loans', [
                 'outstanding_principal' => $new_outstanding_principal,
-                'updated_at' => date('Y-m-d H:i:s')
-            ])
-                     ->where('id', $part_payment->loan_id)
-                     ->update('loans');
-            
+                'total_principal_paid'  => max(0, round((float) $loan->total_principal_paid - $pp_amount, 2)),
+                'total_amount_paid'     => max(0, round((float) $loan->total_amount_paid - $pp_amount - $pp_penalty, 2)),
+                'total_fine_paid'       => max(0, round((float) $loan->total_fine_paid - $pp_penalty, 2)),
+                'updated_at'            => date('Y-m-d H:i:s'),
+            ]);
+
             if ($this->db->trans_status() === FALSE) {
                 throw new Exception('Failed to update loan outstanding principal.');
             }
-            
+
+            // EMI as it was before the part payment (it may have been lowered); unpaid EMIs are rebuilt on what is owed
+            $restore_emi = (float) $part_payment->previous_emi > 0 ? (float) $part_payment->previous_emi : (float) $loan->emi_amount;
+            $this->reamortize_unpaid_schedule($loan->id, $restore_emi, $admin_id);
+
+            $check = $this->principal_check((int) $loan->id);
+            if (!$check['ok']) {
+                throw new Exception('The EMI schedule could not be restored (loan total ' . number_format($check['total'], 2) . ', schedule ' . number_format($check['schedule'], 2) . ').');
+            }
+
             // ── Mark part payment as reversed (soft delete) ──
             $this->db->set([
                 'is_reversed' => 1,

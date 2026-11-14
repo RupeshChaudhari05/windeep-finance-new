@@ -5,8 +5,8 @@ $total_interest  = (float)($settlement['total_interest']          ?? 0);
 $interest_pct    = (float)($settlement['interest_charge_pct']     ?? 30);
 $interest_charge = (float)($settlement['interest_charge']         ?? 0);
 $fines           = (float)($settlement['pending_fines']           ?? 0);
-$extra_charges   = $interest_charge + $fines;
-$total           = (float)($settlement['total_settlement']        ?? 0);
+$total           = (float)($settlement['total_settlement']        ?? 0);   // whole rupees
+$extra_charges   = $total > 0 ? max(0, round($total - $principal, 2)) : $interest_charge + $fines;   // includes the round-off
 $annual_rate     = (float)($loan->interest_rate ?? 0);
 ?>
 
@@ -79,7 +79,7 @@ $annual_rate     = (float)($loan->interest_rate ?? 0);
             </tr>
             <tr style="border-top:2px solid #dee2e6;">
                 <td class="font-weight-bold py-2" style="font-size:14px;">Total to Pay</td>
-                <td class="text-right font-weight-bold text-primary py-2" style="font-size:1.4em;"><?= $cs.number_format($total,2) ?></td>
+                <td class="text-right font-weight-bold text-primary py-2" style="font-size:1.4em;"><?= $cs.number_format($total,0) ?></td>
             </tr>
         </table>
     </div>
@@ -91,7 +91,7 @@ $annual_rate     = (float)($loan->interest_rate ?? 0);
         <div class="row align-items-center">
             <div class="col">
                 <div style="font-size:12px;opacity:.8;text-transform:uppercase;letter-spacing:.5px;">You will pay (Foreclosure)</div>
-                <div class="font-weight-bold" style="font-size:2em;"><?= $cs.number_format($total,2) ?></div>
+                <div class="font-weight-bold" style="font-size:2em;"><?= $cs.number_format($total,0) ?></div>
                 <div style="font-size:12px;opacity:.75;">Includes principal and extra charges</div>
             </div>
             <div class="col-auto d-none d-md-block">

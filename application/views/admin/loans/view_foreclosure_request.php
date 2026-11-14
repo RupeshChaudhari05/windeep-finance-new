@@ -470,10 +470,13 @@ $(document).ready(function() {
         if (isNaN(pct) || pct < 0) { pct = 0; }
         if (pct > 100) { pct = 100; }
         var intCharge = Math.round(FC_TOTAL_INT * pct) / 100;
+        var exact = Math.round((FC_PRINCIPAL + intCharge + FC_FINES) * 100) / 100;
+        // collected in whole rupees: nearest rupee, never below principal + fines (same rule as Loan_model::round_settlement)
+        var whole = Math.max(Math.round(exact), Math.ceil(FC_PRINCIPAL + FC_FINES - 0.004));
         return {
             pct: pct,
             interest: intCharge,
-            total: Math.round((FC_PRINCIPAL + intCharge + FC_FINES) * 100) / 100
+            total: whole
         };
     }
 

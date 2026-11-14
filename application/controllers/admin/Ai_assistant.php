@@ -1265,6 +1265,7 @@ HOW TO WORK
   from chat use reverse_entry (loan payment, savings deposit, fine — also status / member edits / fee batches made in this chat).
 - Prefer the dedicated tools (they post the ledger). correct_record only fixes a wrong field no other tool covers — say that
   ledger entries are not re-posted. Processing fee check / insert → fix_processing_fees (never write SQL for it).
+  A processing fee is deducted ONCE from the disbursement — it is never an EMI or loan payment: never use record_loan_payment for it.
 - run_sql: use ONLY the columns listed in the schema below; if a table is not listed, describe_tables first. If a query
   fails, read the error (it lists the real columns) and fix it — do not guess again.
 - Defaults (never ask): mode cash, date today, deposit_type regular, payment_type emi.
@@ -1380,7 +1381,7 @@ PROMPT;
             ['name' => 'open_page', 'description' => 'Show the admin a link to a page of the app.',
              'parameters' => $obj(['page' => $s('Page key', array_keys($this->pages))], ['page'])],
 
-            ['name' => 'record_loan_payment', 'description' => 'Record an EMI / interest-only payment received on a member\'s loan (posts ledger).',
+            ['name' => 'record_loan_payment', 'description' => 'Record an EMI / interest-only payment received on a member\'s loan (posts ledger). NEVER for a processing fee — the fee is deducted from the disbursement, it is not a loan payment.',
              'parameters' => $obj(['member' => $member, 'loan_number' => $s('Loan number if the member has several loans'), 'amount' => $n('Amount in ₹'),
                                    'date' => $s('YYYY-MM-DD, default today'), 'mode' => $s('Payment mode', $modes),
                                    'payment_type' => $s('emi or interest_only', ['emi', 'interest_only']), 'reference' => $s('UTR / cheque no.'), 'remarks' => $s('Remarks')],
@@ -2094,6 +2095,7 @@ PROMPT;
             $rows[] = ['Interest charge', number_format((float) $q['interest_charge_pct'], 2) . '% = ₹' . number_format((float) $q['interest_charge'], 2)];
             $rows[] = ['Pending fines', '₹' . number_format((float) $q['pending_fines'], 2)];
         }
+        if (abs((float) ($q['round_off'] ?? 0)) >= 0.01) $rows[] = ['Round off (whole rupees)', ((float) $q['round_off'] < 0 ? '− ₹' : '+ ₹') . number_format(abs((float) $q['round_off']), 2)];
         $rows[] = ['Calculated settlement', '₹' . number_format($calc, 2)];
         $rows[] = ['Amount to collect', '₹' . number_format($final, 2)];
 
@@ -2454,6 +2456,16 @@ PROMPT;
                 if (count($card['loans']) > 1) $card['warnings'][] = 'Member has ' . count($card['loans']) . ' active loans — which one?';
                 if ($card['loan_id'] && $card['amount'] > (float) $card['loans'][0]['outstanding'] * 1.2 + 1) {
                     $card['warnings'][] = 'Amount is more than the loan outstanding (Rs ' . number_format((float) $card['loans'][0]['outstanding'], 2) . ') — please check.';
+                }
+                // A processing fee is deducted from the disbursement — it is never an EMI / loan payment
+                if ($card['amount'] > 0) {
+                    $fee_loan = $this->db->select('loan_number')->where('member_id', $card['member_id'])->where('processing_fee >', 0)
+                                         ->where('ABS(processing_fee - ' . (float) $card['amount'] . ') < 0.01', null, false)
+                                         ->where('ABS(emi_amount - ' . (float) $card['amount'] . ') > 1', null, false)->limit(1)->get('loans')->row();
+                    if ($fee_loan) {
+                        $card['warnings'][] = '₹' . number_format($card['amount'], 2) . ' is exactly the processing fee of ' . $fee_loan->loan_number
+                            . '. A processing fee is deducted from the disbursement and is NOT a loan payment — do not save it as an EMI.';
+                    }
                 }
                 // Amount sanity vs EMI
                 if ($card['loan_id'] && $card['payment_type'] === 'emi' && $card['amount'] > 0) {
