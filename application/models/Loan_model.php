@@ -652,6 +652,17 @@ class Loan_model extends MY_Model {
                 $data['payment_type'] = 'emi';
             }
 
+            // An EMI / interest-only payment always belongs to an EMI. When the caller did not pick one, use the next
+            // unpaid EMI — 'upcoming' included (an EMI not yet due is still the next one). Without an EMI the payment
+            // only lowered the loan totals and the EMI stayed unpaid (schedule and loan totals then disagree).
+            if (empty($data['installment_id']) && in_array($data['payment_type'], ['emi', 'interest_only'], true)) {
+                $next_inst = $this->db->select('id')->where('loan_id', $data['loan_id'])
+                                      ->where_in('status', ['overdue', 'pending', 'partial', 'upcoming'])
+                                      ->order_by('installment_number', 'ASC')->limit(1)->get('loan_installments')->row();
+                if (!$next_inst) throw new Exception('This loan has no unpaid EMI left — use part payment or foreclosure instead.');
+                $data['installment_id'] = (int) $next_inst->id;
+            }
+
             // Generate payment code
             $data['payment_code'] = 'PAY-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -6));
             $data['payment_date'] = $data['payment_date'] ?? date('Y-m-d');
@@ -2091,6 +2102,28 @@ class Loan_model extends MY_Model {
      *                                 configured setting for this calculation only
      *                                 (used when approving a request).
      */
+    /**
+     * Guard: the loan totals and the EMI schedule must agree on the remaining principal. A payment saved without an EMI
+     * (or a broken reversal) makes them differ, and every figure built on the totals — foreclosure quotes first of
+     * all — is then wrong. 'interest_only' months are settled (their principal moved to extension EMIs).
+     *
+     * @param object|int $loan loan row or id
+     * @return array ['ok' => bool, 'total' => float, 'schedule' => float, 'diff' => float, 'unlinked_payments' => int]
+     */
+    public function principal_check($loan) {
+        if (!is_object($loan)) $loan = $this->db->where('id', (int) $loan)->get('loans')->row();
+        if (!$loan) return ['ok' => true, 'total' => 0.0, 'schedule' => 0.0, 'diff' => 0.0, 'unlinked_payments' => 0];
+        $sched = (float) $this->db->query("SELECT COALESCE(SUM(GREATEST(principal_amount - principal_paid, 0)), 0) s FROM loan_installments
+                                           WHERE loan_id = ? AND status NOT IN ('paid','waived','cancelled','interest_only')", [$loan->id])->row()->s;
+        $unlinked = (int) $this->db->where('loan_id', $loan->id)->where('is_reversed', 0)->where('installment_id IS NULL', null, false)
+                                   ->where_not_in('payment_type', ['part_payment', 'foreclosure'])->count_all_results('loan_payments');
+        $total = (float) $loan->outstanding_principal;
+        $diff = round($total - $sched, 2);
+        // Only running loans are compared; ₹1 tolerance for paise rounding
+        $ok = !in_array($loan->status, ['active', 'npa'], true) || abs($diff) <= 1;
+        return ['ok' => $ok, 'total' => round($total, 2), 'schedule' => round($sched, 2), 'diff' => $diff, 'unlinked_payments' => $unlinked];
+    }
+
     public function calculate_foreclosure_amount($loan_id, $override_pct = null) {
         $loan = $this->db->where('id', $loan_id)->get('loans')->row();
         if (!$loan) {
@@ -2101,9 +2134,10 @@ class Loan_model extends MY_Model {
         $outstanding_principal = max(0, (float) ($loan->outstanding_principal ?? 0) - $this->pending_disbursement($loan));
 
         // Get total interest: current month + all remaining unpaid months
+        // 'interest_only' months are settled: their interest was paid and their principal moved to extension EMIs
         $total_interest_row = $this->db->select_sum('interest_amount')
                                        ->where('loan_id', $loan_id)
-                                       ->where_not_in('status', ['paid', 'waived', 'cancelled'])
+                                       ->where_not_in('status', ['paid', 'waived', 'cancelled', 'interest_only'])
                                        ->get('loan_installments')
                                        ->row();
         $total_interest = $total_interest_row ? (float)$total_interest_row->interest_amount : 0;
@@ -2149,6 +2183,7 @@ class Loan_model extends MY_Model {
             'interest_charge'         => $interest_charge,
             'pending_fines'           => $pending_fines,
             'total_amount'            => $total_amount,
+            'principal_check'         => $this->principal_check($loan),   // ok = false → figures must be verified first
             'pending_fines_list'      => $this->db->select('f.*')
                                                   ->from('fines f')
                                                   ->join('loan_installments li', 'li.id = f.related_id AND f.related_type = "loan_installment"', 'inner')
@@ -2196,6 +2231,7 @@ class Loan_model extends MY_Model {
             'waived_interest' => $outstanding_interest,
             'waived_fines' => round($pending_fines, 2),
             'type' => 'force_close',
+            'principal_check' => $this->principal_check($loan),
             'pending_fines_list' => $this->db->select('f.*')
                                                   ->from('fines f')
                                                   ->join('loan_installments li', 'li.id = f.related_id AND f.related_type = "loan_installment"', 'inner')

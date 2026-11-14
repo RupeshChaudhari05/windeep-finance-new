@@ -1142,7 +1142,7 @@ class Loans extends Admin_Controller {
             // Auto-detect next pending/overdue installment if not provided
             if (empty($installment_id)) {
                 $next_inst = $this->db->where('loan_id', $loan_id)
-                                      ->where_in('status', ['overdue', 'pending', 'partial'])
+                                      ->where_in('status', ['overdue', 'pending', 'partial', 'upcoming'])   // the next EMI may not be due yet
                                       ->order_by('installment_number', 'ASC')
                                       ->limit(1)
                                       ->get('loan_installments')

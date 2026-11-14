@@ -625,6 +625,22 @@ class Loans extends Member_Controller {
         $data['page_title'] = 'Foreclosure Request - ' . $loan->loan_number;
         $data['loan'] = $loan;
 
+        // Guard: never quote a member while the loan totals and the EMI schedule disagree (the amount would be wrong)
+        $check = $this->Loan_model->principal_check($loan);
+        if (!$check['ok']) {
+            log_message('error', 'Foreclosure request blocked for loan ' . $loan->loan_number . ': loan total ' . $check['total'] . ' vs EMI schedule ' . $check['schedule']);
+            $this->load->model('Notification_model');
+            foreach ($this->db->select('id')->where('is_active', 1)->get('admin_users')->result() as $a) {
+                $this->Notification_model->create('admin', $a->id, 'loan_integrity', 'Loan figures need checking: ' . $loan->loan_number,
+                    'A member tried to request foreclosure of ' . $loan->loan_number . ' but its totals (₹' . number_format($check['total'], 2)
+                    . ') and EMI schedule (₹' . number_format($check['schedule'], 2) . ') disagree. See Reports → Loan Integrity Check.',
+                    ['loan_id' => (int) $loan_id, 'url' => site_url('admin/reports/loan_integrity')]);
+            }
+            $this->session->set_flashdata('error', 'The settlement amount of this loan is being verified by the office. Please contact the office for foreclosure.');
+            redirect('member/loans');
+            return;
+        }
+
         // Calculate settlement amount
         $settlement = $this->_calculate_foreclosure_amount($loan_id);
         $data['settlement'] = $settlement;

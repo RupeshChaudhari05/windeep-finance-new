@@ -2289,6 +2289,62 @@ class Reports extends Admin_Controller {
     }
 
     // =========================================================================
+    //  LOAN INTEGRITY CHECK — loan totals against the EMI schedule and payments
+    // =========================================================================
+
+    /** Running loans whose totals and EMI schedule disagree, and payments not linked to an EMI. Read-only. */
+    public function loan_integrity() {
+        $show = $this->input->get('show') === 'all' ? 'all' : 'problems';
+        $all  = $this->Report_model->loan_integrity(false);
+        $bad  = array_values(array_filter($all, function ($r) { return $r['problem'] !== ''; }));
+        $rows = $show === 'all' ? $all : $bad;
+        $unlinked = $this->Report_model->loan_unlinked_payments();
+        $loan_link = function ($r) { return site_url('admin/loans/view/' . ($r['loan_id'] ?? $r['id'])); };
+
+        $this->_render_spec([
+            'title' => 'Loan Integrity Check', 'icon' => 'fa-shield-alt', 'subtitle' => 'As on ' . format_date(date('Y-m-d')),
+            'filters' => [['name' => 'show', 'label' => 'Show', 'type' => 'select', 'value' => $show, 'options' => ['problems' => 'Only loans with a problem', 'all' => 'All running loans']]],
+            'kpis' => [
+                ['label' => 'Running loans checked', 'value' => count($all), 'type' => 'int'],
+                ['label' => 'Correct', 'value' => count($all) - count($bad), 'type' => 'int', 'color' => 'success'],
+                ['label' => 'Need attention', 'value' => count($bad), 'type' => 'int', 'color' => count($bad) ? 'danger' : 'success'],
+                ['label' => 'Payments without an EMI', 'value' => count($unlinked), 'type' => 'int', 'color' => count($unlinked) ? 'warning' : 'success',
+                 'hint' => 'EMI payments saved without an installment — they lower the loan totals but leave the EMI unpaid'],
+                ['label' => 'Total difference', 'value' => array_sum(array_map(function ($r) { return abs($r['difference']); }, $bad)), 'type' => 'money', 'color' => 'danger'],
+            ],
+            'table_title' => $show === 'all' ? 'Running loans' : 'Loans that need attention',
+            'columns' => [
+                ['key' => 'loan_number', 'label' => 'Loan', 'type' => 'code', 'link' => $loan_link],
+                ['key' => 'member_code', 'label' => 'Member', 'type' => 'code'], ['key' => 'member_name', 'label' => 'Name'],
+                ['key' => 'status', 'label' => 'Status'],
+                ['key' => 'loan_total', 'label' => 'Outstanding (loan total)', 'type' => 'money', 'total' => true],
+                ['key' => 'schedule_total', 'label' => 'Outstanding (EMI schedule)', 'type' => 'money', 'total' => true],
+                ['key' => 'difference', 'label' => 'Difference', 'type' => 'money', 'total' => true],
+                ['key' => 'unlinked_payments', 'label' => 'Payments without EMI', 'type' => 'int', 'total' => true],
+                ['key' => 'problem', 'label' => 'Problem'], ['key' => 'how_to_fix', 'label' => 'How to correct'],
+            ],
+            'rows' => $rows,
+            'sheets' => [[
+                'title' => 'Payments not linked to an EMI',
+                'columns' => [
+                    ['key' => 'payment_date', 'label' => 'Date', 'type' => 'date'], ['key' => 'payment_code', 'label' => 'Payment', 'type' => 'code'],
+                    ['key' => 'loan_number', 'label' => 'Loan', 'type' => 'code', 'link' => $loan_link], ['key' => 'loan_status', 'label' => 'Loan status'],
+                    ['key' => 'member_code', 'label' => 'Member', 'type' => 'code'], ['key' => 'member_name', 'label' => 'Name'],
+                    ['key' => 'total_amount', 'label' => 'Amount', 'type' => 'money', 'total' => true],
+                    ['key' => 'principal_component', 'label' => 'Principal', 'type' => 'money', 'total' => true],
+                    ['key' => 'interest_component', 'label' => 'Interest', 'type' => 'money', 'total' => true],
+                    ['key' => 'payment_mode', 'label' => 'Mode'], ['key' => 'created_at', 'label' => 'Entered on', 'type' => 'datetime'],
+                    ['key' => 'narration', 'label' => 'Narration'],
+                ],
+                'rows' => $unlinked,
+            ]],
+            'note' => 'The remaining principal in the loan totals must equal the remaining principal of the EMI schedule (interest-only months are settled). '
+                    . 'When they differ, foreclosure quotes are wrong — members cannot request foreclosure of such a loan until it is corrected. '
+                    . 'New EMI payments are always attached to the next unpaid EMI, so this list should stay empty.',
+        ]);
+    }
+
+    // =========================================================================
     //  PROCESSING FEE CHECK — every loan's fee against rule / record / ledger
     // =========================================================================
 

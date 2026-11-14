@@ -1458,4 +1458,62 @@ class Report_model extends MY_Model {
              AND (t.reference_id IS NULL OR t.reference_id NOT IN (SELECT id FROM loans))
         ORDER BY t.member_id, t.id")->result_array();
     }
+
+    /**
+     * Loan integrity: for every running loan the remaining principal in the loan totals must equal the remaining
+     * principal of its EMI schedule ('interest_only' months are settled — their principal moved to extension EMIs).
+     * A payment saved without an EMI, deleted payments or a broken part-payment reversal make them differ; foreclosure
+     * quotes and statements built on the totals are then wrong. Each row says what is wrong and how to correct it.
+     *
+     * @param bool $only_problems
+     */
+    public function loan_integrity($only_problems = true) {
+        $rows = $this->db->query("
+          SELECT l.id, l.loan_number, l.status, l.member_id, m.member_code, CONCAT(m.first_name, ' ', m.last_name) member_name, m.phone,
+                 l.principal_amount, l.outstanding_principal AS loan_total, l.total_principal_paid,
+                 COALESCE(s.sched, 0) AS schedule_total,
+                 COALESCE(p.principal_paid, 0) AS payments_principal, COALESCE(p.unlinked, 0) AS unlinked_payments, COALESCE(p.unlinked_amount, 0) AS unlinked_amount
+            FROM loans l
+            JOIN members m ON m.id = l.member_id
+       LEFT JOIN (SELECT loan_id, SUM(GREATEST(principal_amount - principal_paid, 0)) sched FROM loan_installments
+                   WHERE status NOT IN ('paid','waived','cancelled','interest_only') GROUP BY loan_id) s ON s.loan_id = l.id
+       LEFT JOIN (SELECT loan_id, SUM(principal_component) principal_paid,
+                         SUM(installment_id IS NULL AND payment_type NOT IN ('part_payment','foreclosure')) unlinked,
+                         SUM(CASE WHEN installment_id IS NULL AND payment_type NOT IN ('part_payment','foreclosure') THEN total_amount ELSE 0 END) unlinked_amount
+                    FROM loan_payments WHERE is_reversed = 0 GROUP BY loan_id) p ON p.loan_id = l.id
+           WHERE l.status IN ('active','npa')
+        ORDER BY l.id")->result_array();
+        $out = [];
+        foreach ($rows as $r) {
+            $r['difference'] = round((float) $r['loan_total'] - (float) $r['schedule_total'], 2);
+            $bad_total = abs($r['difference']) > 1;
+            $r['problem'] = '';
+            $r['how_to_fix'] = '';
+            if ((int) $r['unlinked_payments'] > 0) {
+                $r['problem'] = (int) $r['unlinked_payments'] . ' payment(s) not linked to an EMI (₹' . number_format((float) $r['unlinked_amount'], 2) . ')';
+                $r['how_to_fix'] = 'Admin → Adjustments: reverse the payment; if the money was really received, enter it again with Collect EMI';
+            } elseif ($bad_total && abs(((float) $r['principal_amount'] - (float) $r['payments_principal']) - (float) $r['schedule_total']) <= 1) {
+                $r['problem'] = 'Loan totals do not match the payment records (schedule and payments agree)';
+                $r['how_to_fix'] = 'Admin → Adjustments: open the loan and save any EMI row — the totals are rebuilt from the EMI records';
+            } elseif ($bad_total) {
+                $r['problem'] = 'EMI schedule does not cover the outstanding principal';
+                $r['how_to_fix'] = 'Check part payments / reversals of this loan — an EMI may have to be added or changed';
+            }
+            if (!$only_problems || $r['problem'] !== '') $out[] = $r;
+        }
+        return $out;
+    }
+
+    /** Loan payments that are not attached to an EMI (part payments and foreclosure settlements never are). */
+    public function loan_unlinked_payments() {
+        return $this->db->query("
+          SELECT p.id, p.payment_code, p.payment_date, p.total_amount, p.principal_component, p.interest_component, p.payment_mode,
+                 p.created_at, p.narration, l.id AS loan_id, l.loan_number, l.status AS loan_status, m.member_code,
+                 CONCAT(m.first_name, ' ', m.last_name) member_name
+            FROM loan_payments p
+            JOIN loans l ON l.id = p.loan_id
+            JOIN members m ON m.id = l.member_id
+           WHERE p.is_reversed = 0 AND p.installment_id IS NULL AND p.payment_type NOT IN ('part_payment','foreclosure')
+        ORDER BY (l.status IN ('active','npa')) DESC, p.payment_date DESC")->result_array();
+    }
 }

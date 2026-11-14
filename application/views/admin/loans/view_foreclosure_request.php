@@ -8,7 +8,17 @@ $fc_pct           = (float)($breakdown['interest_charge_pct'] ?? 30);
 $fc_int_charge    = (float)($breakdown['interest_charge'] ?? 0);
 $fc_fines         = (float)($breakdown['pending_fines'] ?? 0);
 $fc_total         = (float)($breakdown['total_amount'] ?? 0);
+$fc_check         = $breakdown['principal_check'] ?? ['ok' => true];
 ?>
+<?php if (!$fc_check['ok']): ?>
+<div class="alert alert-danger">
+    <h5 class="mb-1"><i class="fas fa-exclamation-triangle mr-1"></i> Check this loan before approving</h5>
+    The loan total (<strong><?= format_amount($fc_check['total']) ?></strong>) and the EMI schedule (<strong><?= format_amount($fc_check['schedule']) ?></strong>)
+    disagree by <strong><?= format_amount(abs($fc_check['diff'])) ?></strong><?= $fc_check['unlinked_payments'] ? ' — ' . (int) $fc_check['unlinked_payments'] . ' payment(s) are not linked to an EMI' : '' ?>.
+    The settlement below is built on the loan total and may be wrong.
+    <a href="<?= site_url('admin/reports/loan_integrity') ?>" class="alert-link">Open Loan Integrity Check</a>
+</div>
+<?php endif; ?>
 
 <div class="container-fluid">
     <div class="row">

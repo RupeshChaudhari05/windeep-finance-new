@@ -130,6 +130,7 @@ class Ai_assistant extends Admin_Controller {
         'fine_rules'          => ['Fine Rules', 'admin/fines/rules'],
         'fine_preview'        => ['Auto Fine Preview', 'admin/fines/preview_auto_fines'],
         'processing_fee_check' => ['Processing Fee Check', 'admin/reports/processing_fees'],
+        'loan_integrity_check' => ['Loan Integrity Check', 'admin/reports/loan_integrity'],
         'ledger'              => ['Member Ledger', 'admin/ledger/member'],
         'settings'            => ['Settings', 'admin/settings'],
     ];
@@ -777,7 +778,7 @@ class Ai_assistant extends Admin_Controller {
                     $ptype = $in('payment_type') === 'interest_only' ? 'interest_only' : 'emi';
 
                     $next = $this->db->where('loan_id', $loan_id)
-                        ->where_in('status', ['overdue', 'pending', 'partial'])
+                        ->where_in('status', ['overdue', 'pending', 'partial', 'upcoming'])   // the next EMI may not be due yet
                         ->order_by('installment_number', 'ASC')->limit(1)
                         ->get('loan_installments')->row();
 
@@ -1301,6 +1302,10 @@ OUTPUT: short Markdown, **bold** key amounts. Pages for open_page: {$pages}.
 DATA RULES
 - Member name = first_name middle_name last_name; member_code like MEMB000123; ignore members.deleted_at NOT NULL.
 - Active loans: loans.status IN ('active','npa'); outstanding = outstanding_principal (+ outstanding_interest).
+  For ONE loan's remaining principal use get_loan → principal_check (it compares the loan total with the EMI schedule).
+- Interest-only months (loan_installments.status 'interest_only'): interest paid, that month's principal moved to an extra
+  EMI at the end (is_extension = 1) — count them from the schedule, never assume.
+- "Check / tapasa / dekho" a loan = READ only. Never record a payment unless the admin clearly says money was received.
 - Overdue EMI: loan_installments.status IN ('pending','overdue','partial') AND due_date < CURDATE(); due = emi_amount - total_paid.
 - Ignore loan_payments / savings_transactions with is_reversed = 1.
 - Savings balance savings_accounts.current_balance; dues savings_schedule (due_amount - paid_amount), status pending/partial/overdue.
@@ -1362,8 +1367,8 @@ PROMPT;
              'parameters' => $obj(['tables' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Table names (max 10)']])],
             ['name' => 'run_sql', 'description' => 'Run ONE read-only SQL query (SELECT / WITH / SHOW / DESCRIBE) on the live database. Returns up to 100 rows. Use for any list, total, report or search.',
              'parameters' => $obj(['query' => $s('The SQL query'), 'purpose' => $s('Short description shown to the admin, e.g. "Overdue loans this month"')], ['query'])],
-            ['name' => 'get_report', 'description' => 'Ready-made report, shown to the admin as a table (prefer over run_sql). summary = society totals + collections in the period; overdue = overdue EMIs by loan; collections = daily collections; dues = EMIs due in the next N days; savings_dues; applications = open loan applications; unmapped_bank; pending_fines; member_dues = per-member EMI + savings + fine dues; portfolio = product-wise outstanding / overdue / PAR 30-90; fine_register = all fines in the period; income = month-wise income & expenses from the ledger; day_book = money in/out per day (cash+bank); savings_register = every active savings account with dues; collection_efficiency = EMI demand vs collected per month; bank_reconciliation = bank lines not mapped + books bank balance; kyc_pending; processing_fees = loans whose processing fee is missing / not recorded / not in ledger (fix on the report page); fine_preview = DRY RUN of the auto-fine job (what fines would be created today, nothing saved). Each table has an Excel download of the matching report page.',
-             'parameters' => $obj(['report' => $s('Report', ['summary', 'overdue', 'collections', 'dues', 'savings_dues', 'applications', 'unmapped_bank', 'pending_fines', 'member_dues', 'portfolio', 'fine_register', 'income', 'day_book', 'savings_register', 'collection_efficiency', 'bank_reconciliation', 'kyc_pending', 'fine_preview', 'processing_fees']),
+            ['name' => 'get_report', 'description' => 'Ready-made report, shown to the admin as a table (prefer over run_sql). summary = society totals + collections in the period; overdue = overdue EMIs by loan; collections = daily collections; dues = EMIs due in the next N days; savings_dues; applications = open loan applications; unmapped_bank; pending_fines; member_dues = per-member EMI + savings + fine dues; portfolio = product-wise outstanding / overdue / PAR 30-90; fine_register = all fines in the period; income = month-wise income & expenses from the ledger; day_book = money in/out per day (cash+bank); savings_register = every active savings account with dues; collection_efficiency = EMI demand vs collected per month; bank_reconciliation = bank lines not mapped + books bank balance; kyc_pending; processing_fees = loans whose processing fee is missing / not recorded / not in ledger (fix on the report page); loan_integrity = running loans whose totals and EMI schedule disagree or that have payments not linked to an EMI (wrong foreclosure amounts); fine_preview = DRY RUN of the auto-fine job (what fines would be created today, nothing saved). Each table has an Excel download of the matching report page.',
+             'parameters' => $obj(['report' => $s('Report', ['summary', 'overdue', 'collections', 'dues', 'savings_dues', 'applications', 'unmapped_bank', 'pending_fines', 'member_dues', 'portfolio', 'fine_register', 'income', 'day_book', 'savings_register', 'collection_efficiency', 'bank_reconciliation', 'kyc_pending', 'fine_preview', 'processing_fees', 'loan_integrity']),
                                    'from' => $s('YYYY-MM-DD; default 1st of this month. For "today" pass today as from and to'), 'to' => $s('YYYY-MM-DD, default today'), 'days' => $n('dues: days ahead, default 7')], ['report'])],
             ['name' => 'map_bank_entries', 'description' => 'Suggest mappings for UNMAPPED bank CREDIT lines (Bank Transactions): finds the member from the bank text / UPI id / payer name / history and allocates to EMI / savings, or links to an existing manual entry. Shows a Save card. Use when the admin asks to map / reconcile bank entries.',
              'parameters' => $obj(['from' => $s('YYYY-MM-DD, optional'), 'to' => $s('YYYY-MM-DD, optional'), 'limit' => $n('Max lines, default 100'),
@@ -1756,6 +1761,11 @@ PROMPT;
                     'unmapped' => $r['pending_amount'], 'description' => $r['description'], 'detected_member' => $r['member_code']]; }, $b['unmapped']);
                 return $this->_tool_rows("Bank reconciliation {$from} to {$to} — books bank balance ₹" . number_format($b['gl_bank'], 2) . '; lines not yet mapped',
                                          $rows, 'admin/reports/bank-reconciliation', $q);
+            case 'loan_integrity':
+                $rows = array_map(function ($r) { return ['loan' => $r['loan_number'], 'member_code' => $r['member_code'], 'member' => $r['member_name'],
+                    'outstanding_loan_total' => $r['loan_total'], 'outstanding_emi_schedule' => $r['schedule_total'], 'difference' => $r['difference'],
+                    'payments_without_emi' => $r['unlinked_payments'], 'problem' => $r['problem'], 'how_to_correct' => $r['how_to_fix']]; }, $R->loan_integrity(true));
+                return $this->_tool_rows('Loans whose totals and EMI schedule disagree', $rows, 'admin/reports/loan_integrity', '');
             case 'processing_fees':
                 $rows = array_map(function ($r) { return ['loan' => $r['loan_number'], 'status' => $r['status'], 'member_code' => $r['member_code'], 'member' => $r['member_name'],
                     'principal' => $r['principal_amount'], 'rule_fee' => $r['rule_fee'], 'fee_on_loan' => $r['processing_fee'], 'fee_entry' => $r['recorded'],
@@ -1861,7 +1871,7 @@ PROMPT;
         foreach ($loans as &$l) {
             if (!in_array($l['status'], ['active', 'npa'], true)) continue;
             $next = $this->db->select('installment_number, due_date, emi_amount, total_paid, status')->where('loan_id', $l['id'])
-                ->where_in('status', ['pending', 'overdue', 'partial'])->order_by('installment_number', 'ASC')->limit(1)->get('loan_installments')->row_array();
+                ->where_in('status', ['pending', 'overdue', 'partial', 'upcoming'])->order_by('installment_number', 'ASC')->limit(1)->get('loan_installments')->row_array();
             $l['next_installment'] = $next;
             $l['overdue_emis'] = $this->db->where('loan_id', $l['id'])->where_in('status', ['pending', 'overdue', 'partial'])
                 ->where('due_date <', date('Y-m-d'))->count_all_results('loan_installments');
@@ -1925,6 +1935,22 @@ PROMPT;
             ->get('loan_installments')->result_array();
         $out['recent_payments'] = $this->db->select('id, payment_code, payment_date, payment_type, total_amount, principal_component, interest_component, fine_component, payment_mode, is_reversed')
             ->where('loan_id', $l->id)->order_by('id', 'DESC')->limit(5)->get('loan_payments')->result_array();
+        // Cross-check: loan total vs the EMI schedule (what the loan page shows). Payments saved without an EMI lower
+        // the total but leave the EMI unpaid — then the two differ and foreclosure quotes use the wrong principal.
+        $sched = $this->db->query("SELECT COALESCE(SUM(GREATEST(principal_amount - principal_paid, 0)), 0) p FROM loan_installments
+                                   WHERE loan_id = ? AND status NOT IN ('paid','waived','cancelled','interest_only')", [$l->id])->row();
+        $unlinked = $this->db->select('id, payment_code, payment_date, payment_type, total_amount, principal_component, narration')
+            ->where('loan_id', $l->id)->where('is_reversed', 0)->where('installment_id IS NULL', null, false)
+            ->where_not_in('payment_type', ['part_payment', 'foreclosure'])->get('loan_payments')->result_array();
+        $out['principal_check'] = [
+            'loan_total_outstanding_principal' => (float) $l->outstanding_principal,
+            'emi_schedule_outstanding_principal' => round((float) $sched->p, 2),
+            'match' => abs((float) $l->outstanding_principal - (float) $sched->p) <= 1,
+            'payments_not_linked_to_an_emi' => $unlinked,
+            'interest_only_months' => (int) $this->db->where('loan_id', $l->id)->where('status', 'interest_only')->count_all_results('loan_installments'),
+            'note' => 'The loan page shows the EMI-schedule figure. If match is false, tell the admin both figures, the difference and the '
+                    . 'payments not linked to an EMI (usual cause); they are corrected by reversing them in Admin → Adjustments.',
+        ];
         $out['pending_foreclosure_request'] = $this->db->where('loan_id', $l->id)->where('status', 'pending')->get('loan_foreclosure_requests')->row_array();
         $out['disbursement'] = ['in_parts' => !empty($l->is_tranche), 'sanctioned' => (float) $l->principal_amount,
                                 'disbursed' => $this->Loan_model->disbursed_amount($l), 'left_to_disburse' => $this->Loan_model->pending_disbursement($l),
@@ -2081,6 +2107,12 @@ PROMPT;
                  'rows' => $rows, 'warnings' => [], 'danger' => true];
         $card['rows'][] = ['Mode / date', $card['payment_mode'] . ' · ' . $card['payment_date']];
         if (abs($final - $calc) >= 0.01) $card['warnings'][] = 'Amount differs from the calculated settlement (₹' . number_format($calc, 2) . ').';
+        $pc = $q['principal_check'] ?? ['ok' => true];
+        if (!$pc['ok']) {
+            $card['warnings'][] = 'CHECK FIRST: the loan total (₹' . number_format($pc['total'], 2) . ') and the EMI schedule (₹' . number_format($pc['schedule'], 2)
+                . ') disagree by ₹' . number_format(abs($pc['diff']), 2) . ($pc['unlinked_payments'] ? ' — ' . $pc['unlinked_payments'] . ' payment(s) are not linked to an EMI' : '')
+                . '. The settlement above may be wrong; correct it from Reports → Loan Integrity Check before closing.';
+        }
         if ($card['payment_date'] > date('Y-m-d')) return ['error' => 'Payment date cannot be in the future.'];
 
         $this->_add_pending($card);
@@ -2596,7 +2628,7 @@ PROMPT;
                     'outstanding' => number_format((float) $l->outstanding_principal, 2, '.', ''), 'status' => $l->status];
             if ($with_details) {
                 $next = $this->db->select('due_date, emi_amount, total_paid')->where('loan_id', $l->id)
-                    ->where_in('status', ['pending', 'overdue', 'partial'])->order_by('installment_number', 'ASC')
+                    ->where_in('status', ['pending', 'overdue', 'partial', 'upcoming'])->order_by('installment_number', 'ASC')
                     ->limit(1)->get('loan_installments')->row();
                 $row['next_due']    = $next ? $next->due_date : null;
                 $row['next_amount'] = $next ? number_format((float) $next->emi_amount - (float) $next->total_paid, 2, '.', '') : null;

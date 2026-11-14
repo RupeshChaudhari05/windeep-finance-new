@@ -24,6 +24,7 @@ $groups = [
         ['Outstanding Loans', 'admin/reports/outstanding', 'fa-file-invoice-dollar', 'Every active loan with outstanding and overdue amount', true, false],
         ['Disbursement Report', 'admin/reports/disbursement', 'fa-money-bill-wave', 'Loans disbursed in a period (actual money incl. parts)', true, false],
         ['Processing Fee Check', 'admin/reports/processing_fees', 'fa-file-invoice-dollar', 'Every loan (old, closed, active): fee charged, fee entry and ledger — fix missing fees', true, true],
+        ['Loan Integrity Check', 'admin/reports/loan_integrity', 'fa-shield-alt', 'Loan totals vs EMI schedule, payments not linked to an EMI — catches wrong foreclosure amounts early', true, true],
         ['Guarantor Exposure', 'admin/reports/guarantor', 'fa-user-shield', 'Guarantors and the loans they stand for', true, false],
     ]],
     ['Members & Savings', 'fa-users', 'info', [
