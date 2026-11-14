@@ -275,6 +275,18 @@
                             <div class="row mt-3">
                                 <div class="col-md-6">
                                     <div class="form-group">
+                                        <label>Security Deposit Account Closing Fee (₹)
+                                            <i class="fas fa-info-circle text-info" data-toggle="tooltip" title="Deducted from the balance when an admin approves a member's request to close a savings / security deposit account. The admin can change or waive it per request, with a reason."></i>
+                                        </label>
+                                        <input type="number" class="form-control" name="savings_closing_fee" min="0" step="0.01" value="<?= html_escape($settings['savings_closing_fee'] ?? 150) ?>">
+                                        <small class="form-text text-muted">Default 150. The rest of the balance is paid out to the member.</small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="row mt-3">
+                                <div class="col-md-6">
+                                    <div class="form-group">
                                         <label>Fixed Due Day (1-28) 
                                             <i class="fas fa-info-circle text-info" data-toggle="tooltip" title="All monthly loan EMIs and savings deposits will be due on this day each month. System sends email alerts on due date."></i>
                                         </label>

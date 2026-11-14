@@ -168,8 +168,82 @@ class Savings extends Admin_Controller {
         $data['schedule'] = $this->Savings_model->get_schedule($id);
         $data['transactions'] = $this->Savings_model->get_transactions($id);
         $data['adjustments'] = $this->Savings_model->get_adjustment_transactions($id);
-        
+        $this->load->model('Savings_closure_model');
+        $data['closure_request'] = $this->Savings_closure_model->pending_for_account($id);
+
         $this->load_view('admin/savings/view', $data);
+    }
+
+    // ------------------------------------------------------------------
+    //  Account closure (member requests, admin approves: fee + payout + close)
+    // ------------------------------------------------------------------
+
+    /** Closure requests list (?status=pending|approved|rejected|cancelled|all). */
+    public function closure_requests() {
+        $this->check_permission('savings_view');
+        $this->load->model('Savings_closure_model');
+        $status = $this->input->get('status') ?: 'pending';
+        $data['title'] = 'Account Closure Requests';
+        $data['page_title'] = 'Account Closure Requests';
+        $data['breadcrumb'] = [['title' => 'Dashboard', 'url' => 'admin/dashboard'], ['title' => 'Security Deposit', 'url' => 'admin/savings'],
+                               ['title' => 'Closure Requests', 'url' => '']];
+        $data['installed'] = $this->Savings_closure_model->is_installed();
+        $data['status'] = $status;
+        $data['requests'] = $data['installed'] ? $this->Savings_closure_model->get_requests($status) : [];
+        $data['setting_fee'] = $this->Savings_closure_model->setting_fee();
+        $this->load_view('admin/savings/closure_requests', $data);
+    }
+
+    /** One request: review, approve (POST) — fee deducted, balance paid out, account closed. */
+    public function closure($id) {
+        $this->check_permission('savings_view');
+        $this->load->model('Savings_closure_model');
+        $req = $this->Savings_closure_model->get_request($id);
+        if (!$req) {
+            $this->session->set_flashdata('error', 'Closure request not found.');
+            redirect('admin/savings/closure_requests');
+        }
+        if ($this->input->method() === 'post') {
+            $this->check_permission('savings_edit');
+            try {
+                $res = $this->Savings_closure_model->approve($id, [
+                    'fee' => $this->input->post('fee'), 'fee_reason' => $this->input->post('fee_reason'),
+                    'payout_mode' => $this->input->post('payout_mode'), 'payout_date' => $this->input->post('payout_date'),
+                    'payout_reference' => $this->input->post('payout_reference'), 'remarks' => $this->input->post('remarks'),
+                ], $this->session->userdata('admin_id'));
+                $this->log_activity('Savings account closed', $req->account_number . ': fee ' . $res['fee'] . ', paid out ' . $res['refund'], 'savings');
+                $this->session->set_flashdata('success', 'Account ' . $req->account_number . ' closed. Fee ' . format_amount($res['fee'])
+                    . ' deducted, ' . format_amount($res['refund']) . ' paid out.');
+                redirect('admin/savings/view/' . $req->savings_account_id);
+            } catch (Exception $e) {
+                $this->session->set_flashdata('error', $e->getMessage());
+                redirect('admin/savings/closure/' . (int) $id);
+            }
+        }
+        $account = $this->Savings_closure_model->get_account($req->savings_account_id);
+        $data['title'] = 'Account Closure ' . $req->account_number;
+        $data['page_title'] = 'Account Closure Request';
+        $data['breadcrumb'] = [['title' => 'Dashboard', 'url' => 'admin/dashboard'], ['title' => 'Closure Requests', 'url' => 'admin/savings/closure_requests'],
+                               ['title' => $req->account_number, 'url' => '']];
+        $data['req'] = $req;
+        $data['account'] = $account;
+        $data['blockers'] = $req->status === 'pending' ? $this->Savings_closure_model->blockers($account) : [];
+        $data['setting_fee'] = $this->Savings_closure_model->setting_fee();
+        $this->load_view('admin/savings/closure', $data);
+    }
+
+    /** Reject a closure request (POST remarks). */
+    public function reject_closure($id) {
+        $this->check_permission('savings_edit');
+        if ($this->input->method() !== 'post') redirect('admin/savings/closure/' . (int) $id);
+        $this->load->model('Savings_closure_model');
+        try {
+            $this->Savings_closure_model->reject($id, $this->input->post('remarks'), $this->session->userdata('admin_id'));
+            $this->session->set_flashdata('success', 'Closure request rejected; the member has been notified.');
+        } catch (Exception $e) {
+            $this->session->set_flashdata('error', $e->getMessage());
+        }
+        redirect('admin/savings/closure_requests');
     }
     
     /**

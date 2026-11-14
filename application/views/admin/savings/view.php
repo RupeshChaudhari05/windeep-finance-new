@@ -1,3 +1,12 @@
+<?php if (!empty($closure_request)): ?>
+<div class="alert alert-warning d-flex align-items-center">
+    <i class="fas fa-door-closed fa-lg mr-2"></i>
+    <div class="mr-auto"><strong>Closure requested</strong> on <?= format_date($closure_request->requested_at) ?> — <?= html_escape(mb_strimwidth((string) $closure_request->reason, 0, 120, '…')) ?></div>
+    <a href="<?= site_url('admin/savings/closure/' . $closure_request->id) ?>" class="btn btn-sm btn-warning">Review request</a>
+</div>
+<?php elseif ($account->status === 'closed'): ?>
+<div class="alert alert-secondary"><i class="fas fa-lock mr-1"></i> <strong>Account closed</strong><?= !empty($account->closed_at) ? ' on ' . format_date($account->closed_at) : '' ?><?= !empty($account->closed_reason) ? ' — ' . html_escape($account->closed_reason) : '' ?></div>
+<?php endif; ?>
 <div class="row">
     <!-- Account Info Card -->
     <div class="col-md-4">

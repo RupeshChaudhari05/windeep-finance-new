@@ -430,7 +430,8 @@ class System extends Admin_Controller
             $zip->close();
 
             // Split into statements and execute
-            $statements = array_filter(array_map('trim', explode(';', $sql)));
+            $this->load->helper('migration');
+            $statements = sql_split_statements($sql);   // ; inside quoted data must not split a statement
             $executed = 0;
             $errors = [];
 

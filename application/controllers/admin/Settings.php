@@ -217,6 +217,11 @@ class Settings extends Admin_Controller {
                     $settings[$field] = $post_data[$field];
                 }
             }
+
+            // Savings / security deposit account closing fee (a non-negative amount)
+            if (isset($post_data['savings_closing_fee']) && is_numeric($post_data['savings_closing_fee']) && (float) $post_data['savings_closing_fee'] >= 0) {
+                $settings['savings_closing_fee'] = round((float) $post_data['savings_closing_fee'], 2);
+            }
             
             // Handle checkboxes (set to 0 if not present)
             $checkbox_fields = ['auto_apply_fines', 'kyc_required', 'force_fixed_due_day'];
@@ -1136,7 +1141,8 @@ class Settings extends Admin_Controller {
             $this->db->trans_begin();
             
             // Split SQL into individual queries
-            $queries = explode(';', $sql_content);
+            $this->load->helper('migration');
+            $queries = sql_split_statements($sql_content);   // ; inside quotes / comments must not split
             
             foreach ($queries as $query) {
                 $query = trim($query);
@@ -1800,21 +1806,14 @@ class Settings extends Admin_Controller {
         }
 
         // ── B. Parse ALTER TABLE … ADD [COLUMN] statements ───────────────────
-        // We handle multi-column ALTER (comma-separated ADD COLUMN clauses)
-        // Normalise: collapse whitespace, remove comments
-        $sql_flat = preg_replace('/--[^\n]*/', '', $sql_content);  // strip line comments
-        $sql_flat = preg_replace('/\s+/', ' ', $sql_flat);         // collapse whitespace
-
-        // Match each full ALTER TABLE block ending with ;
-        preg_match_all('/ALTER\s+TABLE\s+`?(\w+)`?\s+((?:ADD|MODIFY|DROP|CHANGE|RENAME)[^;]+);/i', $sql_flat, $alter_blocks, PREG_SET_ORDER);
-
-        foreach ($alter_blocks as $ab) {
-            $table    = $ab[1];
-            $clauses  = $ab[2];
-
-            // Split on commas that precede ADD/MODIFY/DROP/CHANGE (top-level only)
-            // Simple split is enough for well-formed migration files
-            $parts = preg_split('/,\s*(?=(?:ADD|MODIFY|DROP|CHANGE|RENAME)\s)/i', $clauses);
+        // Statements and clauses are split outside quotes / parentheses, so a ; or , inside a
+        // COMMENT '…' or DEFAULT '…' no longer cuts a column definition in half.
+        $this->load->helper('migration');
+        foreach (sql_split_statements($sql_content) as $stmt) {
+            $stmt = preg_replace('/\s+/', ' ', $stmt);
+            if (!preg_match('/^ALTER\s+TABLE\s+`?(\w+)`?\s+((?:ADD|MODIFY|DROP|CHANGE|RENAME)\b.*)$/is', $stmt, $ab)) continue;
+            $table = $ab[1];
+            $parts = sql_split_top_level($ab[2]);
             foreach ($parts as $part) {
                 $part = trim($part);
                 // Only handle ADD [COLUMN] clauses

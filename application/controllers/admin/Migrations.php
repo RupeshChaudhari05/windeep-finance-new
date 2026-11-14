@@ -125,11 +125,9 @@ class Migrations extends MY_Controller
             // Record migration as running
             $this->Migration_model->update_migration_status($migration_name, 'running', $admin_id);
 
-            // Split SQL by semicolon and execute each statement
-            $statements = array_filter(
-                array_map('trim', explode(';', $sql_content)),
-                fn($stmt) => !empty($stmt) && !str_starts_with($stmt, '--')
-            );
+            // Split into statements — quote / comment / DELIMITER aware (a ; inside COMMENT '…' must not split)
+            $this->load->helper('migration');
+            $statements = sql_split_statements($sql_content);
 
             $output = [];
             foreach ($statements as $statement) {

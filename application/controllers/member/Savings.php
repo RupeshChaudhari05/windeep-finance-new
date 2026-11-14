@@ -47,7 +47,57 @@ class Savings extends Member_Controller {
             $account->recent_transactions = array_values(array_filter($transactions, [$this, 'should_display_member_transaction']));
         }
         
+        $this->load->model('Savings_closure_model');
+        $data['closure'] = $this->Savings_closure_model->latest_for_member($this->member->id);
+        $data['closing_fee'] = $this->Savings_closure_model->setting_fee();
         $this->load_member_view('member/savings/index', $data);
+    }
+
+    /**
+     * Ask to close a security deposit account (GET: form with fee / payout / what blocks it, POST: submit).
+     */
+    public function request_closure($account_id) {
+        $this->load->model('Savings_closure_model');
+        if (!$this->Savings_closure_model->is_installed()) {
+            $this->session->set_flashdata('error', 'Account closure is not available yet.');
+            redirect('member/savings');
+        }
+        $account = $this->Savings_closure_model->get_account($account_id);
+        if (!$account || (int) $account->member_id !== (int) $this->member->id) {
+            $this->session->set_flashdata('error', 'Security account not found.');
+            redirect('member/savings');
+        }
+        if ($this->input->method() === 'post') {
+            try {
+                $this->Savings_closure_model->create_request($account->id, $this->member->id, $this->input->post('reason'));
+                $this->session->set_flashdata('success', 'Your request to close ' . $account->account_number . ' has been sent. You will be notified when it is processed.');
+                redirect('member/savings');
+            } catch (Exception $e) {
+                $this->session->set_flashdata('error', $e->getMessage());
+                redirect('member/savings/request_closure/' . (int) $account_id);
+            }
+        }
+        $data['title'] = 'Close Account';
+        $data['page_title'] = 'Close Account - ' . $account->account_number;
+        $data['account'] = $account;
+        $data['pending'] = $this->Savings_closure_model->pending_for_account($account->id);
+        $data['blockers'] = $this->Savings_closure_model->blockers($account);
+        $data['closing_fee'] = $this->Savings_closure_model->setting_fee();
+        $this->load_member_view('member/savings/request_closure', $data);
+    }
+
+    /** Withdraw a pending closure request (POST). */
+    public function cancel_closure($request_id) {
+        if ($this->input->method() === 'post') {
+            $this->load->model('Savings_closure_model');
+            try {
+                $this->Savings_closure_model->cancel_request($request_id, $this->member->id);
+                $this->session->set_flashdata('success', 'Your closure request has been cancelled.');
+            } catch (Exception $e) {
+                $this->session->set_flashdata('error', $e->getMessage());
+            }
+        }
+        redirect('member/savings');
     }
 
     /**

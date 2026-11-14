@@ -1672,6 +1672,17 @@ class Bank_model extends MY_Model {
             if ($part) {
                 $this->Loan_model->_map_disbursement_line($txn, $loan, $part->id, $amount, $admin_id, $remarks);
                 $part_id = (int) $part->id;
+            } elseif (!empty($loan->is_advance)) {
+                // Advance loan: the debit releases the next planned part (amount fixed by the plan, paid net of the fee on part 1)
+                $next = $this->Loan_model->next_planned_part($loan_id);
+                if (!$next) throw new Exception('All planned parts of ' . $loan->loan_number . ' are already released');
+                if (abs((float) $next->net_amount - $amount) > 1) {
+                    throw new Exception('Next planned part ' . $next->tranche_no . ' of ' . $loan->loan_number . ' pays ' . number_format((float) $next->net_amount, 2)
+                        . ' (planned for ' . format_date($next->planned_date ?: $next->disbursement_date) . ') — the amount must match');
+                }
+                $part_id = $this->Loan_model->release_planned_part($next->id, [
+                    'bank_transaction_id' => $transaction_id, 'remarks' => $remarks, 'source' => 'bank_mapping',
+                ], $admin_id);
             } elseif (!empty($loan->is_tranche)) {
                 $part_id = $this->Loan_model->add_disbursement_part($loan_id, [
                     'amount' => $amount, 'bank_transaction_id' => $transaction_id, 'remarks' => $remarks, 'source' => 'bank_mapping',
@@ -1976,6 +1987,9 @@ class Bank_model extends MY_Model {
             $related = $m['related_account'] ?? null;
             $amount = (float) ($m['amount'] ?? 0);
             $m_remarks = $m['remarks'] ?? null;
+            // Optional (passbook import): the month the entry is for, and for savings that month's due row
+            $for_month = (!empty($m['for_month']) && preg_match('/^\d{4}-\d{2}-01$/', $m['for_month'])) ? $m['for_month'] : null;
+            $schedule_id = !empty($m['schedule_id']) ? (int) $m['schedule_id'] : null;
 
             if ($amount <= 0) continue;
 
@@ -2080,6 +2094,7 @@ class Bank_model extends MY_Model {
                 'mapped_by' => $admin_id,
                 'mapped_at' => date('Y-m-d H:i:s')
             ];
+            if ($for_month) $insert['for_month'] = $for_month;
 
             // If there is no member specified or member doesn't exist (internal bank expense etc.),
             // avoid inserting into `transaction_mappings` which requires a valid member_id.
@@ -2163,6 +2178,8 @@ class Bank_model extends MY_Model {
                             // Use the bank statement/passbook date, NOT today (mapping date)
                             'transaction_date'    => $txn->transaction_date ?? date('Y-m-d'),
                             'bank_transaction_id' => $transaction_id,
+                            'schedule_id'         => $schedule_id,
+                            'for_month'           => $for_month,
                             'narration'           => $m_remarks ?: ('Bank deposit – ' . ($txn->description ?? $transaction_id)),
                             'created_by'          => $admin_id
                         ];

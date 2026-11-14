@@ -365,9 +365,13 @@ class Loan_model extends MY_Model {
 
             // Disburse in parts: EMI / schedule on the full sanctioned amount, only the first part is released now.
             // The full processing fee is deducted from the first part.
-            $in_parts = !empty($application->disburse_in_parts);
-            $first = $in_parts ? round((float) ($disbursement_data['first_amount'] ?? 0), 2) : (float) $principal;
-            if ($in_parts) {
+            // Advance loan (product type): EMI from the first date on the full amount; the money is released later,
+            // in parts, as per the plan fixed now. Nothing is paid out at sanction.
+            $is_advance = !empty($product->is_advance_loan);
+            $plan = $is_advance ? $this->validate_advance_plan($disbursement_data['plan'] ?? [], $principal, $processing_fee, $disbursement_data['disbursement_date']) : [];
+            $in_parts = $is_advance || !empty($application->disburse_in_parts);
+            $first = $is_advance ? 0.0 : ($in_parts ? round((float) ($disbursement_data['first_amount'] ?? 0), 2) : (float) $principal);
+            if ($in_parts && !$is_advance) {
                 if ($first <= 0) throw new Exception('Enter the amount disbursed now (first part)');
                 if ($first > $principal + 0.01) throw new Exception('First part cannot be more than the sanctioned amount');
                 if ($first <= $processing_fee) throw new Exception('First part must be more than the processing fee (' . number_format($processing_fee, 2) . ')');
@@ -402,6 +406,7 @@ class Loan_model extends MY_Model {
                 'created_at' => date('Y-m-d H:i:s')
             ];
             
+            if ($is_advance) $loan_data['is_advance'] = 1;   // column from migration 038 — only written for advance loans
             $this->db->insert($this->table, $loan_data);
             $loan_id = $this->db->insert_id();
             
@@ -413,7 +418,21 @@ class Loan_model extends MY_Model {
             // Generate installment schedule
             $this->generate_installment_schedule($loan_id, $principal, $rate, $tenure, $interest_type, $calc['emi'], $disbursement_data['first_emi_date']);
 
-            // Part 1 of the disbursement (the whole loan when not in parts) — Bank Mapping links the bank debit to it
+            // Part 1 of the disbursement (the whole loan when not in parts) — Bank Mapping links the bank debit to it.
+            // Advance loan: every planned part waits as 'pending' (no ledger entry until it is released).
+            if ($is_advance) {
+                foreach ($plan as $i => $pp) {
+                    $fee = $i === 0 ? round((float) $processing_fee, 2) : 0;
+                    $this->db->insert('disbursement_tracking', [
+                        'loan_id' => $loan_id, 'member_id' => $application->member_id, 'tranche_no' => $i + 1,
+                        'disbursement_amount' => $pp['amount'], 'processing_fee' => $fee, 'net_amount' => round($pp['amount'] - $fee, 2),
+                        'disbursement_date' => $pp['date'], 'planned_date' => $pp['date'],
+                        'disbursement_mode' => in_array($disbursement_data['disbursement_mode'], ['cash', 'bank_transfer', 'cheque', 'upi'], true) ? $disbursement_data['disbursement_mode'] : 'bank_transfer',
+                        'status' => 'pending', 'source' => 'disbursement',
+                        'remarks' => 'Advance loan plan: part ' . ($i + 1) . ' of ' . count($plan), 'created_by' => $admin_id,
+                    ]);
+                }
+            } else
             $this->db->insert('disbursement_tracking', [
                 'loan_id' => $loan_id, 'member_id' => $application->member_id, 'tranche_no' => 1,
                 'disbursement_amount' => $first, 'processing_fee' => $processing_fee, 'net_amount' => round($first - $processing_fee, 2),
@@ -3638,6 +3657,7 @@ class Loan_model extends MY_Model {
             $loan = $this->db->query('SELECT * FROM loans WHERE id = ? FOR UPDATE', [$loan_id])->row();
             if (!$loan) throw new Exception('Loan not found');
             if (empty($loan->is_tranche)) throw new Exception('This loan was not approved for disbursement in parts');
+            if (!empty($loan->is_advance)) throw new Exception('Advance loan: release the next planned part (amounts and order are fixed by the plan)');
             if (!in_array($loan->status, ['active', 'npa'], true)) throw new Exception('Loan is ' . $loan->status . ' — no more parts can be released');
 
             $amount = round((float) ($d['amount'] ?? 0), 2);
@@ -3695,6 +3715,152 @@ class Loan_model extends MY_Model {
             if ($this->db->trans_status() === false) throw new Exception('Database error while saving the disbursement');
             $this->db->trans_commit();
             return $part_id;
+        } catch (Exception $e) {
+            $this->db->trans_rollback();
+            throw $e;
+        }
+    }
+
+    // ================================================================
+    // ADVANCE LOAN — release plan fixed at sanction, parts released on/after their planned date
+    // ================================================================
+
+    /**
+     * Check and normalise the release plan entered at sanction.
+     * @param array $rows [['date' => Y-m-d, 'amount' => n], ...] (blank rows are ignored)
+     * @return array rows sorted by date
+     */
+    public function validate_advance_plan($rows, $principal, $processing_fee, $start_date) {
+        $plan = [];
+        foreach ((array) $rows as $r) {
+            $date = trim((string) ($r['date'] ?? ''));
+            $amount = round((float) ($r['amount'] ?? 0), 2);
+            if ($date === '' && $amount == 0) continue;
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || !strtotime($date)) throw new Exception('Release plan: enter a valid date for every part');
+            if ($amount <= 0) throw new Exception('Release plan: every part needs an amount greater than zero');
+            if ($date < $start_date) throw new Exception('Release plan: ' . format_date($date) . ' is before the loan start date ' . format_date($start_date));
+            $plan[] = ['date' => $date, 'amount' => $amount];
+        }
+        if (!$plan) throw new Exception('Advance loan: enter the release plan (date and amount of each part)');
+        if (count($plan) > 24) throw new Exception('Release plan: at most 24 parts');
+        usort($plan, function ($a, $b) { return strcmp($a['date'], $b['date']); });
+        $total = round(array_sum(array_column($plan, 'amount')), 2);
+        if (abs($total - (float) $principal) > 0.01) {
+            throw new Exception('Release plan total ' . number_format($total, 2) . ' must equal the sanctioned amount ' . number_format((float) $principal, 2));
+        }
+        if ($plan[0]['amount'] <= (float) $processing_fee) {
+            throw new Exception('The first part must be more than the processing fee (' . number_format((float) $processing_fee, 2) . ') — the fee is withheld from it');
+        }
+        return $plan;
+    }
+
+    /** Next part of an advance loan still waiting to be released (parts go out in plan order). */
+    public function next_planned_part($loan_id) {
+        if (!$this->db->field_exists('planned_date', 'disbursement_tracking')) return null;
+        return $this->db->where('loan_id', (int) $loan_id)->where('status', 'pending')
+                        ->order_by('tranche_no', 'ASC')->limit(1)->get('disbursement_tracking')->row();
+    }
+
+    /** Planned advance-loan releases up to (today + $days_ahead), oldest first, with the member's overdue EMIs. */
+    public function get_due_advance_releases($days_ahead = 30) {
+        if (!$this->db->field_exists('is_advance', 'loans') || !$this->db->field_exists('planned_date', 'disbursement_tracking')) return [];
+        return $this->db->query("
+          SELECT dt.*, l.loan_number, l.principal_amount, l.status AS loan_status, m.member_code, m.first_name, m.last_name, m.phone,
+                 DATEDIFF(CURDATE(), COALESCE(dt.planned_date, dt.disbursement_date)) AS days_due,
+                 (SELECT COALESCE(SUM(GREATEST(li.emi_amount - li.total_paid, 0)), 0) FROM loan_installments li
+                   WHERE li.loan_id = l.id AND li.status IN ('pending','partial','overdue') AND li.due_date < CURDATE()) AS overdue_amount
+            FROM disbursement_tracking dt
+            JOIN loans l ON l.id = dt.loan_id
+            JOIN members m ON m.id = l.member_id
+           WHERE dt.status = 'pending' AND l.is_advance = 1 AND l.status IN ('active','npa')
+             AND COALESCE(dt.planned_date, dt.disbursement_date) <= DATE_ADD(CURDATE(), INTERVAL ? DAY)
+             AND dt.tranche_no = (SELECT MIN(x.tranche_no) FROM disbursement_tracking x WHERE x.loan_id = dt.loan_id AND x.status = 'pending')
+        ORDER BY COALESCE(dt.planned_date, dt.disbursement_date), l.loan_number", [(int) $days_ahead])->result();
+    }
+
+    /**
+     * Release a planned part of an advance loan: exactly the planned amount, on or after its planned date.
+     * Posts the ledger (part 1: Dr Member Loans gross / Cr Bank net / Cr Processing Fee; later parts: Dr Member Loans / Cr Bank),
+     * records the processing fee entry with part 1 and, when a bank debit line is given, maps it.
+     *
+     * @param array $d date, mode, reference, remarks, bank_transaction_id (optional), source
+     * @return int part id
+     */
+    public function release_planned_part($part_id, array $d, $admin_id) {
+        $this->db->trans_begin();
+        try {
+            $part = $this->db->query('SELECT * FROM disbursement_tracking WHERE id = ? FOR UPDATE', [(int) $part_id])->row();
+            if (!$part) throw new Exception('Planned disbursement not found');
+            if ($part->status !== 'pending') throw new Exception('Part ' . $part->tranche_no . ' is already ' . $part->status);
+            $loan = $this->db->query('SELECT * FROM loans WHERE id = ? FOR UPDATE', [(int) $part->loan_id])->row();
+            if (!$loan || empty($loan->is_advance)) throw new Exception('This part does not belong to an advance loan');
+            if (!in_array($loan->status, ['active', 'npa'], true)) throw new Exception('Loan is ' . $loan->status . ' — no more parts can be released');
+            $next = $this->next_planned_part($loan->id);
+            if (!$next || (int) $next->id !== (int) $part->id) throw new Exception('Release part ' . ($next ? $next->tranche_no : '?') . ' first — parts are released in plan order');
+
+            $planned = $part->planned_date ?: $part->disbursement_date;
+            $amount = round((float) $part->disbursement_amount, 2);
+            $fee = round((float) $part->processing_fee, 2);
+            $net = round($amount - $fee, 2);
+            $date = $d['date'] ?? date('Y-m-d');
+            $mode = in_array($d['mode'] ?? '', ['cash', 'bank_transfer', 'cheque', 'upi'], true) ? $d['mode'] : 'bank_transfer';
+
+            $txn = null;
+            if (!empty($d['bank_transaction_id'])) {
+                $txn = $this->db->query('SELECT * FROM bank_transactions WHERE id = ? FOR UPDATE', [(int) $d['bank_transaction_id']])->row();
+                if (!$txn) throw new Exception('Bank transaction not found');
+                if ($txn->transaction_type !== 'debit') throw new Exception('Pick a DEBIT bank line (money paid out)');
+                if ($txn->mapping_status === 'mapped') throw new Exception('That bank line is already mapped');
+                $left = round((float) $txn->amount - (float) $txn->mapped_amount, 2);
+                if ($net > $left + 0.01) throw new Exception('The bank line has only ' . number_format($left, 2) . ' unmapped; part ' . $part->tranche_no . ' pays ' . number_format($net, 2));
+                $date = $txn->transaction_date;
+                $mode = 'bank_transfer';
+            }
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $date)) throw new Exception('Invalid date');
+            if ($date > date('Y-m-d')) throw new Exception('Date cannot be in the future');
+            if ($date < $planned) throw new Exception('Part ' . $part->tranche_no . ' is planned for ' . format_date($planned) . ' — it can be released on or after that date');
+
+            $remarks = trim((string) ($d['remarks'] ?? ''));
+            $this->db->where('id', $part->id)->update('disbursement_tracking', [
+                'status' => 'completed', 'disbursement_date' => $date, 'disbursement_mode' => $mode,
+                'reference_number' => mb_substr((string) ($d['reference'] ?? ($txn ? ($txn->utr_number ?: $txn->reference_number) : '')), 0, 100) ?: null,
+                'source' => in_array($d['source'] ?? '', ['loan_page', 'bank_mapping'], true) ? $d['source'] : 'loan_page',
+                'remarks' => mb_substr(trim($part->remarks . ($remarks !== '' ? ' · ' . $remarks : '')), 0, 1000) ?: null,
+            ]);
+
+            $new_total = round($this->disbursed_amount($loan) + $amount, 2);
+            $upd = ['disbursed_amount' => $new_total, 'updated_at' => date('Y-m-d H:i:s')];
+            if ((int) $part->tranche_no === 1) $upd['disbursement_mode'] = $mode;
+            $this->db->where('id', $loan->id)->update('loans', $upd);
+
+            if ($txn) $this->_map_disbursement_line($txn, $loan, $part->id, $net, $admin_id, $remarks);
+
+            $this->load->model('Ledger_model');
+            $this->Ledger_model->post_disbursement_part((int) $part->id, $admin_id);
+
+            // The fee is withheld from part 1: its member fee entry is dated on the real release date
+            if ($fee > 0) {
+                $has_fee = $this->db->where('transaction_type', 'processing_fee')->where('reference_type', 'loan')
+                                     ->where('reference_id', $loan->id)->where('status', 'completed')->count_all_results('member_other_transactions');
+                if (!$has_fee) {
+                    $this->load->model('Member_transaction_model');
+                    $this->Member_transaction_model->record_processing_fee($loan->member_id, $fee, $loan->id, $admin_id, $date);
+                }
+            }
+
+            $this->load->model('Audit_model');
+            $this->Audit_model->create([
+                'user_type' => 'admin', 'user_id' => $admin_id, 'action' => 'advance_loan_part_released', 'module' => 'loans',
+                'table_name' => 'disbursement_tracking', 'record_id' => $part->id,
+                'new_values' => json_encode(['loan' => $loan->loan_number, 'part' => (int) $part->tranche_no, 'planned_date' => $planned, 'date' => $date,
+                                             'amount' => $amount, 'fee' => $fee, 'paid' => $net, 'total_disbursed' => $new_total,
+                                             'bank_transaction_id' => $txn ? $txn->id : null]),
+                'remarks' => 'Advance loan ' . $loan->loan_number . ' part ' . $part->tranche_no . ' released: ' . number_format($amount, 2),
+            ]);
+
+            if ($this->db->trans_status() === false) throw new Exception('Database error while releasing the part');
+            $this->db->trans_commit();
+            return (int) $part->id;
         } catch (Exception $e) {
             $this->db->trans_rollback();
             throw $e;
